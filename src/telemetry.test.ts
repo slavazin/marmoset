@@ -1,9 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tlog, redact } from "./telemetry.ts";
+import { currentRun, tlog, redact } from "./telemetry.ts";
+
+test("currentRun reads RATCHET_RUN, else the highest runs/RUN-NNNN holding a manifest.json; a RUN dir without one (RUN-0001 with only spend-override.json) is no run", () => {
+  const runs = mkdtempSync(join(tmpdir(), "runs-"));
+  mkdirSync(join(runs, "RUN-0001"));
+  writeFileSync(join(runs, "RUN-0001", "spend-override.json"), "{}");
+  mkdirSync(join(runs, "prerun"));
+  assert.equal(currentRun(runs, {}), null);
+  writeFileSync(join(runs, "RUN-0001", "manifest.json"), "{}");
+  assert.equal(currentRun(runs, {}), "RUN-0001");
+  mkdirSync(join(runs, "RUN-0002"));
+  assert.equal(currentRun(runs, {}), "RUN-0001");
+  assert.equal(currentRun(runs, { RATCHET_RUN: "RUN-0009" }), "RUN-0009");
+  assert.equal(currentRun(join(runs, "absent"), {}), null);
+});
 
 test("tlog appends one redacted JSONL record per call to <dir>/<stream>.jsonl", () => {
   const dir = mkdtempSync(join(tmpdir(), "tel-"));
