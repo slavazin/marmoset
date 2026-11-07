@@ -9,6 +9,7 @@
 //   graduateSkill / tombstoneSkill   the skill's move: skills/shadow/<id>/ → skills/graduated/<id>/ with a status
 //                            flip, or → skills/tombstones/<id>.md (SPEC §6.10 frontmatter, then the skill's text with
 //                            status tombstoned). A move keeps every byte of the skill; nothing is deleted outright.
+//                            With file "POLICY.md" and the policies/ dir, the same moves serve policies (D-0020).
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -81,19 +82,19 @@ function flipStatus(text: string, to: SkillStatus): string {
 }
 
 /** Moves skills/shadow/<id>/ to skills/graduated/<id>/ with status graduated; returns the SKILL.md path. */
-export function graduateSkill(skillsDir: string, id: string): string {
+export function graduateSkill(skillsDir: string, id: string, file = "SKILL.md"): string {
   const from = join(skillsDir, "shadow", id), to = join(skillsDir, "graduated", id);
   mkdirSync(join(skillsDir, "graduated"), { recursive: true });
   renameSync(from, to);
-  const p = join(to, "SKILL.md");
+  const p = join(to, file);
   writeFileSync(p, flipStatus(readFileSync(p, "utf8"), "graduated"));
   return p;
 }
 
 /** Moves skills/<was>/<id>/SKILL.md into skills/tombstones/<id>.md under a §6.10 frontmatter; returns its path. */
-export function tombstoneSkill(skillsDir: string, id: string, t: Omit<TombstoneFrontmatter, "id">): string {
+export function tombstoneSkill(skillsDir: string, id: string, t: Omit<TombstoneFrontmatter, "id">, file = "SKILL.md"): string {
   const from = join(skillsDir, t.was, id);
-  const skill = existsSync(join(from, "SKILL.md")) ? readFileSync(join(from, "SKILL.md"), "utf8") : "";
+  const skill = existsSync(join(from, file)) ? readFileSync(join(from, file), "utf8") : "";
   mkdirSync(join(skillsDir, "tombstones"), { recursive: true });
   const p = join(skillsDir, "tombstones", `${id}.md`);
   writeFileSync(p, [

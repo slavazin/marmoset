@@ -2,7 +2,7 @@
 // scratch repo at <scratch root>/<attempt>/ (paths.ts scratchRoot: $RATCHET_SCRATCH, default <tmpdir>/ratchet-scratch,
 // under none of the cache, repository, live clone or ledger; D-0017) holding only:
 //   core/ at the task's base commit (git archive from the live clone);
-//   packet/ TASK.md (TASK_TEXT), task.json, ATTEMPT.json ({attempt, server}, for tools/fire.mjs), and for an incident task incident.json, trace.json and the evidence
+//   packet/ TASK.md (TASK_TEXT, plus the lines of task.policies via loop/policies.ts applyPolicies), task.json, ATTEMPT.json ({attempt, server}, for tools/fire.mjs), and for an incident task incident.json, trace.json and the evidence
 //     files of evidence/incidents/<id>/ under packet/evidence/; roms.json, the ROM list tools/replay.mjs --family
 //     reads, in its { families: { <name>: [paths under $RATCHET_ROMS] } } form (the task family; T for "fast");
 //     T-family readings (readings-T.json) for arm "fast" only, when the caller supplies them;
@@ -23,6 +23,7 @@ import { git, scratchRoot, type LoopPaths } from "./paths.ts";
 import { hooksFor, listSkills, SKILL_ARMS, type ShownSkill } from "./shown.ts";
 import { romBySha } from "./roms.ts";
 import { workingTrace } from "./gate-repair.ts";
+import { applyPolicies } from "./policies.ts";
 import type { Arm, Incident, RepairTask, SuiteReading } from "../src/schema.ts";
 
 /** TASK.md, fixed text: the Core API contract, the replay commands, the RepairResult shape (SPEC §6.1, §6.6). */
@@ -156,7 +157,10 @@ export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
   // packet/
   const pk = join(dir, "packet");
   mkdirSync(pk, { recursive: true });
-  writeFileSync(join(pk, "TASK.md"), TASK_TEXT);
+  // packet and tool policies named in task.policies (D-0020): extra packet files and TASK.md lines
+  const pol = applyPolicies(task, { paths, incident: ctx.incident, coreFiles: fileList(join(dir, "core")).map((f) => `core/${f}`), site: "packet" });
+  writeFileSync(join(pk, "TASK.md"), pol.taskLines.length ? `${TASK_TEXT}\n## Policy lines\n${pol.taskLines.map((l) => `- ${l}`).join("\n")}\n` : TASK_TEXT);
+  for (const [f, body] of Object.entries(pol.packetFiles)) writeFileSync(join(pk, f), body);
   writeFileSync(join(pk, "task.json"), JSON.stringify({ ...task, attempt: ctx.attempt }, null, 2));
   // hook commands run in a cleared environment (D-0001); tools/fire.mjs reads the attempt and server from here
   writeFileSync(join(pk, "ATTEMPT.json"), JSON.stringify({ attempt: ctx.attempt, server: paths.server }));

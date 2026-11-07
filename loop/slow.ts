@@ -2,7 +2,8 @@
 //   generationsDue(paths, run)  how many generations the ledger's incident count owes: floor(incidents / K) minus the
 //                               generations already in runs/<run>/generations.jsonl;
 //   runGeneration(deps)         one generation: T readings at core-live, consolidate (≤ MAX_NOMINATIONS shadow
-//                               skills), a placebo twin per candidate, a shadow trial per pair, `.muse/hooks.json`
+//                               skills, ≤ MAX_POLICY_NOMINATIONS shadow policies), a placebo twin per candidate, a
+//                               shadow trial per pair (policies: runTrial kind "policy", D-0020), `.muse/hooks.json`
 //                               recompiled from the graduated skills, and one line in runs/<run>/generations.jsonl;
 //   CLI  node loop/slow.ts [--force]   runs every due generation (one with --force) under RATCHET_RUN, with the real
 //                               consolidator, Muse runner and suites. --muse-native (D-0013) adds that arm after.
@@ -18,6 +19,7 @@ import { consolidate, type ConsolidateOutput } from "./consolidate.ts";
 import { makePlacebo, type Twin } from "./placebo.ts";
 import { coreAt, defaultJudge, runTrial, type TrialDeps, type TrialJudge, type TrialOutput } from "./trial.ts";
 import { compileLatches } from "./latches.ts";
+import { makePolicyPlacebo, nominatePolicy, policiesDir } from "./policies.ts";
 import { removeScratch } from "./projection.ts";
 import { museCli, type MuseRunner } from "./repair.ts";
 import type { Llm } from "./llm.ts";
@@ -66,12 +68,23 @@ export async function runGeneration(d: SlowDeps): Promise<GenerationOutput> {
 
   const trials: TrialOutput[] = [];
   for (let i = 0; i < twins.length; i++) trials.push(await runTrial(consolidation.nominated[i].id, twins[i].id, { ...d, generation }));
+  // at most one policy (D-0020), from POLICY_MENU, trialled against its mechanical twin under the same rule
+  const policy = nominatePolicy({ paths: d.paths, consolidation, generation });
+  let policyTwin: string | null = null;
+  if (policy) {
+    const twin = makePolicyPlacebo(policy.path, policiesDir(d.paths));
+    policyTwin = twin.id;
+    tlog("loop", "policy.placebo", { generation, candidate: policy.id, twin: twin.id, source: twin.source });
+    const t = await runTrial(policy.id, twin.id, { ...d, generation }, "policy");
+    tlog("loop", "policy.verdict", { generation, candidate: policy.id, verdict: t.verdict.id, decision: t.verdict.decision, reason: t.verdict.reason });
+    trials.push(t);
+  }
   const hooks = compileLatches(d.paths.skills, d.hooksRoot ?? d.paths.root).path;
 
   const f = genFile(d);
   mkdirSync(join(f, ".."), { recursive: true });
   const rec = { at: new Date().toISOString(), generation, run: d.run, base_commit: base, call_ok: consolidation.call.ok, call_error: consolidation.call.error ?? null,
-    nominated: consolidation.nominated.map((n) => n.id), twins: twins.map((t) => t.id), verdicts: trials.map((t) => t.verdict.id), decisions: trials.map((t) => t.verdict.decision), detection: consolidation.detection };
+    nominated: consolidation.nominated.map((n) => n.id), twins: twins.map((t) => t.id), policy: policy?.id ?? null, policy_twin: policyTwin, verdicts: trials.map((t) => t.verdict.id), decisions: trials.map((t) => t.verdict.decision), detection: consolidation.detection };
   appendFileSync(f, JSON.stringify(rec) + "\n");
   tlog("loop", "generation.end", rec);
   return { generation, consolidation, twins, trials, hooks };

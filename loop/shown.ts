@@ -1,13 +1,15 @@
 // Shown skills and their hooks (SPEC §5 S8 "Shown skills", §6.12). Offers:
 //   listSkills(dir, status)    SKL ids under skills/<status>/ with their parsed activation;
-//   selectShown(ids, fires)    at most MAX_SHOWN ids; on overflow the least recently fired are evicted (I8);
+//   selectShown(ids, fires, cap, policy)  at most MAX_SHOWN ids; routing policies in force (loop/policies.ts
+//                              applyPolicies) pick among them first; on overflow the least recently fired are evicted (I8);
 //   hooksFor(arm, skills)      the .muse/hooks.json file (D-0001 shape): a PreToolUse command per shown skill on
 //                              the skill arms, no matchers on baseline and vread-baseline.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MAX_SHOWN } from "./gate.ts";
-import type { Arm, Fire, HooksFile } from "../src/schema.ts";
+import { applyPolicies, type PolicyContext } from "./policies.ts";
+import type { Arm, Fire, HooksFile, RepairTask } from "../src/schema.ts";
 
 /** Arms whose scratch repo carries the shown skills and their hooks (SPEC §5 S8 projection). */
 export const SKILL_ARMS: ReadonlySet<Arm> = new Set(["fast", "candidate", "placebo", "vread-ratchet"]);
@@ -34,7 +36,8 @@ export function listSkills(skillsDir: string, status: "graduated" | "shadow"): S
 }
 
 /** Keeps at most `cap` ids; evicts those whose last fire is oldest, never-fired first, ties by higher id. */
-export function selectShown(ids: string[], fires: Pick<Fire, "skill" | "at">[], cap = MAX_SHOWN): string[] {
+export function selectShown(ids: string[], fires: Pick<Fire, "skill" | "at">[], cap = MAX_SHOWN, policy?: { task: RepairTask; ctx: PolicyContext }): string[] {
+  if (policy) ids = applyPolicies(policy.task, policy.ctx).route(ids);
   if (ids.length <= cap) return [...ids];
   const last = new Map<string, string>();
   for (const f of fires) if ((last.get(f.skill) ?? "") < f.at) last.set(f.skill, f.at);

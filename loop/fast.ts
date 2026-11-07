@@ -2,9 +2,11 @@
 // incident: it mints ATT-NNNN in ledger/attempts.jsonl, materialises the scratch repo (loop/projection.ts),
 // runs the repairer (loop/repair.ts), gates the diff (loop/gate-repair.ts), flips the incident's status
 // (GRADUATE → repaired; REFUSE on the MAX_ATTEMPTS-th attempt → unrepaired), and writes one Observation for the
-// arm "fast" attempt. It reads skills and never writes them.
+// arm "fast" attempt. It reads skills and policies and never writes them; every graduated policy is named in
+// task.policies (loop/policies.ts policiesInForce) and its routing picks the shown skills (selectShown).
 
-import { MAX_ATTEMPTS, MAX_STEPS } from "./gate.ts";
+import { MAX_ATTEMPTS, MAX_SHOWN, MAX_STEPS } from "./gate.ts";
+import { policiesInForce } from "./policies.ts";
 import { all, appendNew, current, runId, status } from "./ledger.ts";
 import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
 import { repairPacket } from "./projection.ts";
@@ -49,8 +51,10 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   const base = git(paths.live, ["rev-parse", LIVE_BRANCH]);
   const graduated = listSkills(paths.skills, "graduated");
   const fires = all<Fire>("fires.jsonl", paths.ledger);
-  const shownIds = selectShown(graduated.map((s) => s.id), fires);
-  const task: RepairTask = { kind: "incident", incident: incidentId, base_commit: base, arm: "fast", skills: shownIds, budget: { max_steps: MAX_STEPS, wall_s: ATTEMPT_WALL_S } };
+  // every graduated policy is in force and named on the attempt (D-0020); routing policies pick the shown skills
+  const draft: RepairTask = { kind: "incident", incident: incidentId, base_commit: base, arm: "fast", skills: [], policies: policiesInForce(paths), budget: { max_steps: MAX_STEPS, wall_s: ATTEMPT_WALL_S } };
+  const shownIds = selectShown(graduated.map((s) => s.id), fires, MAX_SHOWN, { task: draft, ctx: { paths, incident: inc, skills: graduated, site: "shown" } });
+  const task: RepairTask = { ...draft, skills: shownIds };
 
   const start = appendNew<Attempt>("attempts.jsonl", "ATT", (id) => ({
     id, at: new Date().toISOString(), run: runId(), task, branch: `attempt/${id}`, model: "", fires: [],
@@ -58,7 +62,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
     isolation: { home: "", skills_list: "", observers: "on-identical", web_tools: "on" },
   }), paths.ledger);
   const id = start.id;
-  tlog("loop", "attempt-start", { attempt: id, incident: incidentId, base_commit: base, skills: shownIds });
+  tlog("loop", "attempt-start", { attempt: id, incident: incidentId, base_commit: base, skills: shownIds, policies: task.policies });
   const S = (field: string, value: unknown) => status("attempts.jsonl", id, field, value, paths.ledger);
 
   const splits = loadSplits();
