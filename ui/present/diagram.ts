@@ -52,7 +52,8 @@ export function stageFor(e: UiEvent): Lit | null {
     case "verdict": {
       const v = e.verdict;
       const c = decidingCheck(v);
-      if (v.subject.kind === "skill") return { stage: v.decision === "GRADUATE" ? "skill" : "tombstone", check: c?.name, pass: c?.pass, label: `${v.id} ${v.decision} skill ${v.subject.id}` };
+      // skill and policy verdicts (D-0020) are the slow loop's trial outcome, not the attempt gate's
+      if (v.subject.kind === "skill" || v.subject.kind === "policy") return { stage: v.decision === "GRADUATE" ? "skill" : "tombstone", check: c?.name, pass: c?.pass, label: `${v.id} ${v.decision} ${v.subject.kind} ${v.subject.id}` };
       return { stage: v.decision === "GRADUATE" ? "graduate" : "refuse", check: c?.name, pass: c?.pass, label: `${v.id} ${v.decision} ${v.subject.id}, decided by ${c?.name ?? "—"}` };
     }
     case "curve": return { stage: "trial", label: `generation ${e.generation} trial arms` };

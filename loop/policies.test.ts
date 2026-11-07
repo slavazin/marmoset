@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 process.env.RATCHET_TELEMETRY_DIR ??= mkdtempSync(join(tmpdir(), "ratchet-tel-"));
@@ -10,10 +10,11 @@ import { runGeneration } from "./slow.ts";
 import { runFastCycle } from "./fast.ts";
 import { fakeRunner, type MuseRun, type MuseRunner } from "./repair.ts";
 import { isolatedReplayer } from "./replay-seam.ts";
-import { all, status } from "./ledger.ts";
+import { all, appendNew, status } from "./ledger.ts";
+import { allowed } from "./projection.ts";
 import { consolidatorView } from "./consolidate.ts";
 import { TRIAL_FAMILIES } from "./gate.ts";
-import { applyPolicies, parsePolicy, parsePolicyNomination, policyText, POLICY_MENU, setRouteSkills, SUBSYSTEM_GLOBS, TOOL_HINTS, makePolicyPlacebo, policiesDir } from "./policies.ts";
+import { applyPolicies, parsePolicy, parsePolicyNomination, policyText, POLICY_MENU, setRouteSkills, SUBSYSTEM_GLOBS, TOOL_HINTS, makePolicyPlacebo, policiesDir, policiesInForce } from "./policies.ts";
 import { SUBSYSTEMS } from "../player/vision.ts";
 import type { SuitesJudge } from "./gate-repair.ts";
 import type { TrialJudge } from "./trial.ts";
@@ -199,7 +200,7 @@ test("route-by-subq-applies shows the SubQ router's pick (through the setRouteSk
   const prev = setRouteSkills((_inc, s) => s.map((x) => x.id).filter((id) => id === "SKL-0003" || id === "SKL-0004"));
   try {
     const fm = { id: "POL-0001", name: "route-by-subq-applies", kind: "routing" as const, status: "shadow" as const, change: POLICY_MENU["route-by-subq-applies"].change,
-      params: POLICY_MENU["route-by-subq-applies"].resolve({ route: "subq-applies" }), warrant: { anchors: ["OBS-0001", "OBS-0002"], "false-if": "x" }, lifecycle: { "retire-when": "y", successor: null } };
+      params: POLICY_MENU["route-by-subq-applies"].resolve({ route: "subq-applies" }, "POL-0001"), warrant: { anchors: ["OBS-0001", "OBS-0002"], "false-if": "x" }, lifecycle: { "retire-when": "y", successor: null } };
     mkdirSync(join(dir, "shadow", "POL-0001"), { recursive: true });
     const p = join(dir, "shadow", "POL-0001", "POLICY.md");
     writeFileSync(p, policyText(fm, "route-by-subq-applies"));
@@ -209,4 +210,101 @@ test("route-by-subq-applies shows the SubQ router's pick (through the setRouteSk
     assert.deepEqual(applyPolicies(task("POL-0001"), { paths: bed.paths, incident: bed.incident, skills, site: "shown" }).route(ids), ["SKL-0003", "SKL-0004"]);
     assert.equal(applyPolicies(task(twin), { paths: bed.paths, incident: bed.incident, skills, site: "shown" }).route(ids).length, 2);
   } finally { setRouteSkills(prev); }
+});
+
+/** Writes policies/graduated/POL-0001/POLICY.md for `template` and, when `verdict`, a GRADUATE policy verdict naming it. */
+function graduatePolicy(bed: Bed, template: string, params: Record<string, unknown>, verdict = true): string {
+  const t = POLICY_MENU[template];
+  const id = "POL-0001";
+  const fm = { id, name: template, kind: t.kind, status: "graduated" as const, change: t.change, params: t.resolve(params, id),
+    warrant: { anchors: ["OBS-0001", "OBS-0002"], "false-if": "x" }, lifecycle: { "retire-when": "y", successor: null } };
+  const d = join(policiesDir(bed.paths), "graduated", id);
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, "POLICY.md"), policyText(fm, template));
+  if (verdict) appendNew<Verdict>("verdicts.jsonl", "VER", (vid) => ({ id: vid, at: "t", run: null, generation: 1, subject: { kind: "policy", id }, decision: "GRADUATE", checks: [], reason: "r", residue: [], rule_version: "x" }), bed.paths.ledger);
+  return id;
+}
+
+const TEMPLATES = [["route-by-spot-subsystem", { route: "spot-subsystem" }], ["tool-hint", { hint: TOOL_HINTS[1] }], ["packet-subsystem-focus", { files: "subsystem-pointed" }], ["route-by-subq-applies", { route: "subq-applies" }]] as const;
+
+test("a packet policy's twin names a packet/focus.json file set of the same size as the candidate's, and a different set where the candidate's is not empty (D-0020 size-matched)", async () => {
+  const bed = bedWithSkills();
+  const seen: { task: RepairTask; focus: string[] | null }[] = [];
+  const runner = policyRunner((r) => seen.push({ task: JSON.parse(readFileSync(join(r.cwd, "packet", "task.json"), "utf8")),
+    focus: existsSync(join(r.cwd, "packet", "focus.json")) ? JSON.parse(readFileSync(join(r.cwd, "packet", "focus.json"), "utf8")).files : null }));
+  await runGeneration({ paths: bed.paths, runner, judge: policyJudge("none"), run: RUN, runsDir: join(bed.paths.root, "runs"),
+    llm: fakeLlm(policyReply("packet-subsystem-focus", { files: "subsystem-pointed" })), familyRoms: () => [], tReader: async () => [] });
+  let nonEmpty = 0;
+  for (const f of TRIAL_FAMILIES) {
+    const [c, p] = ["POL-0001", "POL-0002"].map((id) => seen.find((s) => s.task.family === f && s.task.policies?.includes(id))!.focus);
+    assert.ok(c && p, `${f}: both arms carry packet/focus.json`);
+    assert.equal(p.length, c.length, `${f}: focus sizes ${c.length} vs ${p.length}`);
+    if (c.length) { nonEmpty++; assert.notDeepEqual(p, c, `${f}: the twin names the candidate's own files`); }
+  }
+  assert.ok(nonEmpty >= 1, "a trial family points the candidate at a fixture core file");
+});
+
+test("a SubQ routing policy and its twin carry params.order in the same opaque form; the candidate still shows SubQ's pick", () => {
+  const bed = makeBed();
+  const dir = policiesDir(bed.paths);
+  const t = POLICY_MENU["route-by-subq-applies"];
+  const fm = { id: "POL-0001", name: "route-by-subq-applies", kind: t.kind, status: "shadow" as const, change: t.change, params: t.resolve({ route: "subq-applies" }, "POL-0001"),
+    warrant: { anchors: ["OBS-0001", "OBS-0002"], "false-if": "x" }, lifecycle: { "retire-when": "y", successor: null } };
+  mkdirSync(join(dir, "shadow", "POL-0001"), { recursive: true });
+  const p = join(dir, "shadow", "POL-0001", "POLICY.md");
+  writeFileSync(p, policyText(fm, "route-by-subq-applies"));
+  const twin = makePolicyPlacebo(p, dir);
+  const orders = [p, twin.path].map((f) => String(parsePolicy(readFileSync(f, "utf8")).fm.params.order));
+  for (const o of orders) assert.match(o, /^[0-9a-f]{12}$/);
+  assert.notEqual(orders[0], orders[1]);
+  const skills = ["SKL-0001", "SKL-0002", "SKL-0003"].map((id) => ({ id, dir: "", paths: ["core/ppu*.ts"], owed: "" }));
+  const prev = setRouteSkills(() => ["SKL-0002"]);
+  try {
+    const task: RepairTask = { kind: "incident", incident: "INC-0001", base_commit: "x", arm: "fast", skills: [], policies: ["POL-0001"], budget: { max_steps: 1, wall_s: 1 } };
+    assert.deepEqual(applyPolicies(task, { paths: bed.paths, skills, site: "shown" }).route(skills.map((s) => s.id)), ["SKL-0002"]);
+  } finally { setRouteSkills(prev); }
+});
+
+test("a POLICY.md placed in policies/graduated without a GRADUATE policy verdict naming it is not in force", () => {
+  const bed = makeBed();
+  graduatePolicy(bed, "tool-hint", { hint: TOOL_HINTS[0] }, false);
+  assert.deepEqual(policiesInForce(bed.paths), []);
+  const v = (decision: Verdict["decision"]) => appendNew<Verdict>("verdicts.jsonl", "VER", (id) => ({ id, at: "t", run: null, subject: { kind: "policy", id: "POL-0001" }, decision, checks: [], reason: "r", residue: [], rule_version: "x" }), bed.paths.ledger);
+  v("REFUSE");
+  assert.deepEqual(policiesInForce(bed.paths), [], "a REFUSE verdict does not put it in force");
+  v("GRADUATE");
+  assert.deepEqual(policiesInForce(bed.paths), ["POL-0001"]);
+});
+
+test("a graduated policy of each template leaves the gate's checks, decision and rule version, and the scratch repo outside packet/ and .agents/, unchanged on a fast attempt (G7)", async () => {
+  for (const [template, params] of TEMPLATES) {
+    const run = async (withPolicy: boolean) => {
+      const bed = bedWithSkills();
+      if (withPolicy) graduatePolicy(bed, template, params);
+      status("incidents.jsonl", "INC-0001", "spot", { spot: "SPT-0001", subsystem: "ppu_fetcher", bbox: null, confidence: 0.8 }, bed.paths.ledger);
+      const r = await runFastCycle("INC-0001", { paths: bed.paths, runner: fakeRunner((d) => setShade(d, FIX), { dispositions: {}, off_map: null, beliefs: [], summary: "Renders a ROM's first byte as its shade." }),
+        replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true });
+      return { r, outside: r.attempt.scratch_files.filter((f) => !f.startsWith("packet") && !f.startsWith(".agents")) };
+    };
+    const off = await run(false), on = await run(true);
+    assert.deepEqual(on.r.attempt.task.policies, ["POL-0001"], template);
+    assert.deepEqual(on.r.verdict.checks.map((c) => [c.name, c.pass]), off.r.verdict.checks.map((c) => [c.name, c.pass]), `${template}: gate checks`);
+    assert.deepEqual([on.r.verdict.decision, on.r.verdict.rule_version], [off.r.verdict.decision, off.r.verdict.rule_version], template);
+    assert.deepEqual(on.outside, off.outside, `${template}: scratch files outside packet/ and .agents/`);
+    for (const f of on.r.attempt.scratch_files) assert.ok(allowed("fast", f), `${template}: ${f} is off the allowlist`);
+  }
+});
+
+test("a baseline or vread-baseline task naming a policy gets no policy effect: no TASK.md line, no packet file, its skills unrouted", () => {
+  const bed = bedWithSkills();
+  const skills = [{ id: "SKL-0001", dir: "", paths: ["core/ppu*.ts"], owed: "" }, { id: "SKL-0002", dir: "", paths: ["core/timer*.ts"], owed: "" }];
+  for (const [template, params] of TEMPLATES) {
+    rmSync(policiesDir(bed.paths), { recursive: true, force: true });
+    graduatePolicy(bed, template, params);
+    for (const arm of ["baseline", "vread-baseline"] as const) {
+      const task: RepairTask = { kind: "family", family: "mooneye:ppu", base_commit: "x", arm, skills: [], policies: ["POL-0001"], budget: { max_steps: 1, wall_s: 1 } };
+      const e = applyPolicies(task, { paths: bed.paths, skills, coreFiles: ["core/ppu.ts", "core/index.ts"], site: "packet" });
+      assert.deepEqual([e.policies, e.taskLines, e.packetFiles, e.route(["SKL-0001", "SKL-0002"])], [[], [], {}, ["SKL-0001", "SKL-0002"]], `${template} ${arm}`);
+    }
+  }
 });

@@ -95,10 +95,30 @@ test("a sabotage incident and the attempt and verdict tracing to it are marked a
   assert.equal(before.vread, null);
   assert.equal(before.incidents.find((i) => i.id === "INC-0009")!.sabotage, true);
   assert.equal(before.verdicts.find((v) => v.id === "VER-0009")!.sabotage, true);
-  assert.deepEqual(before.figures, [{ run: "RUN-0001", incidents: 1, attempts: 0, graduated: 0, refused: 0, skills_graduated: 0, skills_refused: 0, fires: 0 }]);
+  assert.deepEqual(before.figures, [{ run: "RUN-0001", incidents: 1, attempts: 0, graduated: 0, refused: 0, skills_graduated: 0, skills_refused: 0, policies_graduated: 0, policies_refused: 0, fires: 0 }]);
   mkdirSync(join(runs, "RUN-0001"), { recursive: true });
   writeFileSync(join(runs, "RUN-0001", "vread.json"), JSON.stringify({ run: "RUN-0001", arms: { baseline: [], ratchet: [] }, n_family_runs_per_arm: 1, residue: [] }));
   assert.equal((await readHistory(opts(led, runs))).vread!.run, "RUN-0001");
+});
+
+test("readHistory lists policies beside skills, with graduated and tombstoned status, and counts policy verdicts per run apart from skill verdicts", async () => {
+  const led = join(tmp, "policy-ledger");
+  mkdirSync(led);
+  const rec = (o: Record<string, unknown>) => appendFileSync(join(led, "verdicts.jsonl"), JSON.stringify(o) + "\n");
+  rec({ id: "VER-0001", run: "RUN-0001", generation: 1, subject: { kind: "policy", id: "POL-0001" }, decision: "GRADUATE", checks: [], reason: "r", residue: [], rule_version: "x",
+    arms: { candidate: [], baseline: [], placebo: [], margin: {}, n_family_runs_per_arm: 1 } });
+  rec({ id: "VER-0002", run: "RUN-0001", generation: 2, subject: { kind: "policy", id: "POL-0003" }, decision: "REFUSE", checks: [], reason: "r", residue: [], rule_version: "x" });
+  const pol = join(tmp, "policies");
+  mkdirSync(join(pol, "graduated", "POL-0001"), { recursive: true });
+  writeFileSync(join(pol, "graduated", "POL-0001", "POLICY.md"), "---\nid: POL-0001\nname: route-by-spot-subsystem\nkind: routing\nstatus: graduated\nlifecycle:\n  retire-when: \"r\"\n  successor: null\n---\n");
+  mkdirSync(join(pol, "tombstones"));
+  writeFileSync(join(pol, "tombstones", "POL-0003.md"), "---\nid: POL-0003\nwas: shadow\nverdict: VER-0002\nreason: \"trial-margin: x\"\nsuccessor: null\n---\n");
+  const h = await readHistory({ ...opts(led), policies: pol });
+  assert.deepEqual(h.policies.map((p) => [p.id, p.status, p.verdict ?? null]), [["POL-0001", "graduated", null], ["POL-0003", "tombstoned", "VER-0002"]]);
+  assert.ok(!h.skills.some((s) => s.id.startsWith("POL-")), "policies are not mixed into skills");
+  const f = h.figures[0];
+  assert.deepEqual([f.policies_graduated, f.policies_refused, f.skills_graduated, f.skills_refused], [1, 1, 0, 0]);
+  assert.deepEqual(h.curve.map((e) => e.t === "curve" && e.generation), [1], "a policy verdict with trial arms is a point on the generation curve");
 });
 
 test("parseFindings skips header and rule rows; frontmatter unquotes values", () => {

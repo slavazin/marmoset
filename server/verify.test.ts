@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verify, staticGap, parseSince } from "./verify.ts";
-import type { Displayable } from "../src/displayables.ts";
+import { DISPLAYABLES, type Displayable } from "../src/displayables.ts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -43,6 +43,14 @@ test("an unredacted secret key, a credential-shaped value and a .env value are e
   const r = await verify({ ...s, run: "prerun", root, manifest: [proc], replay: false });
   const why = r.gaps.map((g) => `${g.id}: ${g.why}`).sort();
   assert.deepEqual(why, ["llm.jsonl: llm.jsonl.headers.authorization is not redacted", "muse.jsonl: muse.jsonl: a .env value appears unredacted", "spot.jsonl: spot.jsonl: a credential-shaped value"]);
+});
+
+test("generation-curve and beat-tombstones are due on a policy verdict with trial arms alone", async () => {
+  const manifest = DISPLAYABLES.filter((d) => d.id === "generation-curve" || d.id === "beat-tombstones");
+  const s = sandbox({ process: [rec(0, "process", "start", {})] }, { "verdicts.jsonl": [{ id: "VER-0001", at: "t", run: null, subject: { kind: "policy", id: "POL-0001" }, decision: "REFUSE",
+    checks: [], arms: { candidate: [], baseline: [], placebo: [], margin: {}, n_family_runs_per_arm: 1 }, reason: "r", residue: [], rule_version: "x" }] });
+  const r = await verify({ ...s, run: "prerun", root, manifest, replay: false });
+  assert.deepEqual(r.rows.map((x) => `${x.id}:${x.status}`), ["generation-curve:pass", "beat-tombstones:pass"]);
 });
 
 test("a displayable whose trigger has not happened reads not-yet, never pass", async () => {

@@ -139,7 +139,13 @@ function triggered(t: Trigger, L: Loaded, i: VerifyInput): boolean {
   if ("telemetry" in t) return telHas(L, t.telemetry);
   if ("runs" in t) return existsSync(join(i.paths.runs, i.run, t.runs.file));
   const recs = L.ledger.get(t.ledger.file) ?? [];
-  return recs.some((r) => !t.ledger.field || (t.ledger.equals === undefined ? getPath(r, t.ledger.field) !== undefined : getPath(r, t.ledger.field) === t.ledger.equals));
+  const { field, equals, in: among } = t.ledger;
+  return recs.some((r) => {
+    if (!field) return true;
+    const v = getPath(r, field);
+    if (among) return among.includes(v);
+    return equals === undefined ? v !== undefined : v === equals;
+  });
 }
 
 function sourceMissing(s: DisplaySource, L: Loaded, i: VerifyInput): string | null {
