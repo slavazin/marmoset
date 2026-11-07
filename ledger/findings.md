@@ -55,3 +55,18 @@ Cold-read findings, one line each: id, claim or property, reading, disposition (
 | S15-F7 | S15 | displayables and curve include policies | triggered on skill only | fix: 599baf5 |
 | S15-R1..R5 | S15 | routing twin map readable as wrong; id order; subq route empty on family tasks; only ppu globs match real core; baseline shows no skills in policy trials | readings in cold read | accept-residue |
 | S1-F3 | S1 | G7: the scratch repo's `tools/replay.mjs` carries V's ROM globs | 37 matches in the bundle; loop/projection.ts copies it (S5-F2 compiled them in so the bundle refuses V) | accept-residue: names only, so the bundle can refuse V; no V ROM, reading or reference reaches the scratch repo |
+| S10-F1 | S10 | G4: a GRADUATE is judged on the head it merges into | second parallel GRADUATE merged onto a core-live it never read | fix: 376d515, rebase onto head inside the gate mutex; conflict or empty REFUSED at merge |
+| S10-F2 | S10 | an early throw counts against MAX_ATTEMPTS | 4143 retries in 0.6 s | fix: 0c175c8, attempt-error records, park at MAX_ATTEMPTS |
+| S10-F3 | S10 | S0 = ∅ at open | openRun checked nothing | fix: eefc3df, refused unless --allow-nonempty-s0 |
+| S10-F4 | S10 | override `at` in the future drops priced records | meter trusted `at` | fix: 12cb6d2, min(at, file mtime) plus a warning |
+| S10-F5 | S10 | currentRun() needs manifest.json | no dedicated test | fix: 000338e |
+| S10-F6 | S10 | ATTEMPT_WALL_S 1350 s read everywhere | no hard-coded 810/1215/13.5 | accept-residue: D-0025's proposal arithmetic is labelled as the proposal's |
+| S10-F7 | S10 | G6: the V read reads the frozen S* | ratchet arm took graduated skills at read time | fix: f61676b, refused when setSha ≠ s_star_sha |
+| S10-F8 | S10 | G6: the V read cannot run twice | two processes could both start; plain writeFileSync | fix: f61676b, start record and vread.json O_EXCL |
+| S10-F9 | S10 | the campaign stops learning at the freeze | attempts and generations kept starting | fix: c45b326 |
+| S10-F10 | S10 | G4: rule constants unchanged after open | only visible as differing rule_version | fix: a7374da, --resume refused on ruleVersion mismatch |
+| S10-F11 | S10 | the vread token is set only while scoring | set for the whole parallel block; repairEnv excludes it (test) | accept-residue: absolute-path read of vread.lock covered by D-0018/D-0021 |
+| S10-F12 | S10 | spend guard under parallel starts | up to 3 attempts can start at $59.99 | fix: follow-up, reserve per in-flight attempt |
+| S10-F13 | S10 | G9: UI figures | meter, V card from files; thresholds are constants | accept-residue |
+| S10-F14 | S10 | V-read arm whose diff fails to apply | silently scores the base core | fix: follow-up, recorded in vread.json |
+| S10-F15 | S10 | play during a merge | realPlay reads live/core without the gate lock | accept-residue: short window |
