@@ -36,6 +36,11 @@ export interface RunConditions {
   rule_version: string;
   ledger: string; runs_dir: string;
   scratch: string; cache: string; subq_cache: string; telemetry: string; skills: string; evidence: string; traces: string;
+  /**
+   * The start state both sides run from, for a games-registry game with one (lockstep/start-state.ts, S22): the game
+   * id, the start key and the sha256 of its cache file; absent for a run from power-on.
+   */
+  start?: { game: string; key: string; sha: string };
 }
 
 /** The fields that name a directory one run owns alone. */
@@ -53,6 +58,7 @@ function real(p: string): string {
 export interface ConditionsInput {
   run: string; paths: LoopPaths; runsDir: string; rom: string; source: IncidentSource; seed0: number;
   liveBranch: string; splits: string[]; ruleVersion: string; env?: NodeJS.ProcessEnv;
+  start?: RunConditions["start"];
 }
 
 /** This process's conditions (see the file header). Telemetry and subq-cache follow src/telemetry.ts and loop/subq.ts. */
@@ -67,6 +73,7 @@ export function runConditions(o: ConditionsInput): RunConditions {
     ledger: real(o.paths.ledger), runs_dir: real(o.runsDir),
     scratch: real(scratchRoot(o.paths, env)), cache: real(o.paths.cache), subq_cache: real(subq_cache), telemetry: real(telemetry),
     skills: real(o.paths.skills), evidence: real(o.paths.evidence), traces: real(o.paths.traces),
+    ...(o.start ? { start: o.start } : {}),
   };
 }
 

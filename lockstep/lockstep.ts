@@ -4,14 +4,20 @@
 // (lockstep/diff.ts GAME_RAM) opens a `logic` Incident and stops the trace. Every oracle frame it reads is
 // written to the oracleFrames cache, and the oracle runs on to the last incident's window end so that
 // tools/replay.mjs finds the whole window n-60…n+120 cached. Truth-maker: lockstep/lockstep.test.ts.
+// The game-state bytes, scene byte and counter come from the ROM's games-registry entry (lockstep/games.ts),
+// selected by sha; an unregistered ROM is read by SPEC §6.17's map. An entry with a `start` runs both sides
+// from one start state (lockstep/start-state.ts); its oracle frames are cached apart from power-on frames.
+// Truth-maker for the registry path: lockstep/start-state.test.ts.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { CreateCore, Incident, Trace } from "../src/schema.ts";
 import { OracleClient, ratchetCache, sha256, traceSha } from "../oracle/client.ts";
-import { GAME_RAM, SCENE_OFFSET, bytesEqual, coreGameRam, frameDiff, maskAt, signatureKey, signatureOf, type Signature } from "./diff.ts";
+import { GAME_RAM, bytesEqual, frameDiff, maskAt, signatureKey, signatureOf, type Signature } from "./diff.ts";
 import { EVIDENCE_ROOT, writeEvidence, type RegWrite } from "./evidence.ts";
 import type { IncidentSink } from "./incidents.ts";
 import { counterStepper } from "./align.ts";
+import { gameBySha, mapOf, mappedRam, sceneOffset, type GameEntry } from "./games.ts";
+import { buildStartState, startDirSuffix, startFileSha, startPath, withStart, type StartState } from "./start-state.ts";
 
 /**
  * Compare every Nth counter. SPEC §5 S5 Wiggle: every frame, or every fourth below 300 oracle fps.
@@ -37,6 +43,10 @@ export interface LockstepOptions {
   compareEvery?: number;
   /** Called with each compared counter's core frame and the core's scene byte (player/spot.ts samples these). */
   onCompared?: (n: number, frame: Uint8Array, scene: number) => void;
+  /** The ROM's registry entry; omitted, it is looked up by the ROM's sha (lockstep/games.ts gameBySha). null: SPEC §6.17's map, no start. */
+  game?: GameEntry | null;
+  /** The start state; omitted, it is built from the entry's `start` (lockstep/start-state.ts). null: power-on. */
+  start?: StartState | null;
 }
 
 export interface LockstepResult {
@@ -59,13 +69,19 @@ export async function lockstep(o: LockstepOptions): Promise<LockstepResult> {
   const rom_sha = sha256(rom);
   const { align, inputs, counter_end } = o.trace;
   const trace_sha = traceSha({ rom_sha, align, inputs });
-  const oracleDir = join(ratchetCache(), "oracle", rom_sha, trace_sha);
+  const game = o.game !== undefined ? o.game : gameBySha(rom);
+  const map = mapOf(game);
+  const sceneAt = sceneOffset(map);
+  if (sceneAt < 0) throw new Error(`game ${game?.id}: scene byte is outside its logic ranges`);
+  const ramInit = game?.ram_init ?? "seeded";
+  const start = o.start !== undefined ? o.start : game?.start ? await buildStartState(o.romPath, { ...game.start, ram_init: "zero" }) : null;
+  const oracleDir = join(ratchetCache(), "oracle", rom_sha, trace_sha + startDirSuffix(start));
   mkdirSync(oracleDir, { recursive: true });
   const evidenceRoot = o.evidenceRoot ?? EVIDENCE_ROOT;
   const every = o.compareEvery ?? COMPARE_EVERY;
 
-  const core = o.createCore(rom);
-  const stepper = counterStepper(core, GAME_RAM.addr);
+  const core = (start ? withStart(o.createCore, start) : o.createCore)(rom);
+  const stepper = counterStepper(core, map.counter ?? GAME_RAM.addr);
   const regBuf: RegWrite[] = [];
   core.tap.onRegWrite = (e) => { regBuf.push({ ...e }); };
 
@@ -80,14 +96,21 @@ export async function lockstep(o: LockstepOptions): Promise<LockstepResult> {
   const oracle = OracleClient.spawn();
   const t0 = performance.now();
   try {
-    await oracle.load(o.romPath, align);
+    await oracle.load(o.romPath, align, "DMG", start ? "zero" : ramInit);
+    if (start) await oracle.restore(start.oracle_state_b64, true);
+    const oracleRamOf = async (): Promise<Uint8Array> => {
+      if (map.logic.length === 1) return oracle.ram(map.logic[0].addr, map.logic[0].len);
+      const parts: Uint8Array[] = [];
+      for (const r of map.logic) parts.push(await oracle.ram(r.addr, r.len));
+      return new Uint8Array(Buffer.concat(parts));
+    };
     const oracleStep = async (n: number) => {
       const r = await oracle.runToCounter(n, inputs);
       if (r.stalled) throw new Error(`oracle stalled at counter ${r.counter} before ${n}`);
       const frame = await oracle.frame();
       const file = join(oracleDir, `${n}.bin`);
       if (!existsSync(file)) writeFileSync(file, frame);
-      const ram = await oracle.ram(GAME_RAM.addr, GAME_RAM.len);
+      const ram = await oracleRamOf();
       oracleRam.set(n, ram);
       return { frame, ram };
     };
@@ -120,10 +143,10 @@ export async function lockstep(o: LockstepOptions): Promise<LockstepResult> {
       if (n % every !== 0) continue;
       compared++;
       const cf = stepped ?? core.frame();
-      o.onCompared?.(n, cf, core.read(GAME_RAM.addr + SCENE_OFFSET) & 0xff);
+      o.onCompared?.(n, cf, core.read(map.scene.addr) & 0xff);
       const d = frameDiff(cf, of);
-      const sig = signatureOf(oram[SCENE_OFFSET], d);
-      if (!bytesEqual(coreGameRam((a) => core.read(a)), oram)) {
+      const sig = signatureOf(oram[sceneAt], d);
+      if (!bytesEqual(mappedRam(map, (a) => core.read(a)), oram)) {
         stopped = { counter: n, incident: open("logic", n, sig, d.pixels, cf, of).id };
         break;
       }
@@ -131,6 +154,8 @@ export async function lockstep(o: LockstepOptions): Promise<LockstepResult> {
     }
     const fps = compared / ((performance.now() - t0) / 1000);
 
+    const startFile = start ? startPath(start.spec) : null;
+    const startInfo = start && startFile && existsSync(startFile) ? { file: startFile, sha: startFileSha(startFile), key: start.key } : start ? { file: "", sha: "", key: start.key } : null;
     const end = Math.max(0, ...pending.map((p) => p.inc.window[1]));
     for (let n = last + 1; n <= end; n++) await oracleStep(n);
 
@@ -143,6 +168,8 @@ export async function lockstep(o: LockstepOptions): Promise<LockstepResult> {
       writeEvidence(join(evidenceRoot, p.inc.id), {
         kind: "frames", incident: p.inc, rom: { path: resolve(o.romPath), sha: rom_sha },
         trace: { align, inputs, counter_end }, oracle_dir: oracleDir, oracle_ram: ram,
+        ...(game?.map ? { map: { game: game.id, logic: game.map.logic.map(({ addr, len }) => ({ addr, len })) } } : {}),
+        ...(startInfo ? { start: startInfo } : {}),
       }, p.core, p.oracle, p.regwrites);
     }
     return { compared, opened: pending.map((p) => p.inc), known, stopped, fps };

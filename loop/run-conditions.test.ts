@@ -82,3 +82,13 @@ test("isolation: a run whose scratch, cache, subq-cache, telemetry or live clone
   assert.ok(clash.some((x) => /^cache: .* is RUN-0002's$/.test(x)), clash.join("; "));
   assert.ok(clash.some((x) => /^live: .* is RUN-0002's$/.test(x)), clash.join("; "));
 });
+
+test("a run's start state is written into conditions.json, and --resume refuses a process whose start sha differs or that has none", () => {
+  const b = bed();
+  const start = { game: "mario-yoshi-eu", key: "a15dc530b4d8feaa", sha: "1".repeat(64) };
+  openConditions(runConditions({ ...b.input, start }));
+  assert.deepEqual(JSON.parse(readFileSync(join(b.runs, "RUN-0002", "conditions.json"), "utf8")).start, start);
+  checkConditions(runConditions({ ...b.input, start }));
+  assert.throws(() => checkConditions(runConditions({ ...b.input, start: { ...start, sha: "2".repeat(64) } })), /start: declared/);
+  assert.throws(() => checkConditions(runConditions(b.input)), /start: declared/);
+});

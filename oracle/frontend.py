@@ -101,6 +101,12 @@ RANDOM_SEED = 0x5EED
 MODEL_OPTION = {"DMG": b"Game Boy", "CGB": b"Game Boy Color C"}
 RGB_BYTES = WIDTH * HEIGHT * 3
 
+# RAM_INIT: the power-on RAM a `load` asks for. "seeded" (the default) fills WRAM, HRAM, OAM and wave RAM
+# with SameBoy's noise from RANDOM_SEED. "zero" disables SameBoy's noise source (GB_random_set_enabled(false);
+# Core/random.c then returns 0), so every RAM SameBoy randomises at power-on starts zeroed, as core/index.ts's
+# does. oracle/oracle.test.ts reads it ("load ram_init zero ...").
+RAM_INIT = ("seeded", "zero")
+
 COUNTER_OFFSET = 0xC0F0 - 0xC000
 WRAM_BASE, WRAM_END = 0xC000, 0xE000
 STATE_MAGIC = b"RTO1"
@@ -111,6 +117,42 @@ _GREY_TABLE = bytearray([0xFF] * 256)
 for _rgb, _shade in SHADE_OF_RGB.items():
     _GREY_TABLE[_rgb & 0xFF] = _shade
 _GREY_TABLE = bytes(_GREY_TABLE)
+
+
+def parse_bess(state):
+    """Parse the BESS footer SameBoy appends to its native save state into a JSON-ready dict.
+
+    Raises when the footer, the CORE block or a buffer it points at is missing or out of range."""
+    end = len(state)
+    while end >= 8 and state[end - 4:end] != b"BESS":
+        end -= 1  # libretro sizes the buffer by retro_serialize_size; trailing bytes past the footer are skipped
+    if end < 8:
+        raise ValueError("state carries no BESS footer")
+    (first,) = struct.unpack_from("<I", state, end - 8)
+    off, out, core = first, {"mbc": []}, None
+    while off + 8 <= end:
+        ident = state[off:off + 4]
+        (length,) = struct.unpack_from("<I", state, off + 4)
+        body = state[off + 8:off + 8 + length]
+        if ident == b"CORE":
+            core = body
+        elif ident == b"MBC ":
+            out["mbc"] = [[struct.unpack_from("<H", body, i)[0], body[i + 2]] for i in range(0, len(body) - 2, 3)]
+        elif ident == b"END ":
+            break
+        off += 8 + length
+    if core is None or len(core) < 0xD0:
+        raise ValueError("BESS state carries no CORE block")
+    pc, af, bc, de, hl, sp = struct.unpack_from("<6H", core, 0x08)
+    out.update({"model": core[0x04:0x08].decode("ascii"), "pc": pc, "af": af, "bc": bc, "de": de, "hl": hl,
+                "sp": sp, "ime": core[0x14], "ie": core[0x15], "exec": core[0x16],
+                "io_b64": base64.b64encode(core[0x18:0x98]).decode()})
+    for i, name in enumerate(("wram", "vram", "cart_ram", "oam", "hram")):
+        size, at = struct.unpack_from("<II", core, 0x98 + 8 * i)
+        if at + size > len(state):
+            raise ValueError(f"BESS {name} buffer runs past the state")
+        out[name + "_b64"] = base64.b64encode(state[at:at + size]).decode()
+    return out
 
 
 class RetroVariable(ctypes.Structure):
@@ -258,6 +300,8 @@ class Oracle:
         lib.retro_get_memory_size.restype = ctypes.c_size_t
         lib.GB_random_seed.argtypes = [ctypes.c_uint64]
         lib.GB_random_seed.restype = None
+        lib.GB_random_set_enabled.argtypes = [ctypes.c_bool]
+        lib.GB_random_set_enabled.restype = None
 
     # --- callbacks -------------------------------------------------------------
     def _env(self, cmd, data):
@@ -340,6 +384,11 @@ class Oracle:
         with open(req["rom_path"], "rb") as f:
             rom = f.read()
         self._rom = ctypes.create_string_buffer(rom, len(rom))
+        ram_init = req.get("ram_init", "seeded")
+        if ram_init not in RAM_INIT:
+            raise ValueError(f"ram_init must be seeded or zero, got {ram_init!r}")
+        # SameBoy's noise source is process-global (Core/random.c); every load sets it.
+        self.lib.GB_random_set_enabled(ram_init == "seeded")
         self.lib.GB_random_seed(RANDOM_SEED)
         path = ctypes.create_string_buffer(os.path.abspath(req["rom_path"]).encode())
         info = RetroGameInfo(ctypes.cast(path, ctypes.c_char_p), ctypes.cast(self._rom, ctypes.c_void_p), len(rom), None)
@@ -354,7 +403,7 @@ class Oracle:
         self.first_write_frame = None
         self.raw = self.raw_prev = self.compare_raw = None
         self.mask = 0
-        return {"rom_sha": hashlib.sha256(rom).hexdigest(), "align": align, "model": model}
+        return {"rom_sha": hashlib.sha256(rom).hexdigest(), "align": align, "model": model, "ram_init": ram_init}
 
     def op_run_to_counter(self, req):
         if not self.loaded:
@@ -459,7 +508,19 @@ class Oracle:
         self.align = "frame" if align else "counter"
         self.counter_live = bool(live)
         self.raw, self.raw_prev, self.compare_raw = saved
-        return {}
+        if req.get("rebase"):
+            # A start state (lockstep/start-state.ts): frame-align counters count from the restored state.
+            self.frames = 0
+            self.compare_raw = None
+        return {"frames": self.frames}
+
+    def op_machine(self, req):
+        """The machine state as its BESS footer (SameBoy BESS.md) states it: registers, IO, every RAM, MBC writes."""
+        size = self.lib.retro_serialize_size()
+        buf = ctypes.create_string_buffer(size)
+        if not self.lib.retro_serialize(buf, size):
+            raise RuntimeError("retro_serialize failed")
+        return parse_bess(buf.raw)
 
     def op_info(self, req):
         return {"core": "SameBoy", "version": self.version, "model": self.model, "build_hash": self.build_hash,

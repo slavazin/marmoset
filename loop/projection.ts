@@ -227,12 +227,22 @@ export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
   const cacheDir = join(envDir, "cache");
   mkdirSync(join(cacheDir, "oracle"), { recursive: true });
   for (const { rom_sha, trace_sha } of oracleTraces) {
-    const o = join(paths.cache, "oracle", rom_sha, trace_sha);
-    if (!existsSync(o)) continue;
-    const copy = join(cacheDir, "oracle", rom_sha, trace_sha);
-    cpSync(o, copy, { recursive: true, dereference: true });
+    // a window run from a start state (lockstep/start-state.ts) has its frames under trace_sha@start-<key>, and
+    // its start file is copied beside them so the packet names only env paths
     const w = join(pk, "evidence", "window.json");
-    if (existsSync(w)) { const j = JSON.parse(readFileSync(w, "utf8")); if (j.oracle_dir) { j.oracle_dir = copy; writeFileSync(w, JSON.stringify(j, null, 2) + "\n"); } }
+    const j = existsSync(w) ? JSON.parse(readFileSync(w, "utf8")) : null;
+    const dirName = trace_sha + (j?.start?.key ? `@start-${j.start.key}` : "");
+    const o = join(paths.cache, "oracle", rom_sha, dirName);
+    if (!existsSync(o)) continue;
+    const copy = join(cacheDir, "oracle", rom_sha, dirName);
+    cpSync(o, copy, { recursive: true, dereference: true });
+    if (j?.oracle_dir) j.oracle_dir = copy;
+    if (j?.start?.file) {
+      const sf = join(cacheDir, "start", rom_sha, `${j.start.key}.json`);
+      if (existsSync(j.start.file)) { mkdirSync(join(sf, ".."), { recursive: true }); cpSync(j.start.file, sf, { dereference: true }); }
+      j.start.file = sf;
+    }
+    if (j) writeFileSync(w, JSON.stringify(j, null, 2) + "\n");
   }
   makeReadOnly(envDir);
 

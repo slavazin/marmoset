@@ -54,11 +54,13 @@ test("romDirs: an incident ROM is found in the run's game directory (RATCHET_GAM
   const { romDirs } = await import("./roms.ts");
   const { pathsFromEnv, gamePath } = await import("./paths.ts");
   const p = pathsFromEnv({ RATCHET_GAME: "~/.cache/ratchet/games/owner.gb" }, "/repo");
-  assert.deepEqual(romDirs(p), [p.roms, "/repo/game", "/repo/game2", join(process.env.HOME ?? "", ".cache/ratchet/games")]);
+  // entries after these are the directories of games-registry ROM files present on this machine (S22)
+  assert.deepEqual(romDirs(p).slice(0, 4), [p.roms, "/repo/game", "/repo/game2", join(process.env.HOME ?? "", ".cache/ratchet/games")]);
+  assert.equal(new Set(romDirs(p)).size, romDirs(p).length);
   const d = pathsFromEnv({}, "/repo");
   assert.equal(gamePath(d), "/repo/game/game.gb");
-  assert.deepEqual(romDirs(d), [d.roms, "/repo/game", "/repo/game2"]);
-  assert.deepEqual(romDirs(pathsFromEnv({ RATCHET_GAME: "/repo/game2/game2.gb" }, "/repo")), [d.roms, "/repo/game", "/repo/game2"]);
+  assert.deepEqual(romDirs(d).slice(0, 3), [d.roms, "/repo/game", "/repo/game2"]);
+  assert.deepEqual(romDirs(pathsFromEnv({ RATCHET_GAME: "/repo/game2/game2.gb" }, "/repo")).slice(0, 3), [d.roms, "/repo/game", "/repo/game2"]);
   assert.equal(gamePath({ ...d, game: undefined }), "/repo/game/game.gb");
 });
 

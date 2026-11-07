@@ -304,12 +304,19 @@ function child(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string)
   });
 }
 
-/** Real play: an explorer trace at `seed` on `romPath`, then player/spot.ts (lockstep plus spot sampling) in a child process against the live clone's core. */
+/**
+ * Real play: a play trace at `seed` (loop/game-trace.ts playTrace: the explorer for game.gb), then player/spot.ts
+ * (lockstep plus spot sampling) in a child process against the live clone's core. The game is the ROM at `romPath`
+ * ($RATCHET_GAME); its games-registry entry (lockstep/games.ts), found by sha, picks the trace generator, and lockstep
+ * selects its map and start state the same way.
+ */
 function realPlay(paths: LoopPaths, env: NodeJS.ProcessEnv, romPath: string): CampaignDeps["play"] {
   return async (seed) => {
-    const { explorerTrace } = await import("../player/explore.ts");
+    const { playTrace } = await import("./game-trace.ts");
+    const { gameBySha } = await import("../lockstep/games.ts");
     const { ratchetCache, sha256, traceSha } = await import("../oracle/client.ts");
-    const trace = explorerTrace({ rom_sha: sha256(readFileSync(romPath)), frames: SEGMENT_FRAMES, seed });
+    const game = gameBySha(new Uint8Array(readFileSync(romPath)));
+    const trace = playTrace(game, { rom_sha: sha256(readFileSync(romPath)), frames: SEGMENT_FRAMES, seed });
     const dir = join(ratchetCache(), "traces");
     mkdirSync(dir, { recursive: true });
     const tp = join(dir, `${traceSha(trace)}.json`);
@@ -412,6 +419,33 @@ export async function dryDeps(minutes: number, run: string = RUN_ID): Promise<{ 
   return { deps, manifest };
 }
 
+/**
+ * Manifest `roms` entries for the registry game whose ROM is at `romPath`: `game:<id>` → the ROM's sha256 (unregistered ROM: none) and, when the game has a start
+ * state, `start:<id>` → the sha256 of its cache file (built here when absent). Truth-maker: loop/campaign.test.ts.
+ */
+export async function gameManifestRoms(romPath: string): Promise<Record<string, string>> {
+  const { gameBySha } = await import("../lockstep/games.ts");
+  const { buildStartState, startFileSha, startPath } = await import("../lockstep/start-state.ts");
+  const { sha256 } = await import("../oracle/client.ts");
+  const bytes = new Uint8Array(readFileSync(romPath));
+  const g = gameBySha(bytes);
+  if (!g) return {};
+  const id = g.id;
+  const out: Record<string, string> = { [`game:${id}`]: sha256(bytes) };
+  if (g.start) out[`start:${id}`] = startFileSha(startPath((await buildStartState(romPath, { ...g.start, ram_init: "zero" })).spec));
+  return out;
+}
+
+/** The conditions.json `start` of a play run on `romPath`: its registry game's start state (built when absent), or undefined. */
+export async function startConditions(romPath: string): Promise<{ game: string; key: string; sha: string } | undefined> {
+  const { gameBySha } = await import("../lockstep/games.ts");
+  const { buildStartState, startFileSha, startPath } = await import("../lockstep/start-state.ts");
+  const g = gameBySha(new Uint8Array(readFileSync(romPath)));
+  if (!g?.start) return undefined;
+  const st = await buildStartState(romPath, { ...g.start, ram_init: "zero" });
+  return { game: g.id, key: st.key, sha: startFileSha(startPath(st.spec)) };
+}
+
 export interface RunOptions {
   run: string; rom: string; source: IncidentSource;
   /** Other runs on the one Meta account (server/spend.ts combinedMeter). */
@@ -419,7 +453,7 @@ export interface RunOptions {
 }
 
 async function realDeps(minutes: number, o: RunOptions): Promise<{ deps: CampaignDeps; manifest: () => Promise<Manifest> }> {
-  const RUN_ID = o.run;
+  const RUN_ID = o.run, romPath = o.rom;
   const paths = pathsFromEnv();
   const runsDir = resolve(paths.root, process.env.RATCHET_RUNS ?? "runs");
   const env = { ...process.env, RATCHET_RUN: RUN_ID };
@@ -448,12 +482,16 @@ async function realDeps(minutes: number, o: RunOptions): Promise<{ deps: Campaig
     let info: { core: string; build_hash: string };
     try { info = await o.info(); } finally { await o.close(); }
     const splits = loadSplits();
-    return buildManifest({
+    const m = buildManifest({
       run: RUN_ID, root: paths.root, skills: paths.skills, ledger: paths.ledger, roms: paths.roms, splitsPath: splitsPaths(), splits,
       familyRoms: (f) => { try { return familyRoms(splits, f, paths.roms); } catch { return []; } },
       oracle: { core: info.core, build_hash: info.build_hash },
       telemetryFiles: [join(paths.root, "runs", "prerun", "telemetry", "llm.jsonl"), join(runsDir, RUN_ID, "telemetry", "llm.jsonl")],
     });
+    // A run on a registry game other than game.gb records the game's ROM sha and its start file's sha (S22).
+    const extra = await gameManifestRoms(romPath);
+    if (!("game:game" in extra)) Object.assign(m.roms, extra);
+    return m;
   };
   return { deps, manifest };
 }
@@ -476,7 +514,11 @@ async function main(argv: string[]): Promise<number> {
   if (source !== "play" && source !== "cgb-suite") throw new Error(`--source ${source}: want play or cgb-suite`);
   process.env.RATCHET_RUN = run; // every record written from here carries the run (loop/ledger.ts runId)
   // the run's game: --game (or --rom), else RATCHET_GAME, else game/game.gb; children read it from RATCHET_GAME
-  const rom = resolve(v.game ?? v.rom ?? process.env.RATCHET_GAME ?? join(import.meta.dirname, "..", "game", "game.gb"));
+  // a games-registry id (lockstep/games.ts) names its ROM file, found and sha-checked by romPathOf
+  const romArg = v.game ?? v.rom ?? process.env.RATCHET_GAME;
+  const { readRegistry, romPathOf } = await import("../lockstep/games.ts");
+  const entry = romArg ? readRegistry().find((g) => g.id === romArg) : undefined;
+  const rom = entry ? romPathOf(entry) : resolve(romArg ?? join(import.meta.dirname, "..", "game", "game.gb"));
   process.env.RATCHET_GAME = rom;
   const spendAlso = (v["spend-also"] ?? []).map(parseMeterPart);
   const { deps, manifest } = v.dry ? await dryDeps(minutes, run) : await realDeps(minutes, { run, rom, source, spendAlso });
@@ -494,7 +536,8 @@ async function main(argv: string[]): Promise<number> {
     const { runConditions, openConditions, checkConditions, conditionsPath } = await import("./run-conditions.ts");
     const { LIVE_BRANCH } = await import("./paths.ts");
     const { splitsPaths } = await import("../suites/splits.ts");
-    const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion() });
+    const start = source === "play" ? await startConditions(rom) : undefined;
+    const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion(), start });
     // --rules-as RUN-NNNN (in this runs dir) or <runs dir>/RUN-NNNN: this run judges under that run's rule_version, or
     // it does not open (owner requirement 2026-11-07)
     for (const other of v["rules-as"] ?? []) {

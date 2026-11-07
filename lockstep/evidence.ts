@@ -21,8 +21,12 @@ export interface FrameWindow {
   trace: { align: "counter" | "frame"; inputs: TraceInput[]; counter_end: number };
   /** The directory holding the cached oracle frames <n>.bin for this trace (oracle/client.ts oracleFrames layout). */
   oracle_dir: string;
-  /** Oracle game-state RAM (lockstep/diff.ts GAME_RAM) per window counter, hex. */
+  /** Oracle game-state RAM per window counter, hex: the game's mapped bytes (lockstep/games.ts mappedRam; GAME_RAM for a §6.17 game). */
   oracle_ram: Record<string, string>;
+  /** Present for a ROM with a registry map (lockstep/games.ts): the ranges oracle_ram concatenates. */
+  map?: { game: string; logic: { addr: number; len: number }[] };
+  /** Present when both sides started from a start state (lockstep/start-state.ts): its cache file and that file's sha256. */
+  start?: { file: string; sha: string; key: string };
 }
 export interface SuiteWindow {
   kind: "suite";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, statSync, readdirSync, lstatSync, mkdirSync, writeFileSync, realpathSync } from "node:fs";
+import { readFileSync, statSync, readdirSync, lstatSync, mkdirSync, writeFileSync, realpathSync, renameSync } from "node:fs";
 import { join, resolve, relative, isAbsolute } from "node:path";
 import { makeBed, writeSkill } from "./fixtures/harness.ts";
 import { repairPacket, allowed, fileList, removeScratch } from "./projection.ts";
@@ -65,6 +65,44 @@ test("the env oracle cache holds a read-only copy of the incident trace's frames
   assert.equal(JSON.parse(readFileSync(join(p.dir, "packet", "evidence", "window.json"), "utf8")).oracle_dir, join(envRom, bed.incident.trace_sha));
   removeScratch(p.envDir);
   removeScratch(p.dir);
+});
+
+test("a window run from a start state: the env cache holds its start-keyed frames and its start file, and window.json names only env copies", () => {
+  const bed = makeBed();
+  const romDir = join(bed.paths.cache, "oracle", bed.incident.rom_sha);
+  const key = "0123456789abcdef";
+  renameSync(join(romDir, bed.incident.trace_sha), join(romDir, `${bed.incident.trace_sha}@start-${key}`));
+  const startFile = join(bed.paths.cache, "start", bed.incident.rom_sha, `${key}.json`);
+  mkdirSync(join(startFile, ".."), { recursive: true });
+  writeFileSync(startFile, '{"start":"fixture"}');
+  const wf = join(bed.paths.root, bed.incident.files.dir, "window.json");
+  const w = JSON.parse(readFileSync(wf, "utf8"));
+  writeFileSync(wf, JSON.stringify({ ...w, oracle_dir: join(romDir, `${bed.incident.trace_sha}@start-${key}`), start: { file: startFile, sha: "x", key } }));
+  const base = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const p = repairPacket({ kind: "incident", incident: "INC-0001", base_commit: base, arm: "fast", skills: [], budget: { max_steps: 1, wall_s: 1 } }, { attempt: "ATT-0001", paths: bed.paths, incident: bed.incident });
+  const envRom = join(p.env.RATCHET_CACHE, "oracle", bed.incident.rom_sha);
+  assert.deepEqual(readdirSync(envRom), [`${bed.incident.trace_sha}@start-${key}`]);
+  const out = JSON.parse(readFileSync(join(p.dir, "packet", "evidence", "window.json"), "utf8"));
+  assert.equal(out.oracle_dir, join(envRom, `${bed.incident.trace_sha}@start-${key}`));
+  assert.equal(out.start.file, join(p.env.RATCHET_CACHE, "start", bed.incident.rom_sha, `${key}.json`));
+  assert.equal(readFileSync(out.start.file, "utf8"), '{"start":"fixture"}');
+  assert.ok(!JSON.stringify(out).includes(bed.paths.cache), "no real cache path in the packet's window.json");
+  removeScratch(p.envDir);
+  removeScratch(p.dir);
+});
+
+test("the gate's memorisation check reads a start-state window's frames under its start-keyed dir, and none when that dir is absent", async () => {
+  const { cachedFrames } = await import("./gate-repair.ts");
+  const bed = makeBed();
+  const before = cachedFrames(bed.paths, bed.incident).length;
+  assert.ok(before > 0);
+  const romDir = join(bed.paths.cache, "oracle", bed.incident.rom_sha);
+  const key = "fedcba9876543210";
+  const wf = join(bed.paths.root, bed.incident.files.dir, "window.json");
+  writeFileSync(wf, JSON.stringify({ ...JSON.parse(readFileSync(wf, "utf8")), start: { file: "", sha: "", key } }));
+  assert.equal(cachedFrames(bed.paths, bed.incident).length, 0);
+  renameSync(join(romDir, bed.incident.trace_sha), join(romDir, `${bed.incident.trace_sha}@start-${key}`));
+  assert.equal(cachedFrames(bed.paths, bed.incident).length, before);
 });
 
 test("node_modules in the scratch repo is a read-only copy: a write through it cannot reach the repository's node_modules", () => {
