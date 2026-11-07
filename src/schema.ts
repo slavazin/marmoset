@@ -40,7 +40,7 @@ export interface ProvenanceEntry { handler: HandlerId; file: string; commit: str
 
 // §6.4 Oracle protocol (oracle/frontend.py; one JSON object per line each way)
 export type OracleReq =
-  | { op: "load"; rom_path: string }
+  | { op: "load"; rom_path: string; align?: "counter" | "frame" } // align defaults to "counter" (S3)
   | { op: "run_to_counter"; counter: number; inputs: TraceInput[] } // applies inputs keyed by counter
   | { op: "frame" } // → { ok, shades_b64 } (23040 bytes)
   | { op: "ram"; addr: number; len: number } // WRAM 0xC000–0xDFFF only → { ok, bytes_b64 }
