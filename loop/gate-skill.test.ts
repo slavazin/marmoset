@@ -30,3 +30,9 @@ test("decideSkill graduates only when candidate − max(baseline, placebo) >= ma
   assert.equal(r.decision, "REFUSE");
   assert.match(r.reason, /^base-suites: the placebo arm drops blargg from 15 to 14/);
 });
+
+test("an arm whose base readings lack a base family the base commit scored regresses the base suites", () => {
+  const r = decideSkill({ families: TRIAL_FAMILIES, readings: { candidate: [mb(0.9), mo(8)], baseline: [mb(0.5), mo(3)], placebo: [mb(0.6), mo(4)] }, margin, baseRef: base, armBase: { ...armBase, candidate: [[]] } });
+  assert.equal(r.decision, "REFUSE");
+  assert.match(r.reason, /^base-suites: the candidate arm drops blargg from 15 to no reading/);
+});

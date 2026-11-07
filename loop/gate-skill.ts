@@ -3,7 +3,8 @@
 //   unitValue(reading)       a family reading in its unit: Mealybug points of mean pixel match (0..100), else ROMs passed;
 //   marginFor(family, a, b)  max(MARGIN_FLOOR[family], 2 × |a − b|) over two baseline readings, in that unit;
 //   decideSkill(input)       GRADUATE iff on every trial family candidate − max(baseline, placebo) >= the family's
-//                            margin and no arm's base-suite pass count drops below the base commit's; else REFUSE,
+//                            margin and no arm's base-suite pass count drops below the base commit's or goes
+//                            missing; else REFUSE,
 //                            naming the deciding check and its reading (gate-skill.test.ts);
 //   graduateSkill / tombstoneSkill   the skill's move: skills/shadow/<id>/ → skills/graduated/<id>/ with a status
 //                            flip, or → skills/tombstones/<id>.md (SPEC §6.10 frontmatter, then the skill's text with
@@ -45,9 +46,13 @@ const signed = (x: number) => (x >= 0 ? "+" : "") + fmt(x);
 /** The skill rule (see the file header). */
 export function decideSkill(i: SkillDecisionInput): SkillDecision {
   const ref = new Map(i.baseRef.map((r) => [r.family, r.pass]));
-  const regressions: { arm: TrialArm; family: string; pass: number; base: number }[] = [];
+  // a base family the base commit scored and an arm's run has no reading for is a regression (S8: missing readings regress)
+  const regressions: { arm: TrialArm; family: string; pass: number | null; base: number }[] = [];
   for (const arm of ["candidate", "baseline", "placebo"] as TrialArm[])
-    for (const run of i.armBase[arm]) for (const r of run) { const b = ref.get(r.family); if (b !== undefined && r.pass < b) regressions.push({ arm, family: r.family, pass: r.pass, base: b }); }
+    for (const run of i.armBase[arm]) for (const [family, b] of ref) {
+      const r = run.find((x) => x.family === family);
+      if (!r || !(r.pass >= b)) regressions.push({ arm, family, pass: r ? r.pass : null, base: b });
+    }
   const baseCheck = { name: "base-suites" as CheckName, pass: regressions.length === 0, reading: { regressions } };
 
   const per = i.families.map((f) => {
@@ -61,7 +66,7 @@ export function decideSkill(i: SkillDecisionInput): SkillDecision {
   const checks = [baseCheck, marginCheck];
   if (!baseCheck.pass) {
     const r = regressions[0];
-    return { decision: "REFUSE", checks, reason: `base-suites: the ${r.arm} arm drops ${r.family} from ${r.base} to ${r.pass} ROMs passed` };
+    return { decision: "REFUSE", checks, reason: `base-suites: the ${r.arm} arm drops ${r.family} from ${r.base} to ${r.pass === null ? "no reading" : `${r.pass} ROMs passed`}` };
   }
   const fail = per.find((x) => !x.pass);
   if (fail) {

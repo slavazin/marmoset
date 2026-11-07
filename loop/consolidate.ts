@@ -2,7 +2,8 @@
 //   consolidatorView(paths, tReadings)  the consolidator projection: arm-"fast" observations, those attempts'
 //                                       dispositions and off_map sentences, and T-family readings. It reads no
 //                                       verdict, no trial arm and no vread; every H and V family name in its strings
-//                                       is replaced by HELD_OUT_MARK (consolidate.test.ts asserts none appears);
+//                                       is replaced by HELD_OUT_MARK, and "refused at <check>" reads "refused", since
+//                                       the check a refusal names is an H reading (consolidate.test.ts asserts both);
 //   parseReply(text, view)              the consolidator's JSON reply, validated: triage over view observations,
 //                                       nominations with a complete pentad anchored to >= MIN_ANCHORS reducible
 //                                       observations of their shape (the I11 noise filter), at most MAX_NOMINATIONS;
@@ -45,8 +46,12 @@ export function heldOutNames(splits: Splits = loadSplits()): string[] {
   return [...familiesIn(splits, "H"), ...familiesIn(splits, "V")].sort((a, b) => b.length - a.length);
 }
 
+/**
+ * Strips H and V family names, and the check a refusal names: the gate runs H-no-regress last and stops at the
+ * first failure (gate-repair.ts), so "refused at H-no-regress", or by elimination any other check name, is an H reading.
+ */
 function scrub(s: string, names: string[]): string {
-  let out = s;
+  let out = s.replace(/\brefused at (?:the gate|[A-Za-z-]+)/g, "refused");
   for (const n of names) out = out.split(n).join(HELD_OUT_MARK);
   return out;
 }

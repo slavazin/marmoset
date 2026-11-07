@@ -2,15 +2,16 @@
 //   ensureCalibration(deps, base)  at the run's first trial, the baseline arm twice on each TRIAL_FAMILIES family;
 //                                  per family margin = max(MARGIN_FLOOR[f], 2 × spread) in its unit (gate-skill.ts),
 //                                  appended once to runs/<run>/calibration.jsonl. A family already in that file is
-//                                  read, never re-run or rewritten (trial.test.ts);
+//                                  read, never re-run or rewritten (slow.test.ts);
 //   runTrial(candidate, placebo, deps)  3 arms × TRIAL_FAMILIES, each a family repair task from one core-live commit
 //                                  under one budget, in parallel scratch repos (loop/projection.ts, loop/repair.ts);
 //                                  each arm's core/** diff is applied to a copy of the base core and scored on its
 //                                  family (split H) and the base suites; loop/gate-skill.ts decides; one Verdict with
 //                                  `arms` goes to ledger/verdicts.jsonl; the candidate graduates or is tombstoned, the
 //                                  placebo is tombstoned as retired; runs/<run>/trials.jsonl pairs candidate and twin.
-// Each arm run is an Attempt in ledger/attempts.jsonl (task.kind "family", task.arm the arm) and writes no observation.
-// The curve point of a generation is its skill verdict's `arms` (server/events.ts curveEvents reads them).
+// Each arm run is an Attempt in ledger/attempts.jsonl (task.kind "family", task.arm the arm) and writes no observation;
+// the placebo arm's packet/task.json reads arm "candidate", so its repairer cannot tell it from the candidate arm.
+// Each skill verdict carries its `generation` and `arms`; server/events.ts curveEvents plots the arms at that generation.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -91,17 +92,25 @@ export async function runArm(arm: ArmRun["arm"], family: string, shown: ShownSki
   }), d.paths.ledger);
   const S = (f: string, v: unknown) => status("attempts.jsonl", att.id, f, v, d.paths.ledger);
   tlog("loop", "trial.arm.start", { generation: d.generation, arm, family, attempt: att.id, skills: task.skills, base_commit: base });
-  const packet = repairPacket(task, { attempt: att.id, paths: d.paths, familyRoms: famRoms(d, family), shown });
+  // the repairer reads packet/task.json: the placebo arm's packet says "candidate", so the two skill arms differ only
+  // in their skill (G4: the repairer must not tell candidate from placebo); the Attempt keeps the true arm
+  const blind: RepairTask = taskArm === "placebo" ? { ...task, arm: "candidate" } : task;
+  const packet = repairPacket(blind, { attempt: att.id, paths: d.paths, familyRoms: famRoms(d, family), shown });
   S("scratch_files", packet.files);
-  const rep = await runRepair(task, packet, { attempt: att.id, server: d.paths.server, runner });
+  const rep = await runRepair(blind, packet, { attempt: att.id, server: d.paths.server, runner });
   S("model", rep.model); S("spent", rep.spent); S("isolation", rep.isolation);
   S("fires", all<Fire>("fires.jsonl", d.paths.ledger).filter((f) => f.attempt === att.id).map((f) => f.id));
   S("result", rep.result ?? { dispositions: {}, off_map: null, beliefs: [], summary: `no packet/RESULT.json (muse exit ${rep.exitCode})` });
   const coreDir = join(d.paths.cache, "trial", att.id);
   let diffPaths: string[] = [];
   try { diffPaths = coreAt(d.paths, base, coreDir, rep.diff); } catch (e) { tlog("loop", "trial.arm.apply-failed", { attempt: att.id, error: (e as Error).message }); coreAt(d.paths, base, coreDir); }
-  const [reading] = await d.judge.score(join(coreDir, "core"), "H", family);
-  const baseR = await d.judge.score(join(coreDir, "core"), "base");
+  // a core that cannot be scored (it fails to load) reads 0 on its family and no base reading, which the skill
+  // rule reads as a regression, so the trial ends in REFUSE instead of throwing with the skill left in shadow
+  let reading: SuiteReading | undefined, baseR: SuiteReading[] = [];
+  try {
+    [reading] = await d.judge.score(join(coreDir, "core"), "H", family);
+    baseR = await d.judge.score(join(coreDir, "core"), "base");
+  } catch (e) { reading = undefined; baseR = []; tlog("loop", "trial.arm.score-failed", { attempt: att.id, error: (e as Error).message }); }
   removeScratch(packet.dir); removeScratch(coreDir);
   rmSync(`${packet.dir}.home`, { recursive: true, force: true });
   const out: ArmRun = { arm, family, attempt: att.id, reading: reading ?? { split: "H", family, roms: 0, pass: 0, exact: 0, pixel_match: 0 }, base: baseR, diffPaths };
@@ -169,7 +178,7 @@ export async function runTrial(candidate: string, placebo: string, d: TrialDeps)
   const dec = decideSkill({ families: fams, readings, margin, baseRef, armBase });
 
   const verdict = appendNew<Verdict>("verdicts.jsonl", "VER", (id) => ({
-    id, at: new Date().toISOString(), run: runId(), subject: { kind: "skill", id: candidate }, decision: dec.decision, checks: dec.checks,
+    id, at: new Date().toISOString(), run: runId(), generation: d.generation, subject: { kind: "skill", id: candidate }, decision: dec.decision, checks: dec.checks,
     arms: { ...readings, margin, n_family_runs_per_arm: 1 }, reason: dec.reason, residue: [...SKILL_RESIDUE], rule_version: ruleVersion(),
   }), d.paths.ledger);
   tlog("loop", "trial.verdict", { generation: d.generation, verdict });
