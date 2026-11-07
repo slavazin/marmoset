@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ratchet</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header>
+    <b>Ratchet</b>
+    <span id="conn" class="led" title="SSE"><i></i>server</span>
+    <span id="corelabel" class="dim"></span>
+    <span id="romlabel" class="dim"></span>
+    <label class="pick">ROM <input id="rompick" type="file" accept=".gb,.gbc,.bin"></label>
+  </header>
+  <main>
+    <section id="side" hidden>
+      <div class="pair">
+        <canvas id="evcore" class="small" title="core frame (evidence)"></canvas>
+        <div class="stackc">
+          <canvas id="oracle" class="small" title="oracle frame"></canvas>
+          <canvas id="diff" class="small overlay" title="diff"></canvas>
+        </div>
+      </div>
+      <div id="sidecap" class="cap"></div>
+    </section>
+    <section id="centre">
+      <div class="shell">
+        <canvas id="lcd" title="core LCD"></canvas>
+        <div class="cap"><span id="fps"></span> · keys: arrows, Z=A, X=B, Enter=Start, Backspace=Select · mask <code id="mask">00000000</code> · player <span id="player">—</span></div>
+      </div>
+    </section>
+    <aside id="right">
+      <div id="meta"></div>
+      <div class="heatwrap"><div id="heatlabels"></div><canvas id="heat" width="120"></canvas></div>
+    </aside>
+  </main>
+  <footer>
+    <section><h3>Incidents</h3><div id="feed" class="scroll"></div></section>
+    <section><h3>Ratchet stack</h3><div id="stack" class="scroll"></div></section>
+    <section><h3>Generation curve</h3><div id="curve"></div><h3>Mooneye</h3><div id="mooneye"></div><div id="vread" hidden></div></section>
+  </footer>
+  <dialog id="modal"><button id="modalclose">close</button><div id="modalbody"></div></dialog>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

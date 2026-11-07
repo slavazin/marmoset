@@ -1,0 +1,26 @@
+[
+  {
+    "handler": "ppu.fetcher",
+    "file": "core/ppu.ts",
+    "commit": "b0b0b02",
+    "attempt": "ATT-0002",
+    "skill": "SKL-0002"
+  },
+  {
+    "handler": "ppu.fifo",
+    "file": "core/ppu.ts",
+    "commit": "b0b0b02",
+    "attempt": "ATT-0002",
+    "skill": "SKL-0002"
+  },
+  {
+    "handler": "cpu.op",
+    "file": "core/cpu.ts",
+    "commit": "f1x7ure"
+  },
+  {
+    "handler": "timer",
+    "file": "core/timer.ts",
+    "commit": "f1x7ure"
+  }
+]

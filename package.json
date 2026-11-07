@@ -2,7 +2,9 @@
   "name": "ratchet",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test \"**/*.test.ts\"",
     "roms:fetch": "node scripts/roms-fetch.ts",
@@ -12,7 +14,9 @@
     "game:build": "node -e \"console.error('not built: S4');process.exit(1)\"",
     "lockstep": "node -e \"console.error('not built: S5');process.exit(1)\"",
     "replay": "node -e \"console.error('not built: S5');process.exit(1)\"",
-    "dev": "node -e \"console.error('not built: S6');process.exit(1)\"",
+    "dev": "node ui/dev.ts",
+    "dev:fixtures": "node ui/dev.ts --fixtures",
+    "ui:fixtures": "node ui/fixtures/make.ts",
     "play": "node -e \"console.error('not built: S7');process.exit(1)\"",
     "loop:once": "node -e \"console.error('not built: S8');process.exit(1)\"",
     "steer": "node -e \"console.error('not built: S8');process.exit(1)\"",
@@ -22,7 +26,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vite": "^6.4.5"
   },
   "dependencies": {
     "pngjs": "7.0.0"
