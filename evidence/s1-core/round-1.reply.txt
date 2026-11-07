@@ -1,0 +1,500 @@
+Building a complete Game Boy core from the ground up — CPU, PPU, timers, and all.=== FILE: core/cpu.ts ===
+import type { HandlerId } from "../src/schema.ts";
+
+export interface CpuState {
+  a: number; b: number; c: number; d: number; e: number;
+  f: number; h: number; l: number; sp: number; pc: number;
+  ime: number; eiDelay: number; halt: number; haltBug: number; stop: number;
+}
+
+export function initCpuState(): CpuState {
+  return { a: 0x01, b: 0x00, c: 0x13, d: 0x00, e: 0xd8, f: 0xb0, h: 0x01, l: 0x4d, sp: 0xfffe, pc: 0x0100, ime: 0, eiDelay: 0, halt: 0, haltBug: 0, stop: 0 };
+}
+
+export interface CpuBus {
+  read(addr: number): number;
+  write(addr: number, v: number): void;
+  tickM(): void;
+  onOp(op: number): void;
+  onCb(op: number): void;
+  serviceInterrupt(): boolean;
+  checkHaltExit(): boolean;
+  cycles: number;
+}
+
+// flag helpers
+function getZ(f: number): number { return (f >> 7) & 1; }
+function setFlags(z: number, n: number, h: number, c: number): number { return (z << 7) | (n << 6) | (h << 5) | (c << 4); }
+
+export function cpuStep(s: CpuState, bus: CpuBus): void {
+  // EI delay handling: if eiDelay pending, count down
+  // service interrupt first?
+  // HALT behavior
+  if (s.halt === 1) {
+    // halt idle step: one M-cycle tick, check interrupt exit
+    bus.tickM();
+    if (bus.checkHaltExit()) {
+      s.halt = 0;
+    }
+    // also try servicing if IME
+    if (s.eiDelay > 0) {
+      s.eiDelay--;
+      if (s.eiDelay === 0) s.ime = 1;
+    } else {
+      if (bus.serviceInterrupt()) {
+        s.halt = 0;
+      }
+    }
+    return;
+  }
+
+  // EI delay: interrupts serviced after next instruction? Actually EI enables after 1 instruction delay.
+  // Interrupt check happens before fetch each instruction, except during delay.
+  if (s.eiDelay > 0) {
+    s.eiDelay--;
+    if (s.eiDelay === 0) s.ime = 1;
+    // do not service this step? Actually after decrement to 0, IME set, but check next step.
+    // Standard: EI then next instruction executes with IME=0, then IME=1. So don't service now.
+    execOne(s, bus);
+    return;
+  }
+  if (bus.serviceInterrupt()) {
+    // serviced (clears halt too)
+    s.halt = 0;
+    return;
+  }
+  execOne(s, bus);
+}
+
+function fetchByte(s: CpuState, bus: CpuBus): number {
+  let v: number;
+  if (s.haltBug === 1) {
+    s.haltBug = 0;
+    v = bus.read(s.pc); // no increment
+  } else {
+    v = bus.read(s.pc);
+    s.pc = (s.pc + 1) & 0xffff;
+  }
+  return v;
+}
+
+function execOne(s: CpuState, bus: CpuBus): void {
+  const op = fetchByte(s, bus);
+  bus.onOp(op);
+  switch (op) {
+    case 0x00: bus.tickM(); break; // NOP
+    case 0x01: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); s.b = hi; s.c = lo; break; } // LD BC,nn (2 M fetch? actually each fetch already ticked? need care)
+    case 0x02: bus.write((s.b << 8) | s.c, s.a); break;
+    case 0x03: bus.tickM(); { const v = (((s.b << 8) | s.c) + 1) & 0xffff; s.b = v >> 8; s.c = v & 0xff; } break;
+    case 0x04: s.b = inc8(s, s.b); break;
+    case 0x05: s.b = dec8(s, s.b); break;
+    case 0x06: { const v = fetchByte(s, bus); bus.tickM(); s.b = v; break; }
+    case 0x07: { const c = (s.a >> 7) & 1; s.a = ((s.a << 1) | c) & 0xff; s.f = setFlags(0, 0, 0, c); bus.tickM(); break; }
+    case 0x08: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); const a = lo | (hi << 8); bus.write(a, s.sp & 0xff); bus.write((a + 1) & 0xffff, (s.sp >> 8) & 0xff); break; }
+    case 0x09: addHL(s, bus, (s.b << 8) | s.c); break;
+    case 0x0a: s.a = bus.read((s.b << 8) | s.c); break;
+    case 0x0b: bus.tickM(); { const v = (((s.b << 8) | s.c) - 1) & 0xffff; s.b = v >> 8; s.c = v & 0xff; } break;
+    case 0x0c: s.c = inc8(s, s.c); break;
+    case 0x0d: s.c = dec8(s, s.c); break;
+    case 0x0e: { const v = fetchByte(s, bus); bus.tickM(); s.c = v; break; }
+    case 0x0f: { const c = s.a & 1; s.a = ((c << 7) | (s.a >> 1)) & 0xff; s.f = setFlags(0, 0, 0, c); bus.tickM(); break; }
+    case 0x10: { // STOP
+      const v = fetchByte(s, bus); bus.tickM(); void v; s.stop = 1; break;
+    }
+    case 0x11: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); s.d = hi; s.e = lo; break; }
+    case 0x12: bus.write((s.d << 8) | s.e, s.a); break;
+    case 0x13: bus.tickM(); { const v = (((s.d << 8) | s.e) + 1) & 0xffff; s.d = v >> 8; s.e = v & 0xff; } break;
+    case 0x14: s.d = inc8(s, s.d); break;
+    case 0x15: s.d = dec8(s, s.d); break;
+    case 0x16: { const v = fetchByte(s, bus); bus.tickM(); s.d = v; break; }
+    case 0x17: { const c = (s.a >> 7) & 1; const old = (s.f >> 4) & 1; s.a = ((s.a << 1) | old) & 0xff; s.f = setFlags(0, 0, 0, c); bus.tickM(); break; }
+    case 0x18: { const off = fetchByte(s, bus); bus.tickM(); const o = off < 0x80 ? off : off - 0x100; s.pc = (s.pc + o) & 0xffff; bus.tickM(); break; }
+    case 0x19: addHL(s, bus, (s.d << 8) | s.e); break;
+    case 0x1a: s.a = bus.read((s.d << 8) | s.e); break;
+    case 0x1b: bus.tickM(); { const v = (((s.d << 8) | s.e) - 1) & 0xffff; s.d = v >> 8; s.e = v & 0xff; } break;
+    case 0x1c: s.e = inc8(s, s.e); break;
+    case 0x1d: s.e = dec8(s, s.e); break;
+    case 0x1e: { const v = fetchByte(s, bus); bus.tickM(); s.e = v; break; }
+    case 0x1f: { const old = (s.f >> 4) & 1; const c = s.a & 1; s.a = ((old << 7) | (s.a >> 1)) & 0xff; s.f = setFlags(0, 0, 0, c); bus.tickM(); break; }
+    case 0x20: { const off = fetchByte(s, bus); bus.tickM(); if (!getZ(s.f)) { const o = off < 0x80 ? off : off - 0x100; s.pc = (s.pc + o) & 0xffff; bus.tickM(); } break; }
+    case 0x21: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); s.h = hi; s.l = lo; break; }
+    case 0x22: { const a = (s.h << 8) | s.l; bus.write(a, s.a); const n = (a + 1) & 0xffff; s.h = n >> 8; s.l = n & 0xff; break; }
+    case 0x23: bus.tickM(); { const v = (((s.h << 8) | s.l) + 1) & 0xffff; s.h = v >> 8; s.l = v & 0xff; } break;
+    case 0x24: s.h = inc8(s, s.h); break;
+    case 0x25: s.h = dec8(s, s.h); break;
+    case 0x26: { const v = fetchByte(s, bus); bus.tickM(); s.h = v; break; }
+    case 0x27: { // DAA
+      let a = s.a; let c = (s.f >> 4) & 1; const n = (s.f >> 6) & 1; const h = (s.f >> 5) & 1;
+      let corr = 0;
+      if (!n) {
+        if (h || (a & 0x0f) > 9) corr |= 0x06;
+        if (c || a > 0x99) { corr |= 0x60; c = 1; }
+        a = (a + corr) & 0xff;
+      } else {
+        if (h) a = (a - 6) & 0xff;
+        if (c) a = (a - 0x60) & 0xff;
+      }
+      s.a = a;
+      s.f = setFlags(a === 0 ? 1 : 0, n, 0, c);
+      bus.tickM(); break;
+    }
+    case 0x28: { const off = fetchByte(s, bus); bus.tickM(); if (getZ(s.f)) { const o = off < 0x80 ? off : off - 0x100; s.pc = (s.pc + o) & 0xffff; bus.tickM(); } break; }
+    case 0x29: addHL(s, bus, (s.h << 8) | s.l); break;
+    case 0x2a: { const a = (s.h << 8) | s.l; s.a = bus.read(a); const n = (a + 1) & 0xffff; s.h = n >> 8; s.l = n & 0xff; break; }
+    case 0x2b: bus.tickM(); { const v = (((s.h << 8) | s.l) - 1) & 0xffff; s.h = v >> 8; s.l = v & 0xff; } break;
+    case 0x2c: s.l = inc8(s, s.l); break;
+    case 0x2d: s.l = dec8(s, s.l); break;
+    case 0x2e: { const v = fetchByte(s, bus); bus.tickM(); s.l = v; break; }
+    case 0x2f: s.a = (~s.a) & 0xff; s.f = s.f | 0x60; bus.tickM(); break;
+    case 0x30: { const off = fetchByte(s, bus); bus.tickM(); if (!((s.f >> 4) & 1)) { const o = off < 0x80 ? off : off - 0x100; s.pc = (s.pc + o) & 0xffff; bus.tickM(); } break; }
+    case 0x31: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); s.sp = (lo | (hi << 8)) & 0xffff; break; }
+    case 0x32: { const a = (s.h << 8) | s.l; bus.write(a, s.a); const n = (a - 1) & 0xffff; s.h = n >> 8; s.l = n & 0xff; break; }
+    case 0x33: bus.tickM(); s.sp = (s.sp + 1) & 0xffff; break;
+    case 0x34: { const a = (s.h << 8) | s.l; const v = bus.read(a); bus.tickM(); const r = inc8raw(s, v); bus.write(a, r); break; }
+    case 0x35: { const a = (s.h << 8) | s.l; const v = bus.read(a); bus.tickM(); const r = dec8raw(s, v); bus.write(a, r); break; }
+    case 0x36: { const v = fetchByte(s, bus); bus.tickM(); bus.write((s.h << 8) | s.l, v); break; }
+    case 0x37: s.f = setFlags(getZ(s.f), 0, 0, 1); bus.tickM(); break;
+    case 0x38: { const off = fetchByte(s, bus); bus.tickM(); if ((s.f >> 4) & 1) { const o = off < 0x80 ? off : off - 0x100; s.pc = (s.pc + o) & 0xffff; bus.tickM(); } break; }
+    case 0x39: addHL(s, bus, s.sp); break;
+    case 0x3a: { const a = (s.h << 8) | s.l; s.a = bus.read(a); const n = (a - 1) & 0xffff; s.h = n >> 8; s.l = n & 0xff; break; }
+    case 0x3b: bus.tickM(); s.sp = (s.sp - 1) & 0xffff; break;
+    case 0x3c: s.a = inc8(s, s.a); break;
+    case 0x3d: s.a = dec8(s, s.a); break;
+    case 0x3e: { const v = fetchByte(s, bus); bus.tickM(); s.a = v; break; }
+    case 0x3f: { const c = ((s.f >> 4) & 1) ^ 1; s.f = setFlags(getZ(s.f), 0, 0, c); bus.tickM(); break; }
+    case 0x40: bus.tickM(); s.b = s.b; break;
+    case 0x41: bus.tickM(); s.b = s.c; break;
+    case 0x42: bus.tickM(); s.b = s.d; break;
+    case 0x43: bus.tickM(); s.b = s.e; break;
+    case 0x44: bus.tickM(); s.b = s.h; break;
+    case 0x45: bus.tickM(); s.b = s.l; break;
+    case 0x46: s.b = bus.read((s.h << 8) | s.l); break;
+    case 0x47: bus.tickM(); s.b = s.a; break;
+    case 0x48: bus.tickM(); s.c = s.b; break;
+    case 0x49: bus.tickM(); s.c = s.c; break;
+    case 0x4a: bus.tickM(); s.c = s.d; break;
+    case 0x4b: bus.tickM(); s.c = s.e; break;
+    case 0x4c: bus.tickM(); s.c = s.h; break;
+    case 0x4d: bus.tickM(); s.c = s.l; break;
+    case 0x4e: s.c = bus.read((s.h << 8) | s.l); break;
+    case 0x4f: bus.tickM(); s.c = s.a; break;
+    case 0x50: bus.tickM(); s.d = s.b; break;
+    case 0x51: bus.tickM(); s.d = s.c; break;
+    case 0x52: bus.tickM(); s.d = s.d; break;
+    case 0x53: bus.tickM(); s.d = s.e; break;
+    case 0x54: bus.tickM(); s.d = s.h; break;
+    case 0x55: bus.tickM(); s.d = s.l; break;
+    case 0x56: s.d = bus.read((s.h << 8) | s.l); break;
+    case 0x57: bus.tickM(); s.d = s.a; break;
+    case 0x58: bus.tickM(); s.e = s.b; break;
+    case 0x59: bus.tickM(); s.e = s.c; break;
+    case 0x5a: bus.tickM(); s.e = s.d; break;
+    case 0x5b: bus.tickM(); s.e = s.e; break;
+    case 0x5c: bus.tickM(); s.e = s.h; break;
+    case 0x5d: bus.tickM(); s.e = s.l; break;
+    case 0x5e: s.e = bus.read((s.h << 8) | s.l); break;
+    case 0x5f: bus.tickM(); s.e = s.a; break;
+    case 0x60: bus.tickM(); s.h = s.b; break;
+    case 0x61: bus.tickM(); s.h = s.c; break;
+    case 0x62: bus.tickM(); s.h = s.d; break;
+    case 0x63: bus.tickM(); s.h = s.e; break;
+    case 0x64: bus.tickM(); s.h = s.h; break;
+    case 0x65: bus.tickM(); s.h = s.l; break;
+    case 0x66: s.h = bus.read((s.h << 8) | s.l); break;
+    case 0x67: bus.tickM(); s.h = s.a; break;
+    case 0x68: bus.tickM(); s.l = s.b; break;
+    case 0x69: bus.tickM(); s.l = s.c; break;
+    case 0x6a: bus.tickM(); s.l = s.d; break;
+    case 0x6b: bus.tickM(); s.l = s.e; break;
+    case 0x6c: bus.tickM(); s.l = s.h; break;
+    case 0x6d: bus.tickM(); s.l = s.l; break;
+    case 0x6e: s.l = bus.read((s.h << 8) | s.l); break;
+    case 0x6f: bus.tickM(); s.l = s.a; break;
+    case 0x70: bus.write((s.h << 8) | s.l, s.b); break;
+    case 0x71: bus.write((s.h << 8) | s.l, s.c); break;
+    case 0x72: bus.write((s.h << 8) | s.l, s.d); break;
+    case 0x73: bus.write((s.h << 8) | s.l, s.e); break;
+    case 0x74: bus.write((s.h << 8) | s.l, s.h); break;
+    case 0x75: bus.write((s.h << 8) | s.l, s.l); break;
+    case 0x76: {
+      // HALT: check IME and pending
+      const pending = bus.checkHaltExit();
+      if (s.ime === 1) {
+        s.halt = 1; bus.tickM();
+      } else {
+        if (pending) {
+          s.haltBug = 1;
+        } else {
+          s.halt = 1;
+        }
+        bus.tickM();
+      }
+      break;
+    }
+    case 0x77: bus.write((s.h << 8) | s.l, s.a); break;
+    case 0x78: bus.tickM(); s.a = s.b; break;
+    case 0x79: bus.tickM(); s.a = s.c; break;
+    case 0x7a: bus.tickM(); s.a = s.d; break;
+    case 0x7b: bus.tickM(); s.a = s.e; break;
+    case 0x7c: bus.tickM(); s.a = s.h; break;
+    case 0x7d: bus.tickM(); s.a = s.l; break;
+    case 0x7e: s.a = bus.read((s.h << 8) | s.l); break;
+    case 0x7f: bus.tickM(); s.a = s.a; break;
+    case 0x80: addA(s, bus, s.b); break;
+    case 0x81: addA(s, bus, s.c); break;
+    case 0x82: addA(s, bus, s.d); break;
+    case 0x83: addA(s, bus, s.e); break;
+    case 0x84: addA(s, bus, s.h); break;
+    case 0x85: addA(s, bus, s.l); break;
+    case 0x86: { const v = bus.read((s.h << 8) | s.l); addA(s, bus, v); break; }
+    case 0x87: addA(s, bus, s.a); break;
+    case 0x88: adcA(s, bus, s.b); break;
+    case 0x89: adcA(s, bus, s.c); break;
+    case 0x8a: adcA(s, bus, s.d); break;
+    case 0x8b: adcA(s, bus, s.e); break;
+    case 0x8c: adcA(s, bus, s.h); break;
+    case 0x8d: adcA(s, bus, s.l); break;
+    case 0x8e: { const v = bus.read((s.h << 8) | s.l); adcA(s, bus, v); break; }
+    case 0x8f: adcA(s, bus, s.a); break;
+    case 0x90: subA(s, bus, s.b); break;
+    case 0x91: subA(s, bus, s.c); break;
+    case 0x92: subA(s, bus, s.d); break;
+    case 0x93: subA(s, bus, s.e); break;
+    case 0x94: subA(s, bus, s.h); break;
+    case 0x95: subA(s, bus, s.l); break;
+    case 0x96: { const v = bus.read((s.h << 8) | s.l); subA(s, bus, v); break; }
+    case 0x97: subA(s, bus, s.a); break;
+    case 0x98: sbcA(s, bus, s.b); break;
+    case 0x99: sbcA(s, bus, s.c); break;
+    case 0x9a: sbcA(s, bus, s.d); break;
+    case 0x9b: sbcA(s, bus, s.e); break;
+    case 0x9c: sbcA(s, bus, s.h); break;
+    case 0x9d: sbcA(s, bus, s.l); break;
+    case 0x9e: { const v = bus.read((s.h << 8) | s.l); sbcA(s, bus, v); break; }
+    case 0x9f: sbcA(s, bus, s.a); break;
+    case 0xa0: andA(s, bus, s.b); break;
+    case 0xa1: andA(s, bus, s.c); break;
+    case 0xa2: andA(s, bus, s.d); break;
+    case 0xa3: andA(s, bus, s.e); break;
+    case 0xa4: andA(s, bus, s.h); break;
+    case 0xa5: andA(s, bus, s.l); break;
+    case 0xa6: { const v = bus.read((s.h << 8) | s.l); andA(s, bus, v); break; }
+    case 0xa7: andA(s, bus, s.a); break;
+    case 0xa8: xorA(s, bus, s.b); break;
+    case 0xa9: xorA(s, bus, s.c); break;
+    case 0xaa: xorA(s, bus, s.d); break;
+    case 0xab: xorA(s, bus, s.e); break;
+    case 0xac: xorA(s, bus, s.h); break;
+    case 0xad: xorA(s, bus, s.l); break;
+    case 0xae: { const v = bus.read((s.h << 8) | s.l); xorA(s, bus, v); break; }
+    case 0xaf: xorA(s, bus, s.a); break;
+    case 0xb0: orA(s, bus, s.b); break;
+    case 0xb1: orA(s, bus, s.c); break;
+    case 0xb2: orA(s, bus, s.d); break;
+    case 0xb3: orA(s, bus, s.e); break;
+    case 0xb4: orA(s, bus, s.h); break;
+    case 0xb5: orA(s, bus, s.l); break;
+    case 0xb6: { const v = bus.read((s.h << 8) | s.l); orA(s, bus, v); break; }
+    case 0xb7: orA(s, bus, s.a); break;
+    case 0xb8: cpA(s, bus, s.b); break;
+    case 0xb9: cpA(s, bus, s.c); break;
+    case 0xba: cpA(s, bus, s.d); break;
+    case 0xbb: cpA(s, bus, s.e); break;
+    case 0xbc: cpA(s, bus, s.h); break;
+    case 0xbd: cpA(s, bus, s.l); break;
+    case 0xbe: { const v = bus.read((s.h << 8) | s.l); cpA(s, bus, v); break; }
+    case 0xbf: cpA(s, bus, s.a); break;
+    case 0xc0: bus.tickM(); if (!getZ(s.f)) { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.pc = lo | (hi << 8); bus.tickM(); } break;
+    case 0xc1: { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.b = hi; s.c = lo; bus.tickM(); break; }
+    case 0xc2: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if (!getZ(s.f)) { s.pc = lo | (hi << 8); bus.tickM(); } break; }
+    case 0xc3: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); s.pc = lo | (hi << 8); bus.tickM(); break; }
+    case 0xc4: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if (!getZ(s.f)) { pushAddr(s, bus, s.pc); s.pc = lo | (hi << 8); } break; }
+    case 0xc5: bus.tickM(); pushReg(s, bus, s.b, s.c); break;
+    case 0xc6: { const v = fetchByte(s, bus); bus.tickM(); addA(s, bus, v); break; }
+    case 0xc7: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0000; break;
+    case 0xc8: bus.tickM(); if (getZ(s.f)) { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.pc = lo | (hi << 8); bus.tickM(); } break;
+    case 0xc9: { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.pc = lo | (hi << 8); bus.tickM(); break; }
+    case 0xca: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if (getZ(s.f)) { s.pc = lo | (hi << 8); bus.tickM(); } break; }
+    case 0xcb: { const cb = fetchByte(s, bus); bus.tickM(); execCb(s, bus, cb); break; }
+    case 0xcc: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if (getZ(s.f)) { pushAddr(s, bus, s.pc); s.pc = lo | (hi << 8); } break; }
+    case 0xcd: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); pushAddr(s, bus, s.pc); s.pc = lo | (hi << 8); break; }
+    case 0xce: { const v = fetchByte(s, bus); bus.tickM(); adcA(s, bus, v); break; }
+    case 0xcf: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0008; break;
+    case 0xd0: bus.tickM(); if (!((s.f >> 4) & 1)) { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.pc = lo | (hi << 8); bus.tickM(); } break;
+    case 0xd1: { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.d = hi; s.e = lo; bus.tickM(); break; }
+    case 0xd2: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if (!((s.f >> 4) & 1)) { s.pc = lo | (hi << 8); bus.tickM(); } break; }
+    case 0xd4: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if (!((s.f >> 4) & 1)) { pushAddr(s, bus, s.pc); s.pc = lo | (hi << 8); } break; }
+    case 0xd5: bus.tickM(); pushReg(s, bus, s.d, s.e); break;
+    case 0xd6: { const v = fetchByte(s, bus); bus.tickM(); subA(s, bus, v); break; }
+    case 0xd7: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0010; break;
+    case 0xd8: bus.tickM(); if ((s.f >> 4) & 1) { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.pc = lo | (hi << 8); bus.tickM(); } break;
+    case 0xd9: { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.pc = lo | (hi << 8); s.ime = 1; s.eiDelay = 0; bus.tickM(); break; }
+    case 0xda: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if ((s.f >> 4) & 1) { s.pc = lo | (hi << 8); bus.tickM(); } break; }
+    case 0xdc: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); if ((s.f >> 4) & 1) { pushAddr(s, bus, s.pc); s.pc = lo | (hi << 8); } break; }
+    case 0xde: { const v = fetchByte(s, bus); bus.tickM(); sbcA(s, bus, v); break; }
+    case 0xdf: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0018; break;
+    case 0xe0: { const off = fetchByte(s, bus); bus.tickM(); bus.write(0xff00 | off, s.a); break; }
+    case 0xe1: { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.h = hi; s.l = lo; bus.tickM(); break; }
+    case 0xe2: bus.write(0xff00 | s.c, s.a); break;
+    case 0xe5: bus.tickM(); pushReg(s, bus, s.h, s.l); break;
+    case 0xe6: { const v = fetchByte(s, bus); bus.tickM(); andA(s, bus, v); break; }
+    case 0xe7: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0020; break;
+    case 0xe8: { const v = fetchByte(s, bus); bus.tickM(); const sv = v < 0x80 ? v : v - 0x100; const sp = s.sp; bus.tickM(); bus.tickM(); const r = (sp + sv) & 0xffff; const h = ((sp & 0x0f) + (sv & 0x0f)) > 0x0f ? 1 : 0; // careful negative
+      const h2 = ((sp & 0xff) + (sv & 0xff) + 0x100) & 0x1ff; void h2;
+      // half & carry computed on low byte addition unsigned
+      const u = v; const hc = ((sp & 0x0f) + (u & 0x0f)) > 0x0f ? 1 : 0; const cc = ((sp & 0xff) + u) > 0xff ? 1 : 0;
+      void h; s.sp = r; s.f = setFlags(0, 0, hc, cc); break; }
+    case 0xe9: s.pc = (s.h << 8) | s.l; break;
+    case 0xea: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); bus.write(lo | (hi << 8), s.a); break; }
+    case 0xee: { const v = fetchByte(s, bus); bus.tickM(); xorA(s, bus, v); break; }
+    case 0xef: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0028; break;
+    case 0xf0: { const off = fetchByte(s, bus); bus.tickM(); s.a = bus.read(0xff00 | off); break; }
+    case 0xf1: { const lo = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; const hi = bus.read(s.sp); s.sp = (s.sp + 1) & 0xffff; s.a = hi; s.f = lo & 0xf0; bus.tickM(); break; }
+    case 0xf2: s.a = bus.read(0xff00 | s.c); break;
+    case 0xf3: s.ime = 0; s.eiDelay = 0; bus.tickM(); break;
+    case 0xf5: bus.tickM(); pushReg(s, bus, s.a, s.f); break;
+    case 0xf6: { const v = fetchByte(s, bus); bus.tickM(); orA(s, bus, v); break; }
+    case 0xf7: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0030; break;
+    case 0xf8: { const v = fetchByte(s, bus); bus.tickM(); const u = v; const hc = ((s.sp & 0x0f) + (u & 0x0f)) > 0x0f ? 1 : 0; const cc = ((s.sp & 0xff) + u) > 0xff ? 1 : 0; const sv = v < 0x80 ? v : v - 0x100; const r = (s.sp + sv) & 0xffff; bus.tickM(); s.h = (r >> 8) & 0xff; s.l = r & 0xff; s.f = setFlags(0, 0, hc, cc); break; }
+    case 0xf9: s.sp = (s.h << 8) | s.l; bus.tickM(); break;
+    case 0xfa: { const lo = fetchByte(s, bus); bus.tickM(); const hi = fetchByte(s, bus); bus.tickM(); s.a = bus.read(lo | (hi << 8)); break; }
+    case 0xfb: s.eiDelay = 2; bus.tickM(); break; // EI: delay one instruction (2->1 after decrement? handle)
+    case 0xfe: { const v = fetchByte(s, bus); bus.tickM(); cpA(s, bus, v); break; }
+    case 0xff: bus.tickM(); pushAddr(s, bus, s.pc); s.pc = 0x0038; break;
+    case 0xd3: case 0xdb: case 0xdd: case 0xe3: case 0xe4: case 0xeb: case 0xec: case 0xed: case 0xf4: case 0xfc: case 0xfd:
+      // illegal: treat as NOP-ish? still tick
+      bus.tickM(); break;
+    default: bus.tickM(); break;
+  }
+}
+
+// EI delay semantics: we set 2, then cpuStep decrements at start of next steps. First step after EI: 2->1 executes instruction, second: 1->0 executes? That would be 2-instruction delay. Fix: set to 1 with special flag? Let's use: eiDelay=2 means: next instruction no service, after that enable. Our cpuStep: if eiDelay>0 { eiDelay--; if 0 ime=1; exec }. With eiDelay=2 set after EI: next step: 2->1, exec without ime; following: 1->0 sets ime=1 then exec (but ime already 1 during that exec — interrupt would be serviceable only after, that's fine since service check skipped this step). So delay is 1 full instruction. Good.
+
+function pushAddr(s: CpuState, bus: CpuBus, v: number): void {
+  bus.tickM();
+  s.sp = (s.sp - 1) & 0xffff; bus.write(s.sp, (v >> 8) & 0xff);
+  s.sp = (s.sp - 1) & 0xffff; bus.write(s.sp, v & 0xff);
+}
+function pushReg(s: CpuState, bus: CpuBus, hi: number, lo: number): void {
+  s.sp = (s.sp - 1) & 0xffff; bus.write(s.sp, hi & 0xff);
+  s.sp = (s.sp - 1) & 0xffff; bus.write(s.sp, lo & 0xff);
+}
+
+function inc8(s: CpuState, v: number): number { bus_tick_placeholder(s); const r = (v + 1) & 0xff; s.f = setFlags(r === 0 ? 1 : 0, 0, (v & 0x0f) === 0x0f ? 1 : 0, (s.f >> 4) & 1); return r; }
+// need tick? inc r takes 1 M total including fetch. fetch already ticked (fetchByte does read which ticks). So need no extra. But LD r,r etc need extra tickM which we did. For ALU reg ops (0x80..), they are 1 M total = just fetch. So no extra tick. For inc/dec reg also 1 M = just fetch. Our inc8 shouldn't tick. Remove placeholder.
+function bus_tick_placeholder(_s: CpuState): void { void _s; }
+function inc8raw(s: CpuState, v: number): number { const r = (v + 1) & 0xff; s.f = setFlags(r === 0 ? 1 : 0, 0, (v & 0x0f) === 0x0f ? 1 : 0, (s.f >> 4) & 1); return r; }
+function dec8(s: CpuState, v: number): number { const r = (v - 1) & 0xff; s.f = setFlags(r === 0 ? 1 : 0, 1, (v & 0x0f) === 0 ? 1 : 0, (s.f >> 4) & 1); return r; }
+function dec8raw(s: CpuState, v: number): number { const r = (v - 1) & 0xff; s.f = setFlags(r === 0 ? 1 : 0, 1, (v & 0x0f) === 0 ? 1 : 0, (s.f >> 4) & 1); return r; }
+
+function addHL(s: CpuState, bus: CpuBus, v: number): void {
+  const hl = (s.h << 8) | s.l; const r = hl + v;
+  s.f = setFlags(getZ(s.f), 0, ((hl & 0xfff) + (v & 0xfff)) > 0xfff ? 1 : 0, r > 0xffff ? 1 : 0);
+  s.h = (r >> 8) & 0xff; s.l = r & 0xff; bus.tickM();
+}
+function addA(s: CpuState, bus: CpuBus, v: number): void {
+  const r = s.a + v;
+  s.f = setFlags((r & 0xff) === 0 ? 1 : 0, 0, ((s.a & 0x0f) + (v & 0x0f)) > 0x0f ? 1 : 0, r > 0xff ? 1 : 0);
+  s.a = r & 0xff; if (busHasExtra(s, bus)) { void 0; }
+}
+function busHasExtra(_s: CpuState, _b: CpuBus): boolean { return false; }
+function adcA(s: CpuState, _bus: CpuBus, v: number): void {
+  const c = (_s_f(s) >> 4) & 1; void _bus; const r = s.a + v + c;
+  s.f = setFlags((r & 0xff) === 0 ? 1 : 0, 0, ((s.a & 0x0f) + (v & 0x0f) + c) > 0x0f ? 1 : 0, r > 0xff ? 1 : 0);
+  s.a = r & 0xff;
+}
+function _s_f(s: CpuState): number { return s.f; }
+function subA(s: CpuState, _bus: CpuBus, v: number): void {
+  const r = s.a - v; void _bus;
+  s.f = setFlags((r & 0xff) === 0 ? 1 : 0, 1, (s.a & 0x0f) < (v & 0x0f) ? 1 : 0, s.a < v ? 1 : 0);
+  s.a = r & 0xff;
+}
+function sbcA(s: CpuState, _bus: CpuBus, v: number): void {
+  const c = (s.f >> 4) & 1; void _bus; const r = s.a - v - c;
+  s.f = setFlags((r & 0xff) === 0 ? 1 : 0, 1, ((s.a & 0x0f) - (v & 0x0f) - c) < 0 ? 1 : 0, r < 0 ? 1 : 0);
+  s.a = r & 0xff;
+}
+function andA(s: CpuState, _bus: CpuBus, v: number): void {
+  void _bus; s.a &= v; s.f = setFlags(s.a === 0 ? 1 : 0, 0, 1, 0);
+}
+function xorA(s: CpuState, _bus: CpuBus, v: number): void {
+  void _bus; s.a ^= v; s.f = setFlags(s.a === 0 ? 1 : 0, 0, 0, 0);
+}
+function orA(s: CpuState, _bus: CpuBus, v: number): void {
+  void _bus; s.a |= v; s.f = setFlags(s.a === 0 ? 1 : 0, 0, 0, 0);
+}
+function cpA(s: CpuState, _bus: CpuBus, v: number): void {
+  void _bus; const r = s.a - v;
+  s.f = setFlags((r & 0xff) === 0 ? 1 : 0, 1, (s.a & 0x0f) < (v & 0x0f) ? 1 : 0, s.a < v ? 1 : 0);
+}
+
+function execCb(s: CpuState, bus: CpuBus, cb: number): void {
+  bus.onCb(cb);
+  const op = (cb >> 3) & 0x07; // for bit group reuse
+  const y = (cb >> 3) & 7; const z = cb & 7;
+  if (cb < 0x40) {
+    // rotates/shifts
+    let v: number; const isMem = z === 6;
+    if (isMem) v = bus.read((s.h << 8) | s.l);
+    else v = getReg(s, z);
+    let r = 0; let c = 0;
+    const grp = (cb >> 3) & 7; const base = cb & 0xf8;
+    void base;
+    if (grp === 0) { // RLC
+      c = (v >> 7) & 1; r = ((v << 1) | c) & 0xff;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, c);
+    } else if (grp === 1) { // RRC
+      c = v & 1; r = ((c << 7) | (v >> 1)) & 0xff;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, c);
+    } else if (grp === 2) { // RL
+      c = (v >> 7) & 1; const old = (s.f >> 4) & 1; r = ((v << 1) | old) & 0xff;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, c);
+    } else if (grp === 3) { // RR
+      c = v & 1; const old = (s.f >> 4) & 1; r = ((old << 7) | (v >> 1)) & 0xff;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, c);
+    } else if (grp === 4) { // SLA
+      c = (v >> 7) & 1; r = (v << 1) & 0xff;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, c);
+    } else if (grp === 5) { // SRA
+      c = v & 1; r = ((v & 0x80) | (v >> 1)) & 0xff;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, c);
+    } else if (grp === 6) { // SWAP
+      r = ((v & 0x0f) << 4) | ((v & 0xf0) >> 4); c = 0;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, 0);
+    } else { // SRL
+      c = v & 1; r = (v >> 1) & 0xff;
+      s.f = setFlags(r === 0 ? 1 : 0, 0, 0, c);
+    }
+    if (isMem) { bus.tickM(); bus.write((s.h << 8) | s.l, r); }
+    else setReg(s, z, r);
+    void op; void y;
+    return;
+  }
+  if (cb < 0x80) { // BIT
+    let v: number; const isMem = z === 6;
+    if (isMem) v = bus.read((s.h << 8) | s.l);
+    else v = getReg(s, z);
+    const bit = (v >> y) & 1;
+    s.f = setFlags(bit === 0 ? 1 : 0, 0, 1, (s.f >> 4) & 1);
+    return;
+  }
+  if (cb < 0xc0) { // RES
+    if (z === 6) { const a = (s.h << 8) | s.l; const v = bus.read(a); bus.tickM(); bus.write(a, v & ~(1 << y)); }
+    else setReg(s, z, getReg(s, z) & ~(1 << y));
+    return;
+  }
+  // SET
+  if (z === 6) { const a = (s.h << 8) | s.l; const v = bus.read(a); bus.tickM(); bus.write(a, v | (1 << y)); }
+  else setReg(s, z, getReg(s, z) | (1 << y));
+}
+
+function getReg(s: CpuState, z: number): number {
+  switch (z) { case 0: return s.b; case 1: return s.c; case 2: return s.d; case 3: return s.e; case 4: return s.h; case 5: return s.l; case 7: return s.a; default: return 0; }
+}
+function setReg(s: CpuState, z: number, v: number): void {
+  v &= 0xff;
+  switch (z) { case 0: s.b = v; break; case 1: s.c = v; break; case 2: s.d = v; break; case 3: s.e = v; break; case 4: s.h = v; break; case 5: s.l = v; break; case 7: s.a = v; break; }
+}
+
+export type { HandlerId };
+=== END FILE ===

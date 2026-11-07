@@ -1227,7 +1227,7 @@ var require_bitpacker = __commonJS({
         options.colorType
       ) !== -1;
       if (options.colorType === options.inputColorType) {
-        let bigEndian = function() {
+        let bigEndian = (function() {
           let buffer = new ArrayBuffer(2);
           new DataView(buffer).setInt16(
             0,
@@ -1236,7 +1236,7 @@ var require_bitpacker = __commonJS({
             /* littleEndian */
           );
           return new Int16Array(buffer)[0] !== 256;
-        }();
+        })();
         if (options.bitDepth === 8 || options.bitDepth === 16 && bigEndian) {
           return dataIn;
         }
