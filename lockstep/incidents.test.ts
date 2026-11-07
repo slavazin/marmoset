@@ -32,6 +32,18 @@ test("the JSONL sink refuses to append while another writer holds ledger/.lock, 
   assert.equal(existsSync(join(dir, "incidents.jsonl")), false);
 });
 
+test("a record over 4 KB and a record builder that throws both leave the file unchanged and ledger/.lock removed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ratchet-inc-"));
+  const path = join(dir, "incidents.jsonl");
+  const sink = new JsonlIncidentSink(path);
+  assert.throws(() => sink.record((id) => ({ ...make(id), narration: "x".repeat(MAX_LINE_BYTES) })), /ceiling/);
+  assert.equal(existsSync(join(dir, ".lock")), false);
+  assert.throws(() => sink.record(() => { throw new Error("builder failed"); }), /builder failed/);
+  assert.equal(existsSync(join(dir, ".lock")), false);
+  assert.equal(existsSync(path), false);
+  assert.equal(sink.record(make).id, "INC-0001");
+});
+
 test("an appended status record flipping an incident to repaired removes it from open()", () => {
   const dir = mkdtempSync(join(tmpdir(), "ratchet-inc-"));
   const path = join(dir, "incidents.jsonl");
