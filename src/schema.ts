@@ -134,6 +134,7 @@ export interface Verdict {
   reason: string; // names the deciding check and its reading
   residue: string[]; // e.g. ["audio", "CGB", "serial timing", "V (sealed)", "boot-state difference"]
   rule_version: string;
+  generation?: number; // skill verdicts: the slow-loop generation (runs/<run>/generations.jsonl) that ran the trial
 }
 // loop/gate.ts constants, declared at S0 with defaults, frozen when the run opens:
 // H_TOLERANCE, MARGIN_FLOOR (per family), TRIAL_FAMILIES (2 H families), SUITE_MIN_GAIN, K, MAX_STEPS, MAX_ATTEMPTS, MAX_SHOWN, LITERAL_LIMIT
