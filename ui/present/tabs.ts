@@ -1,10 +1,8 @@
-// Templates for the Premise, Approach and Pre-event evidence tabs (S14). Premise and Approach are prose and carry
-// no figure; a figure on any tab other than Pre-event evidence is read from /api/history (ui/present/history.ts).
-// The Pre-event tab renders ui/present/pre-event-evidence.ts, the one data file allowed to hold figures (SPEC §1.4).
+// Templates for the Premise and Approach tabs (S14). Both are prose and carry no figure; every figure on the
+// presentation tabs is read from /api/history (ui/present/history.ts).
 // ui/present/present.test.ts greps this file for numeric literals.
 
 import { esc } from "../format.ts";
-import { PRE_EVENT_LABEL, PRE_EVENT_PREMISE, PRE_EVENT_FACTS } from "./pre-event-evidence.ts";
 
 /** Track phrase → what stands for it in this build. */
 export const TRACK_MAP: [string, string][] = [
@@ -24,7 +22,7 @@ export function premiseTab(): string {
 <tbody>${TRACK_MAP.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</tbody></table>
 <h2>The claim in one line</h2>
 <p>While Gemini plays the game, every glitch the SameBoy oracle confirms becomes a repair task for Muse Code, and no repair or lesson is kept unless it holds on hardware behaviour the system never learned from.</p>
-<p class="dim">Every figure on the History tab is read from <code>ledger/</code> and <code>runs/</code> when the tab renders. Readings taken before the event appear only on the tab labelled “${esc(PRE_EVENT_LABEL)}”.</p>
+<p class="dim">Every figure on the History tab is read from <code>ledger/</code> and <code>runs/</code> when the tab renders.</p>
 </section>`;
 }
 
@@ -90,12 +88,3 @@ export function approachTab(diagram: string, caption: string): string {
 </section>`;
 }
 
-export function preEventTab(): string {
-  return `<section class="pe">
-<h2>${esc(PRE_EVENT_LABEL)}</h2>
-<p class="warn">${esc(PRE_EVENT_PREMISE)}</p>
-${PRE_EVENT_FACTS.map((f) => `<div class="fact"><h3>${esc(f.id)}</h3><p>${esc(f.claim)}</p>
-${f.table ? `<table class="map"><thead><tr>${f.table.head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${f.table.rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>` : ""}
-<p class="dim">${esc(f.consequence)}</p></div>`).join("")}
-</section>`;
-}

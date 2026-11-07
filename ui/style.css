@@ -352,6 +352,22 @@ body.replay .shell { box-shadow: 0 0 0 2px var(--amber) inset; }
 #rp-marks .mk.mk-verdict { background: var(--hot); top: 16px; }
 #rp-marks .mk.mk-graduation { background: var(--grad); top: 16px; height: 8px; width: 5px; }
 #rp-marks .mk.mk-fire { background: var(--cool); }
+#rp-marks .mk.mk-attempt { background: var(--violet); top: 8px; height: 6px; }
+#rp-marks .mk.mk-verdict.mk-refuse { background: var(--hot); }
+#rp-marks .mk.mk-c-diff-scope, #rp-marks .mk.mk-c-repro { background: var(--amber); outline: 1px solid var(--hot); }
+#rp-marks .mk.mk-c-H-no-regress, #rp-marks .mk.mk-c-trial-margin { background: var(--hot); height: 8px; width: 4px; }
+#rp-marks .mk.mk-c-base-suites, #rp-marks .mk.mk-c-admitted-traces, #rp-marks .mk.mk-c-merge { background: var(--hot); opacity: .7; }
+#rp-marks .mk.mk-pause, #rp-marks .mk.mk-resume, #rp-marks .mk.mk-open { background: var(--fg); top: 0; height: 24px; width: 1px; opacity: .6; }
+#rp-marks .mk.mk-stop { background: var(--hot); top: 0; height: 24px; width: 2px; }
+#rp-marks .mk.mk-freeze, #rp-marks .mk.mk-vread { background: var(--cool); top: 0; height: 24px; width: 3px; }
+
+/* ---------- run picker (ui/run-select.ts) ---------- */
+.runpick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.runpick select { font: 700 11px var(--display); background: var(--well); color: var(--fg); border: 1px solid var(--amber); border-radius: 3px; padding: 2px 6px; max-width: 100%; }
+.runpick .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.runpick .modes button { font: 700 10px var(--display); background: var(--well); color: var(--dim); border: 0; padding: 3px 8px; cursor: pointer; text-transform: uppercase; }
+.runpick .modes button[aria-pressed="true"] { background: var(--amber); color: #1a1200; }
+.runpick .rdesc { flex-basis: 100%; font-size: 11px; color: var(--dim); max-width: 120ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inspector { position: fixed; right: 0; top: 88px; bottom: 54px; width: min(520px, 100vw); z-index: 19; background: var(--panel); border-left: 2px solid var(--amber); display: grid; grid-template-rows: auto 1fr minmax(120px, 40%); padding: 8px; gap: 6px; }
 .inspector .ihead { display: flex; gap: 8px; align-items: center; }
 .inspector .ihead button { margin-left: auto; }

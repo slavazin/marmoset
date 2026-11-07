@@ -4,6 +4,7 @@
 // S19 frames these in a cabinet: the latest verdict's checks light as gate lamps beside the scope, and a new
 // incident or verdict pulses the cabinet (ui/fx.ts).
 
+import "./run-select.ts"; // first: the run cookies stand before any request (S24)
 import type { Attempt, Core, Incident, ProvenanceEntry, UiEvent, Verdict, VRead } from "../src/schema.ts";
 import { GAME_RAM } from "../src/schema.ts";
 import { loadCore } from "./core-seam.ts";

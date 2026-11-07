@@ -8,8 +8,7 @@ import * as units from "./units.ts";
 import { stageFor, StageTracker, diagramSvg, STAGES } from "./diagram.ts";
 import { historyTab, timelineRows } from "./history.ts";
 import { evidenceHtml } from "./evidence.ts";
-import { premiseTab, approachTab, preEventTab } from "./tabs.ts";
-import { PRE_EVENT_LABEL } from "./pre-event-evidence.ts";
+import { premiseTab, approachTab } from "./tabs.ts";
 import { readHistory } from "../../server/history.ts";
 import { routerBlock } from "./reliability.ts";
 import { reliability } from "../../loop/sensor-stats.ts";
@@ -22,7 +21,7 @@ const root = join(here, "..", "..");
  * Helper modules that hold named geometry, timing and unit constants, and the one data file allowed to hold
  * pre-event figures (SPEC §1.4). Every other .ts file under ui/present/ is a template.
  */
-const NOT_TEMPLATES = new Set(["layout.ts", "units.ts", "pre-event-evidence.ts"]);
+const NOT_TEMPLATES = new Set(["layout.ts", "units.ts"]);
 
 /**
  * Numeric literals in a template after comments, imports and references are set aside. A reference names a
@@ -39,7 +38,7 @@ export function templateLiterals(src: string): string[] {
   return code.match(/(?<![\w$.])(?:0[xob][0-9a-f_]+|\d[\d_]*(?:\.\d+)?(?:e[+-]?\d+)?)n?(?![\w$])/gi) ?? [];
 }
 
-test("ui/present/** templates contain no numeric literal; only the named helpers and the pre-event data file do", () => {
+test("ui/present/** templates contain no numeric literal; only the named helpers do", () => {
   const files = readdirSync(here).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && !NOT_TEMPLATES.has(f));
   assert.ok(files.length >= 5, "diagram, tabs, history, evidence and mount templates exist");
   for (const f of files) assert.deepEqual(templateLiterals(readFileSync(join(here, f), "utf8")), [], `${f} carries a numeric literal`);
@@ -57,17 +56,12 @@ test("every number layout.ts and units.ts export is named for a unit or a grid c
   }
 });
 
-test("pre-event figures appear only in the pre-event tab: no other tab's HTML holds a figure from pre-event-evidence.ts", () => {
-  const pre = preEventTab();
-  assert.ok(pre.includes(PRE_EVENT_LABEL.replace("'", "&#39;")));
-  assert.equal(PRE_EVENT_LABEL, "Pre-event evidence (measured 2026-11-06, not today's ledger)");
-  for (const tell of ["99.8%", "499 of 500", "77% mean pixel match", "74.0%"]) {
-    assert.ok(pre.includes(tell), `pre-event tab shows ${tell}`);
-    for (const html of [premiseTab(), approachTab(diagramSvg({ stage: null, label: "" }), "")]) assert.ok(!html.includes(tell), `${tell} stays off other tabs`);
-  }
-  const templates = readdirSync(here).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "pre-event-evidence.ts");
-  const importers = templates.filter((f) => readFileSync(join(here, f), "utf8").includes("PRE_EVENT_FACTS"));
-  assert.deepEqual(importers, ["tabs.ts"], "only the tab template reads the pre-event figures");
+test("the presentation tabs are Game, Premise, Approach, History and Play: no pre-event tab or module remains", () => {
+  const mount = readFileSync(join(here, "mount.ts"), "utf8");
+  const ids = [...mount.matchAll(/\{ id: "([a-z-]+)", label:/g)].map((m) => m[1]);
+  assert.deepEqual(ids, ["game", "premise", "approach", "history", "play"]);
+  assert.ok(!readdirSync(here).includes("pre-event-evidence.ts"));
+  for (const html of [premiseTab(), approachTab(diagramSvg({ stage: null, label: "" }), "")]) assert.ok(!/Pre-event evidence/.test(html));
 });
 
 const verdict = (decision: "GRADUATE" | "REFUSE", kind: Verdict["subject"]["kind"] = "attempt"): Verdict => ({

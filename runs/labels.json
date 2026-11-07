@@ -1,0 +1,14 @@
+{
+  "games": {
+    "game": "Fernwake",
+    "game2": "HALOGEN",
+    "mario-yoshi-eu": "Mario & Yoshi"
+  },
+  "runs": {
+    "RUN-0001": { "note": "our platformer" },
+    "RUN-0002": { "game": "Color tier", "tier": "CGB suite", "note": "CGB core, incidents from the CGB T suite" },
+    "RUN-0003": { "note": "our shmup" },
+    "RUN-0004": { "note": "owner's ROM, title start state; ROM-derived files stay out of git" },
+    "RUN-0005": { "note": "same game and suites as RUN-0001 with Claude as repairer; not apples-to-apples with RUN-0001" }
+  }
+}

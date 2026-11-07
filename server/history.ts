@@ -30,6 +30,8 @@ export interface HistoryOptions {
   registers: string;
   /** Repository root, for repo-relative paths in the response. */
   root: string;
+  /** The selected run (server/runs.ts): narrows the meter, the muse-native rows and the V read to it; unset reads every run. */
+  run?: string;
 }
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -103,6 +105,10 @@ export interface History {
   router: RouteCalibration | null;         // loop/route.ts routeCalibrationOf(ledger); null when no record carries a route or a forecast
   native: NativeRow[];                     // runs/<run>/muse-native.jsonl of every run (D-0013): beside the curve, in no figure
   vread: VRead | null;
+  /** Every run in the registry (server/runs.ts runOverview), set by the /api/history route; absent from readHistory alone. */
+  runs?: import("./runs.ts").RunOverview[];
+  /** The run this response reads (server/runs.ts selectedRun), set by the /api/history route. */
+  selected?: string;
 }
 
 function fold<T>(dir: string, file: string): T[] {
@@ -273,16 +279,19 @@ export async function readHistory(o: HistoryOptions): Promise<History> {
     commits,
     commits_note: commits ? `git log ${LIVE_BRANCH} in ${o.live}` : `no ${LIVE_BRANCH} branch readable at ${o.live}`,
     spend,
-    meter: spendMeter({ ledger: o.ledger, runsDir: o.runs, run: process.env.RATCHET_RUN || "RUN-0001" }),
+    meter: spendMeter({ ledger: o.ledger, runsDir: o.runs, run: o.run ?? (process.env.RATCHET_RUN || "RUN-0001") }),
     spots: await readSpots(o.ledger, o.root),
     figures,
     router: readRouter(o.ledger),
-    native: readNative(o.runs),
-    vread: existsSync(o.runs) && statSync(o.runs).isDirectory() ? readVRead(o.runs) : null,
+    native: readNative(o.runs).filter((r) => !o.run || r.run === o.run),
+    vread: existsSync(o.runs) && statSync(o.runs).isDirectory() ? readVRead(o.runs, o.run) : null,
   };
 }
 
 /** The /api/history handler's read: the server's ledger and runs dirs, every other path from the environment. */
-export function historyFor(server: { ledger: string; runs: string }, env = process.env): Promise<History> {
-  return readHistory({ ...historyPathsFromEnv(env), ledger: server.ledger, runs: server.runs });
+/** A selected run (server/runs.ts RunPaths) also brings its run id, skills dir and live clone when it names them. */
+export function historyFor(server: { ledger: string; runs: string; run?: string; skills?: string; live?: string | null }, env = process.env): Promise<History> {
+  const base = historyPathsFromEnv(env);
+  const skills = server.skills && existsSync(server.skills) ? server.skills : base.skills;
+  return readHistory({ ...base, ledger: server.ledger, runs: server.runs, run: server.run, skills, policies: server.skills ? join(server.skills, "..", "policies") : base.policies, live: server.live ?? base.live });
 }

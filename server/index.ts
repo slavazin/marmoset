@@ -19,6 +19,9 @@
 //   GET  /api/replay/records      ?at=<epoch ms>&stream=<s> telemetry records around a time, for the inspector.
 //   GET  /api/replay/muse         ?attempt=<ATT-id> the attempt's recorded MSP stream.
 //   GET  /dist/core-<commit>.js   a core bundle the UI regenerates frames with.
+// Run selection (S24, server/runs.ts): GET /api/runs lists every run with its name, description and overview figures;
+// `?run=RUN-NNNN&mode=live|replay` (or the ratchet_run / ratchet_mode cookies) selects the run /events, /api/state,
+// /api/history, /evidence/** and the /api/replay* routes read; with none, the server's own run is served as above.
 // In both modes GET /api/telemetry-verify serves the latest telemetry coverage report (server/verify.ts).
 
 import { createServer as httpServer } from "node:http";
@@ -35,6 +38,7 @@ import { attachRecorder } from "./recorder.ts";
 import type { Tlog } from "./recorder.ts";
 import { tlog } from "../src/telemetry.ts";
 import { loadTimeline, ReplayPlayer, recordsAround, museStream } from "./replay.ts";
+import { DEFAULT_RUN, listRuns, runOverview, runPaths, selectedMode, selectedRun } from "./runs.ts";
 
 /** Port the server listens on (SPEC §7.5). */
 export const PORT = Number(process.env.RATCHET_SERVER_PORT ?? 8787);
@@ -143,11 +147,85 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
   const player = opts.replay ? new ReplayPlayer(loadTimeline(opts, opts.replay.run, dist), opts.replay.speed ?? 1) : null;
   if (player && opts.replay?.autoplay) player.play();
 
+  // Run selection (S24, server/runs.ts): a request names a run by `?run=` or the `ratchet_run` cookie, and a mode by
+  // `?mode=` or `ratchet_mode`. The server's own run (DEFAULT_RUN, or opts.replay.run) is served by `bus`/`player`;
+  // any other run gets a read-only EventBus over its own ledger, and replay mode a ReplayPlayer over its telemetry,
+  // each made on first request. Every POST except replay control is refused for a run other than the server's own.
+  const ownRun = opts.replay?.run ?? DEFAULT_RUN;
+  const buses = new Map<string, EventBus>();
+  const players = new Map<string, ReplayPlayer>();
+  const base = { ledger: opts.ledger, evidence: opts.evidence, runs: opts.runs };
+  const pathsOf = (run: string) => (run === ownRun ? { run, ledger: opts.ledger, evidence: opts.evidence, runs: opts.runs } : runPaths(base, run));
+  const busOf = (run: string): EventBus => {
+    if (run === ownRun) return bus;
+    let b = buses.get(run);
+    if (!b) { b = new EventBus(pathsOf(run)); b.start(); buses.set(run, b); }
+    return b;
+  };
+  const playerOf = (run: string): ReplayPlayer => {
+    if (run === ownRun && player) return player;
+    let p = players.get(run);
+    if (!p) { p = new ReplayPlayer(loadTimeline(pathsOf(run), run, dist), 1); players.set(run, p); }
+    return p;
+  };
+  const overviews = () => Promise.all(listRuns(base).map(async (e) => ({ ...(await runOverview(e)), game: e.game, tier: e.tier, repairer: e.repairer, repairer_model: e.repairer_model, core: e.core })));
+  const historyWithRuns = async (p: Parameters<typeof import("./history.ts")["historyFor"]>[0]) =>
+    ({ ...(await (await import("./history.ts")).historyFor(p)), runs: await overviews(), selected: (p as { run?: string }).run ?? ownRun });
+
   const server = httpServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
     try {
       if (req.method === "GET" && path === "/api/telemetry-verify") return send(res, 200, opts.verifyReport?.() ?? null);
+      if (req.method === "GET" && path === "/api/runs") {
+        return send(res, 200, { default: ownRun, runs: await overviews() });
+      }
+      const run = selectedRun(url, req.headers.cookie, ownRun);
+      const mode = player && run === ownRun ? "replay" : selectedMode(url, req.headers.cookie);
+      if (run !== ownRun || mode === "replay") {
+        if (!existsSync(join(opts.runs, run)) && run !== ownRun) return send(res, 404, { error: `no run directory runs/${run}` });
+        if (mode === "replay") {
+          const pl = playerOf(run);
+          if (req.method === "GET" && path === "/events") {
+            res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+            res.write(": ratchet replay\n\n");
+            req.on("close", pl.addClient(res));
+            return;
+          }
+          if (req.method === "GET" && path === "/api/replay") return send(res, 200, pl.status());
+          if (req.method === "POST" && path === "/api/replay/control") {
+            const b = (await readBody(req)) as { op?: string; value?: number };
+            if (b?.op === "play") pl.play();
+            else if (b?.op === "pause") pl.pause();
+            else if (b?.op === "speed" && typeof b.value === "number") pl.setSpeed(b.value);
+            else if (b?.op === "seek" && typeof b.value === "number") pl.seek(b.value);
+            else return send(res, 400, { error: "op" });
+            return send(res, 200, pl.status());
+          }
+          if (req.method === "GET" && path === "/api/replay/records") {
+            const at = Number(url.searchParams.get("at") ?? pl.pos);
+            return send(res, 200, recordsAround(pl.tl, at, url.searchParams.get("stream") || undefined));
+          }
+          if (req.method === "GET" && path === "/api/replay/muse") return send(res, 200, museStream(pl.tl, url.searchParams.get("attempt") ?? ""));
+          if (req.method === "GET" && /^\/dist\/core-[0-9a-f]+\.js$/.test(path)) return serveFile(res, dist, path.slice("/dist/".length));
+          if (req.method === "GET" && path === "/api/state") return send(res, 200, busOf(run).state());
+        } else {
+          const b = busOf(run);
+          if (req.method === "GET" && path === "/events") {
+            res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+            res.write(": ratchet\n\n");
+            b.poll();
+            for (const e of b.snapshot()) res.write(sseMessage(e));
+            const off = b.subscribe((e) => res.write(sseMessage(e)));
+            req.on("close", off);
+            return;
+          }
+          if (req.method === "GET" && path === "/api/state") { b.poll(); return send(res, 200, b.state()); }
+        }
+        if (req.method === "GET" && path === "/api/history") return send(res, 200, await historyWithRuns(pathsOf(run)));
+        if (req.method === "GET" && path.startsWith("/evidence/")) return serveFile(res, pathsOf(run).evidence, path.slice("/evidence/".length));
+        if (req.method === "POST" && path !== "/api/play-session") return send(res, 409, { error: `${run} ${mode}: a selected run other than the server's own is read-only` });
+      }
       if (player) {
         if (req.method === "GET" && path === "/events") {
           res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
@@ -184,7 +262,7 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
       }
       if (req.method === "GET" && path === "/api/state") { bus.poll(); return send(res, 200, bus.state()); }
       if (req.method === "GET" && path === "/api/trace") return send(res, 200, trace.trace);
-      if (req.method === "GET" && path === "/api/history") return send(res, 200, await (await import("./history.ts")).historyFor(opts));
+      if (req.method === "GET" && path === "/api/history") return send(res, 200, await historyWithRuns(opts));
       if (req.method === "POST" && path === "/api/trace/reset") {
         const b = (await readBody(req)) as { rom_sha?: unknown };
         if (typeof b?.rom_sha !== "string") return send(res, 400, { error: "rom_sha" });
@@ -221,7 +299,7 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
       return send(res, 400, { error: String((err as Error).message) });
     }
   });
-  server.on("close", () => { bus.stop(); player?.stop(); });
+  server.on("close", () => { bus.stop(); player?.stop(); for (const b of buses.values()) b.stop(); for (const p of players.values()) p.stop(); });
   bus.start();
   return { server, bus, trace, player };
 }

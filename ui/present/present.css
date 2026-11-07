@@ -9,8 +9,6 @@
 }
 .ptabs button:hover { color: var(--fg); border-color: var(--line-hi); }
 .ptabs button[aria-selected="true"] { color: var(--bg); background: var(--phos); border-color: var(--phos); box-shadow: 0 0 14px color-mix(in srgb, var(--phos) 45%, transparent); }
-.ptabs button.pre { border-style: dashed; }
-.ptabs button.pre[aria-selected="true"] { background: var(--amber); border-color: var(--amber); box-shadow: 0 0 14px color-mix(in srgb, var(--amber) 45%, transparent); }
 
 body.present-on main { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "centre present"; }
 body.present-on #right, body.present-on footer, body.present-on #side, body.present-on .col.left { display: none !important; }
@@ -36,6 +34,7 @@ body.present-on .shell .cap { max-width: calc(160px * var(--px)); font-size: 10p
 #present .warn { border-left: 3px solid var(--amber); padding-left: 8px; }
 table.map { border-collapse: collapse; width: 100%; margin: 4px 0 8px; }
 table.map th, table.map td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+table.map.runs tr.sel td { background: color-mix(in srgb, var(--amber) 14%, transparent); }
 table.map th { color: var(--dim); font: 400 10px var(--display); text-transform: uppercase; letter-spacing: .06em; }
 table.map td:first-child { color: var(--g3); }
 table.map tbody tr:hover td { background: var(--panel-hi); }

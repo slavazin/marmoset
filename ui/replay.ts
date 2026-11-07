@@ -12,7 +12,7 @@ import { loadCore } from "./core-seam.ts";
 import type { Core } from "../src/schema.ts";
 import { GAME_RAM } from "../src/schema.ts";
 
-interface Marker { at: number; kind: string; id: string; label: string }
+interface Marker { at: number; kind: string; id: string; label: string; decision?: string; check?: string }
 export interface ReplayStatus { run: string; recorded: string; t0: number; t1: number; pos: number; playing: boolean; speed: number; markers: Marker[]; regen: { commit: string; bundle_url: string } | null; commit: string | null; done: boolean; reset?: boolean }
 interface Rec { at: string; seq: number; pid: number; stream: string; kind: string; data: unknown; i: number }
 
@@ -51,7 +51,7 @@ export function startReplay(first: ReplayStatus, hooks: ReplayHooks) {
   const span = () => Math.max(1, st.t1 - st.t0);
   const toPos = (v: number) => st.t0 + (v / 1000) * span();
   const renderMarks = () => {
-    $("rp-marks").innerHTML = st.markers.map((m) => `<i class="mk mk-${esc(m.kind)}" style="left:${(((m.at - st.t0) / span()) * 100).toFixed(2)}%" title="${esc(hhmmss(m.at))} ${esc(m.label)}" data-at="${m.at}"></i>`).join("");
+    $("rp-marks").innerHTML = st.markers.map((m) => `<i class="mk mk-${esc(m.kind)}${m.decision === "REFUSE" ? ` mk-refuse${m.check ? ` mk-c-${esc(m.check)}` : ""}` : ""}" style="left:${(((m.at - st.t0) / span()) * 100).toFixed(2)}%" title="${esc(hhmmss(m.at))} ${esc(m.label)}" data-at="${m.at}"></i>`).join("");
   };
   const renderBar = () => {
     $("rp-play").textContent = st.playing ? "❚❚" : "▶";
@@ -61,6 +61,9 @@ export function startReplay(first: ReplayStatus, hooks: ReplayHooks) {
     if (!dragging) scrub.value = String(Math.round(((Math.max(st.pos, st.t0) - st.t0) / span()) * 1000));
   };
   renderMarks(); renderBar();
+  // a demo link's `t=<iso>` (ui/run-select.ts) seeks the replay there once
+  const tParam = Date.parse(new URLSearchParams(location.search).get("t") ?? "");
+  if (Number.isFinite(tParam)) post({ op: "seek", value: tParam });
   $("rp-play").addEventListener("click", () => post({ op: st.playing ? "pause" : "play" }));
   $<HTMLSelectElement>("rp-speed").addEventListener("change", (e) => post({ op: "speed", value: Number((e.target as HTMLSelectElement).value) }));
   scrub.addEventListener("input", () => { dragging = true; $("rp-time").textContent = hhmmss(toPos(Number(scrub.value))); });
