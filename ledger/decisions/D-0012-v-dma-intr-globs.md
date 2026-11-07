@@ -1,7 +1,7 @@
 ---
-id: D-draft-v-dma-intr-globs
+id: D-0012
 title: V's mooneye:dma-timer-intr family reads OAM DMA as six ROMs and names its interrupt and HALT ROMs
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:** `splits.json` family `mooneye:dma-timer-intr` lists `acceptance/oam_dma/*.gb` and `acceptance/oam_dma_*.gb` (6 ROMs), `acceptance/timer/*.gb` (13), and as "the interrupt and HALT ROMs" exactly `di_timing-GS`, `ei_sequence`, `ei_timing`, `halt_*` (4), `if_ie_registers`, `intr_timing`, `rapid_di_ei`, `reti_intr_timing` and `interrupts/ie_push` (12); 31 ROMs on c-sp game-boy-test-roms v7.0, counted by `familyRoms` in `suites/splits.ts`.
