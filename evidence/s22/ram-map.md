@@ -22,8 +22,8 @@ An address is in the map only when both traces agree on it. The score address wa
 
 **Frame counter: none.** No WRAM or HRAM byte rises by exactly 1 every frame. Neither trace A's play frames 600–1500 nor trace B's 720–1260 has one, and neither do the title or the pause. The entry therefore aligns by frame (`counter: null`, `align: "frame"`).
 
-## Start state
+## Start states
 
-`games.json` `start` holds the start state. The prefix presses Start at frames 104–109 (title to menu) and 170–175 (menu to level 1, low speed), and the state is taken at frame 200. In trace C, which is this prefix, mode first reads `0x34` at frame 178, and the play screen finishes drawing at frame 183. `lockstep/start-state.test.ts` asserts mode `0x34` and level `0` in the loaded core.
+`games.json` `start` is the title: frame 104 after load, no input, mode `0x30`. `other_starts["level-1"]` is the owner's level-1 start. Its prefix presses Start at frames 104–109 (title to menu) and 170–175 (menu to level 1, low speed), and the state is taken at frame 200. In trace C, which is this prefix, mode first reads `0x34` at frame 178, and the play screen finishes drawing at frame 183. `lockstep/start-state.test.ts` asserts mode `0x30` for the title start, and mode `0x34` with level `0` for the level-1 start.
 
 `start-level1-oracle-frame1.png` is the oracle's first frame after the start state.

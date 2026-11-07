@@ -29,8 +29,13 @@ export interface GameEntry {
   align: "counter" | "frame";
   ram_init: RamInit;
   map: GameMap | null;
-  start: { frames: number; prefix: TraceInput[] } | null;
+  /** The start state every run and window on this game uses; `at` says where it leaves the game (loop/game-trace.ts reads it). */
+  start: GameStart | null;
+  /** Further registered start states, by name; lockstep and the gate use `start` alone. */
+  other_starts?: Record<string, GameStart>;
 }
+
+export interface GameStart { at: "title" | "play"; frames: number; prefix: TraceInput[] }
 
 /** SPEC §6.17's map: GAME_RAM compared whole, the scene at 0xC0F2, the counter at 0xC0F0. */
 export const CONTRACT_MAP: GameMap = { counter: GAME_RAM.addr, scene: { addr: GAME_RAM.addr + SCENE_OFFSET }, logic: [{ addr: GAME_RAM.addr, len: GAME_RAM.len }] };
@@ -47,6 +52,9 @@ export function readRegistry(file = REGISTRY): GameEntry[] {
     if (!/^[0-9a-f]{64}$/.test(g.rom.sha256)) throw new Error(`games registry: ${g.id} sha256 is not a sha256`);
     if (g.contract === "map" && !g.map) throw new Error(`games registry: ${g.id} has contract map and no map`);
     if (g.contract === "s6.17" && g.map) throw new Error(`games registry: ${g.id} has contract s6.17 and a map`);
+    for (const s of [g.start, ...Object.values(g.other_starts ?? {})]) {
+      if (s && s.at !== "title" && s.at !== "play") throw new Error(`games registry: ${g.id} start at ${String(s.at)}: want title or play`);
+    }
     if (g.start && g.ram_init !== "zero") throw new Error(`games registry: ${g.id} has a start state and ram_init ${g.ram_init}; a start state is built from zeroed RAM`);
     if (g.map) {
       if (sceneOffset(g.map) < 0) throw new Error(`games registry: ${g.id} scene byte is outside its logic ranges`);

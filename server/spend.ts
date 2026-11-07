@@ -106,13 +106,24 @@ export function ownerRatio(consoleUsd: number, pricedBeforeUsd: number): number 
   return Math.min(1, consoleUsd / pricedBeforeUsd);
 }
 
-export interface MeterOptions { ledger: string; runsDir: string; run: string | null; env?: NodeJS.ProcessEnv }
+export interface MeterOptions {
+  ledger: string; runsDir: string; run: string | null; env?: NodeJS.ProcessEnv;
+  /**
+   * Further ledgers whose priced records up to the override's `at` join ownerRatio's denominator, so a run on its own
+   * ledger prices at the console ratio of the ledger the owner's reading stands against (combinedMeter).
+   */
+  ratioLedgers?: string[];
+  /** jsonl files of `{at, run, spent: {usd}}` records priced like spend.jsonl calls of `run` (runs/<run>/muse-native.jsonl). */
+  extraFiles?: string[];
+}
 
 /** The meter (see the file header). */
 export function spendMeter(o: MeterOptions): SpendMeter {
   const env = o.env ?? process.env;
   const atts = attempts(o.ledger);
-  const calls = lines(join(o.ledger, "spend.jsonl")).filter((r) => typeof r.usd === "number") as unknown as SpendRecord[];
+  const extra = (o.extraFiles ?? []).flatMap((f) => lines(f)).map((r) => ({ at: String(r.at ?? ""), run: (r.run ?? null) as string | null, usd: Number((r.spent as { usd?: unknown } | undefined)?.usd) }))
+    .filter((r) => Number.isFinite(r.usd) && Number.isFinite(Date.parse(r.at)));
+  const calls = [...lines(join(o.ledger, "spend.jsonl")).filter((r) => typeof r.usd === "number") as unknown as SpendRecord[], ...extra as unknown as SpendRecord[]];
   const attempts_usd = atts.reduce((s, a) => s + (a.spent?.usd ?? 0), 0);
   const calls_usd = calls.reduce((s, r) => s + r.usd, 0);
   const priced_usd = attempts_usd + calls_usd;
@@ -131,8 +142,10 @@ export function spendMeter(o: MeterOptions): SpendMeter {
     const after = atts.filter((a) => a.run === o.run && Date.parse(a.spent_at ?? a.at) > t).reduce((s, a) => s + (a.spent?.usd ?? 0), 0)
       + calls.filter((r) => r.run === o.run && Date.parse(r.at) > t).reduce((s, r) => s + r.usd, 0);
     // every priced dollar up to the reading, any run or none: the owner's console total stands against it
-    const before = atts.filter((a) => Date.parse(a.spent_at ?? a.at) <= t).reduce((s, a) => s + (a.spent?.usd ?? 0), 0)
-      + calls.filter((r) => Date.parse(r.at) <= t).reduce((s, r) => s + r.usd, 0);
+    const otherAtts = (o.ratioLedgers ?? []).flatMap((l) => attempts(l));
+    const otherCalls = (o.ratioLedgers ?? []).flatMap((l) => lines(join(l, "spend.jsonl")).filter((r) => typeof r.usd === "number") as unknown as SpendRecord[]);
+    const before = [...atts, ...otherAtts].filter((a) => Date.parse(a.spent_at ?? a.at) <= t).reduce((s, a) => s + (a.spent?.usd ?? 0), 0)
+      + [...calls, ...otherCalls].filter((r) => Date.parse(r.at) <= t).reduce((s, r) => s + r.usd, 0);
     ratio = ownerRatio(override.usd, before);
     owner_read_usd = override.usd - override.pre_run_usd + ratio * after;
   }
@@ -144,6 +157,40 @@ export function spendMeter(o: MeterOptions): SpendMeter {
   };
 }
 
+/** One run's share of the one Meta account: its ledger, runs dir and id, with spendMeter's extra options. */
+export type MeterPart = MeterOptions;
+export type CombinedMeter = SpendMeter & { parts: (SpendMeter & { run: string | null })[] };
+
+/**
+ * Every run on the one Meta account summed: `usd`, `priced_usd`, `owner_read_usd` and the count fields are the parts'
+ * sums; `ratio`, `override`, `offset_usd` and `warning` are the first part's (the guarding run's); `parts` holds each
+ * part's meter. A part on a different ledger reads the other parts' ledgers into its ownerRatio (ratioLedgers), so a
+ * run on a fresh ledger prices at the console ratio of the ledger the owner's reading stands against
+ * (server/spend.test.ts "combined meter").
+ */
+export function combinedMeter(parts: MeterPart[]): CombinedMeter {
+  if (!parts.length) throw new Error("combinedMeter: no parts");
+  const ms = parts.map((p, i) => ({
+    ...spendMeter({ ...p, ratioLedgers: [...(p.ratioLedgers ?? []), ...parts.filter((q, k) => k !== i && q.ledger !== p.ledger).map((q) => q.ledger)] }),
+    run: p.run,
+  }));
+  const sum = (f: (m: SpendMeter) => number) => ms.reduce((s, m) => s + f(m), 0);
+  const first = ms[0];
+  return {
+    ...first, priced_usd: sum((m) => m.priced_usd), attempts_usd: sum((m) => m.attempts_usd), attempts_n: sum((m) => m.attempts_n),
+    calls_usd: sum((m) => m.calls_usd), calls_n: sum((m) => m.calls_n),
+    owner_read_usd: ms.some((m) => m.owner_read_usd !== null) ? sum((m) => m.usd) : null, usd: sum((m) => m.usd),
+    source: first.source, parts: ms,
+  };
+}
+
+/** Parses "<ledger>,<runsDir>,<run>[,<extra jsonl>…]" (the campaign's and the watcher's --spend-also) into a MeterPart. */
+export function parseMeterPart(s: string): MeterPart {
+  const [ledger, runsDir, run, ...extraFiles] = s.split(",").map((x) => x.trim());
+  if (!ledger || !runsDir || !run) throw new Error(`--spend-also ${s}: want <ledger>,<runsDir>,<run>[,<extra jsonl>…]`);
+  return { ledger, runsDir, run, extraFiles };
+}
+
 export type SpendGate = "go" | "ask" | "stop";
 /** What the guard does at `usd`: stop at SPEND_STOP_USD, ask at SPEND_ASK_USD, else go. */
 export function spendGate(usd: number): SpendGate {
@@ -151,7 +198,8 @@ export function spendGate(usd: number): SpendGate {
 }
 
 /** One meter line naming both figures (the campaign prints it; the History tab shows the same fields). */
-export function meterLine(m: SpendMeter): string {
+export function meterLine(m: SpendMeter & { parts?: (SpendMeter & { run: string | null })[] }): string {
+  if (m.parts && m.parts.length > 1) return `spend combined over ${m.parts.length} runs: guard reads $${m.usd.toFixed(2)} (ask $${m.ask_usd}, stop $${m.stop_usd}) = ${m.parts.map((p) => `${p.run} ${p.source} $${p.usd.toFixed(2)}`).join(" + ")}`;
   const owner = m.owner_read_usd === null ? "no runs/<run>/spend-override.json" : `$${m.owner_read_usd.toFixed(2)} (list rates × ${(m.ratio ?? 1).toFixed(3)} since reading)`;
   return `spend: ${OWNER_LABEL} ${owner} · ${PRICED_LABEL} $${m.priced_usd.toFixed(2)}${m.offset_usd ? ` (offset ${m.offset_usd})` : ""} · guard reads ${m.source} $${m.usd.toFixed(2)} (ask $${m.ask_usd}, stop $${m.stop_usd})${m.warning ? ` · warning: ${m.warning}` : ""}`;
 }

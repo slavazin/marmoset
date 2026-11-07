@@ -37,6 +37,8 @@ export interface SuiteWindow {
   rom_rel: string;
   /** The reading the incident was opened on; G4 check 1 compares a repair against it. */
   repro: RomResult;
+  /** The hardware the ROM is scored on (suites/splits.ts familyModel); absent reads DMG (lockstep/replay.ts replaySuite). */
+  model?: "DMG" | "CGB";
 }
 export type WindowFile = FrameWindow | SuiteWindow;
 
@@ -49,13 +51,30 @@ function png(shades: Uint8Array, mark?: Uint8Array): Buffer {
   return PNG.sync.write(p);
 }
 
+/** A PNG of a 160×144 RGB888 frame; a pixel where `mark` differs from `rgb` is DIFF_RGB (CGB evidence, D-0019). */
+function pngRgb(rgb: Uint8Array, mark?: Uint8Array): Buffer {
+  const p = new PNG({ width: WIDTH, height: HEIGHT });
+  for (let i = 0; i < WIDTH * HEIGHT; i++) {
+    const k = i * 3;
+    const diff = mark && (mark[k] !== rgb[k] || mark[k + 1] !== rgb[k + 1] || mark[k + 2] !== rgb[k + 2]);
+    p.data[i * 4] = diff ? DIFF_RGB >> 16 : rgb[k]; p.data[i * 4 + 1] = diff ? (DIFF_RGB >> 8) & 255 : rgb[k + 1];
+    p.data[i * 4 + 2] = diff ? DIFF_RGB & 255 : rgb[k + 2]; p.data[i * 4 + 3] = 255;
+  }
+  return PNG.sync.write(p);
+}
+
 export interface RegWrite { addr: number; value: number; ly: number; dot: number; cycles: number }
 
-export function writeEvidence(dir: string, w: WindowFile, core: Uint8Array | null, oracle: Uint8Array | null, regwrites: RegWrite[]): void {
+/**
+ * Writes an incident's evidence files. `core` and `oracle` are shade frames (160×144, 0..3), or RGB888 frames
+ * (160×144×3) when `rgb` is true (a CGB suite incident; lockstep/lockstep.test.ts "CGB suite incident").
+ */
+export function writeEvidence(dir: string, w: WindowFile, core: Uint8Array | null, oracle: Uint8Array | null, regwrites: RegWrite[], rgb = false): void {
   mkdirSync(dir, { recursive: true });
-  if (core) writeFileSync(join(dir, "core.png"), png(core));
-  if (oracle) writeFileSync(join(dir, "oracle.png"), png(oracle));
-  if (core && oracle) writeFileSync(join(dir, "diff.png"), png(oracle, core));
+  const draw = rgb ? pngRgb : png;
+  if (core) writeFileSync(join(dir, "core.png"), draw(core));
+  if (oracle) writeFileSync(join(dir, "oracle.png"), draw(oracle));
+  if (core && oracle) writeFileSync(join(dir, "diff.png"), draw(oracle, core));
   writeFileSync(join(dir, "regwrites.jsonl"), regwrites.map((r) => JSON.stringify(r) + "\n").join(""));
   writeFileSync(join(dir, "window.json"), JSON.stringify(w, null, 2) + "\n");
 }

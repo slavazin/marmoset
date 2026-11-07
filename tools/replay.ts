@@ -43,7 +43,7 @@ async function main(): Promise<number> {
       const romPath = join(romsDir(), w.rom_rel);
       if (sha256(readFileSync(romPath)) !== w.incident.rom_sha) throw new Error(`${romPath} is not the incident's ROM (sha ${w.incident.rom_sha})`);
       const r = replaySuite(createCore, w, romsDir());
-      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)})`);
+      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)}) on ${w.model ?? "DMG"}: ${r.reading.detail}`.slice(0, 400));
       return r.clean ? 0 : 1;
     }
     const rom = new Uint8Array(readFileSync(v.rom ?? w.rom.path));

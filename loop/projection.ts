@@ -21,9 +21,8 @@ import { basename, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { git, scratchRoot, type LoopPaths } from "./paths.ts";
 import { hooksFor, listSkills, SKILL_ARMS, type ShownSkill } from "./shown.ts";
-import { romBySha } from "./roms.ts";
+import { romBySha, romDirs } from "./roms.ts";
 import { workingTrace } from "./gate-repair.ts";
-import { readRegistry, romPathOf } from "../lockstep/games.ts";
 import { applyPolicies } from "./policies.ts";
 import type { Arm, Incident, RepairTask, SuiteReading } from "../src/schema.ts";
 
@@ -184,9 +183,7 @@ export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
     if (trace) writeFileSync(join(pk, "trace.json"), JSON.stringify({ ...trace, window: inc.window }, null, 2));
     const ev = resolve(paths.root, inc.files.dir);
     if (existsSync(ev)) cpSync(ev, join(pk, "evidence"), { recursive: true, dereference: true });
-    // a games-registry ROM outside the repository is found through its entry (lockstep/games.ts, S22)
-    const g = readRegistry().find((e) => e.rom.sha256 === inc.rom_sha && !e.rom.repo_path);
-    roms.push(g ? romPathOf(g, paths.root) : romBySha(inc.rom_sha, [paths.roms, join(paths.root, "game")]));
+    roms.push(romBySha(inc.rom_sha, romDirs(paths)));
     oracleTraces.push({ rom_sha: inc.rom_sha, trace_sha: inc.trace_sha });
   } else {
     families[task.family ?? ""] = ctx.familyRoms ?? [];

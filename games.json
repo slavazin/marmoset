@@ -29,14 +29,24 @@
         "evidence": "evidence/s22/ram-map.md"
       },
       "start": {
-        "frames": 200,
+        "at": "title",
+        "frames": 104,
         "prefix": [
-          { "from_counter": 0, "mask": 0 },
-          { "from_counter": 104, "mask": 128 },
-          { "from_counter": 110, "mask": 0 },
-          { "from_counter": 170, "mask": 128 },
-          { "from_counter": 176, "mask": 0 }
+          { "from_counter": 0, "mask": 0 }
         ]
+      },
+      "other_starts": {
+        "level-1": {
+          "at": "play",
+          "frames": 200,
+          "prefix": [
+            { "from_counter": 0, "mask": 0 },
+            { "from_counter": 104, "mask": 128 },
+            { "from_counter": 110, "mask": 0 },
+            { "from_counter": 170, "mask": 128 },
+            { "from_counter": 176, "mask": 0 }
+          ]
+        }
       }
     }
   ]

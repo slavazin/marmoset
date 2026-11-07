@@ -26,8 +26,37 @@ export function romsDir(): string {
   return v ? v.replace(/^~(?=\/|$)/, homedir()) : join(homedir(), ".cache", "ratchet", "roms");
 }
 
-export function loadSplits(path: string = SPLITS_PATH): Splits {
-  return JSON.parse(readFileSync(path, "utf8")) as Splits;
+/**
+ * The splits files a default loadSplits() reads: RATCHET_SPLITS, comma-separated, each resolved against the repository
+ * root, else [SPLITS_PATH]. RUN-0002 sets "splits.json,splits-cgb.json" (D-draft-concurrent-cgb-run; suites/splits.test.ts
+ * "RATCHET_SPLITS merges").
+ */
+export function splitsPaths(env: NodeJS.ProcessEnv = process.env): string[] {
+  const v = env.RATCHET_SPLITS?.trim();
+  if (!v) return [SPLITS_PATH];
+  return v.split(",").map((s) => s.trim()).filter(Boolean).map((s) => resolve(import.meta.dirname, "..", s));
+}
+
+/** Merges splits files: families united (a name in two files throws), excluded and dmg_suffixes concatenated. */
+export function mergeSplits(all: Splits[]): Splits {
+  const out: Splits = { version: all.map((s) => s.version).join("+"), families: {}, dmg_suffixes: [], excluded: [] };
+  for (const s of all) {
+    for (const [f, fam] of Object.entries(s.families)) {
+      if (out.families[f]) throw new Error(`mergeSplits: family ${f} is in two splits files`);
+      out.families[f] = fam;
+    }
+    for (const x of s.dmg_suffixes ?? []) if (!out.dmg_suffixes.includes(x)) out.dmg_suffixes.push(x);
+    out.excluded.push(...(s.excluded ?? []));
+  }
+  return out;
+}
+
+/** One splits file at `path`; with no path, splitsPaths() merged (one file reads exactly as loadSplits(SPLITS_PATH)). */
+export function loadSplits(path?: string): Splits {
+  if (path !== undefined) return JSON.parse(readFileSync(path, "utf8")) as Splits;
+  const ps = splitsPaths();
+  if (ps.length === 1) return JSON.parse(readFileSync(ps[0], "utf8")) as Splits;
+  return mergeSplits(ps.map((p) => JSON.parse(readFileSync(p, "utf8")) as Splits));
 }
 
 /** The pass rule a ROM is scored by (SPEC §2.5), chosen by the suite directory it sits in. */

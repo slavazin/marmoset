@@ -65,24 +65,40 @@ test("game.gb: the start state loads into the core with equal registers, WRAM, V
   assert.equal(await firstDiff(GAME, st, [{ addr: GAME_RAM.addr, len: GAME_RAM.len }], 60, true), 0);
 });
 
-test("Mario & Yoshi: the registry start state (level 1, start of play) loads into the core at frame 0, and 120 no-input frames and the mapped RAM match", { skip: skipMy }, async () => {
+test("Mario & Yoshi: the registry start state (the title) loads into the core at frame 0 with mode title, and 120 no-input frames and the mapped RAM match", { skip: skipMy }, async () => {
   const st = await S.buildStartState(myRom!, { ...MY.start!, ram_init: "zero" });
   const core = createCore(new Uint8Array(readFileSync(myRom!)));
   S.loadIntoCore(core, st.machine);
-  assert.equal(core.read(0xc029), 52, "mode byte reads play (evidence/s22/ram-map.md)");
+  assert.equal(MY.start!.at, "title");
+  assert.equal(core.read(0xc029), 0x30, "mode byte reads title (evidence/s22/ram-map.md)");
+  assert.equal(await firstDiff(myRom!, st, mapOf(MY).logic, 120), 0);
+});
+
+test("Mario & Yoshi: the registered level-1 start loads into the core with mode play and level 1, and 120 no-input frames and the mapped RAM match", { skip: skipMy }, async () => {
+  const st = await S.buildStartState(myRom!, { ...MY.other_starts!["level-1"], ram_init: "zero" });
+  const core = createCore(new Uint8Array(readFileSync(myRom!)));
+  S.loadIntoCore(core, st.machine);
+  assert.equal(core.read(0xc029), 0x34, "mode byte reads play");
   assert.equal(core.read(0xc6b3), 0, "level byte reads level 1");
   assert.equal(await firstDiff(myRom!, st, mapOf(MY).logic, 120), 0);
 });
 
-test("Mario & Yoshi: lockstep from the registry selects frame align, the start state and the mapped RAM, and a 300-frame puzzle trace opens no incident on the S0 core; the gate's admitted-trace replay of it reads clean", { skip: skipMy }, async () => {
+test("Mario & Yoshi: lockstep from the level-1 start with a 300-frame puzzle trace opens no incident on the S0 core", { skip: skipMy }, async () => {
+  const game = { ...MY, start: MY.other_starts!["level-1"] };
   const trace = puzzleTrace({ rom_sha: MY.rom.sha256, frames: 300, seed: 7 });
-  const sink = new MemoryIncidentSink();
-  const res = await lockstep({ romPath: myRom!, trace, createCore, coreCommit: "test", sink, evidenceRoot: mkdtempSync(join(tmpdir(), "ratchet-ev-")) });
+  const res = await lockstep({ romPath: myRom!, trace, createCore, coreCommit: "test", sink: new MemoryIncidentSink(), evidenceRoot: mkdtempSync(join(tmpdir(), "ratchet-ev-")), game });
   assert.equal(res.compared, 300);
   assert.deepEqual(res.opened, []);
-  // the gate's admitted-trace replay finds the registry start state and the start-keyed oracle frames: clean
+});
+
+test("Mario & Yoshi: lockstep from the registry (frame align, title start, mapped RAM) opens no incident over 300 idle frames, and the gate's admitted-trace replay of that trace reads clean", { skip: skipMy }, async () => {
+  const trace = { rom_sha: MY.rom.sha256, align: "frame" as const, inputs: [{ from_counter: 0, mask: 0 }], counter_end: 300 };
+  const res = await lockstep({ romPath: myRom!, trace, createCore, coreCommit: "test", sink: new MemoryIncidentSink(), evidenceRoot: mkdtempSync(join(tmpdir(), "ratchet-ev-")) });
+  assert.equal(res.compared, 300);
+  assert.deepEqual(res.opened, []);
+  // the gate's admitted-trace replay finds the registry start state and the start-keyed oracle frames
   const tracesDir = mkdtempSync(join(tmpdir(), "ratchet-traces-"));
-  writeFileSync(join(tracesDir, "TRC-9001.json"), JSON.stringify({ ...trace, id: "TRC-9001", window: [1, 300] }));
+  writeFileSync(join(tracesDir, "TRC-9001.json"), JSON.stringify({ ...trace, id: "TRC-9001", source: "explorer", window: [1, 300] }));
   const r = await isolatedReplayer(REPO).trace({ coreDir: join(REPO, "core"), id: "TRC-9001", tracesDir, rom: myRom!, cache: process.env.RATCHET_CACHE! });
   assert.equal(r.line, "clean");
 });
@@ -158,6 +174,15 @@ test("oracle load ram_init zero starts WRAM all zero; the default load starts it
   } finally {
     await o.close();
   }
+});
+
+test("puzzleTrace from a title start presses START at TITLE_START_AT and MENU_START_AT and then only left, right or A from PLAY_FROM; playTrace takes it for a title-start game", async () => {
+  const { TITLE_START_AT, MENU_START_AT, PLAY_FROM, playTrace } = await import("../loop/game-trace.ts");
+  const t = puzzleTrace({ rom_sha: "x", frames: 2000, seed: 3, fromTitle: true });
+  const starts = t.inputs.filter((i) => i.mask === 128).map((i) => i.from_counter);
+  assert.deepEqual(starts, [TITLE_START_AT, MENU_START_AT]);
+  for (const i of t.inputs) if (i.mask !== 0 && i.mask !== 128) assert.ok(i.from_counter >= PLAY_FROM && [1, 2, 16].includes(i.mask));
+  assert.deepEqual(playTrace(MY, { rom_sha: "x", frames: 2000, seed: 3 }), t);
 });
 
 test("puzzleTrace is frame-aligned, deterministic per seed, and presses only left, right or A", () => {

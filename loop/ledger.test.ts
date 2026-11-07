@@ -45,6 +45,29 @@ test("appends from 4 processes at once leave 200 whole lines with 200 distinct i
   assert.equal(ids.size, 200);
 });
 
+test("two run processes (RUN-0001, RUN-0002) appending incidents and status records to one ledger at once mint INC-0001…INC-0200 with no gap or repeat, and every record carries its own process's run", () => {
+  const d = tmp();
+  const script = join(d, "w.ts");
+  writeFileSync(script, `import { appendNew, status } from ${JSON.stringify(join(import.meta.dirname, "ledger.ts"))};
+for (let i = 0; i < 100; i++) {
+  const r = appendNew("incidents.jsonl", "INC", (id) => ({ id, run: process.env.RATCHET_RUN, status: "open", pad: "x".repeat(300) }), ${JSON.stringify(d)});
+  status("incidents.jsonl", r.id, "route", { by: process.env.RATCHET_RUN }, ${JSON.stringify(d)});
+}\n`);
+  const sh = spawnSync("sh", ["-c", ["RUN-0001", "RUN-0002"].map((r) => `RATCHET_RUN=${r} ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} &`).join(" ") + " wait"], { encoding: "utf8" });
+  assert.equal(sh.status, 0, sh.stderr);
+  const recs = readFileSync(join(d, "incidents.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(recs.length, 400);
+  const incs = recs.filter((r) => r.t !== "status");
+  assert.deepEqual(incs.map((r) => r.id).sort(), Array.from({ length: 200 }, (_, i) => `INC-${String(i + 1).padStart(4, "0")}`));
+  assert.deepEqual([...new Set(incs.map((r) => r.run))].sort(), ["RUN-0001", "RUN-0002"]);
+  assert.equal(incs.filter((r) => r.run === "RUN-0002").length, 100);
+  for (const s of recs.filter((r) => r.t === "status")) {
+    assert.equal(s.run, s.value.by, "a status record carries its writer's run");
+    assert.equal(incs.find((i) => i.id === s.id)?.run, s.run, "a status record's incident is its own run's");
+  }
+  for (const i of all<{ id: string; run: string; route?: { by: string } }>("incidents.jsonl", d)) assert.equal(i.route?.by, i.run);
+});
+
 test("LedgerIncidentSink mints INC ids through the ledger and lists open incidents only", () => {
   const d = tmp();
   const sink = new LedgerIncidentSink(d);

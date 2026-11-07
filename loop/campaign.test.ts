@@ -246,5 +246,5 @@ test("real play's game.gb trace is the explorer's trace, and a game.gb manifest 
   const { gameManifestRoms } = await import("./campaign.ts");
   const o = { rom_sha: "c8444ff9a470e23e3b17de184d992e15c2f80b6f46004714d37b9ea39d2408f3", frames: 3600, seed: 1001 };
   assert.deepEqual(playTrace(gameById("game"), o), explorerTrace(o));
-  assert.deepEqual(await gameManifestRoms("game", join(import.meta.dirname, "..")), { "game:game": o.rom_sha });
+  assert.deepEqual(await gameManifestRoms(join(import.meta.dirname, "..", "game", "game.gb")), { "game:game": o.rom_sha });
 });

@@ -131,6 +131,33 @@ test("tools/replay.mjs copied alone into a directory with no splits.json scores 
   assert.match(v.err, /split V refused/);
 });
 
+test("CGB suite incident: suiteIncident on a CGB T family runs the ROM with model CGB, writes window.model CGB and a colour oracle.png, and tools/replay.mjs replays it on CGB (a DMG-only core reads no CGB support)", { skip: !existsSync(join(romsDir(), MEALY)) && `${MEALY} absent` }, async () => {
+  const { createCore } = await import("../suites/fixtures/cgb-nop-core/index.ts");
+  const { loadSplits, SPLITS_CGB_PATH } = await import("../suites/splits.ts");
+  const { PNG } = await import("pngjs");
+  const models: (string | undefined)[] = [];
+  const spy: typeof createCore = (rom, opts) => { models.push(opts?.model); return createCore(rom, opts); };
+  const sink = new MemoryIncidentSink();
+  const root = evidence();
+  const inc = suiteIncident("cgb:mealybug:palette-scroll-bg", MEALY, { createCore: spy, coreCommit: "fixture", sink, evidenceRoot: root, splits: loadSplits(SPLITS_CGB_PATH), caps: { wallMs: 5000, cycles: 4_194_304 } });
+  assert.ok(inc);
+  assert.deepEqual(models, ["CGB"]);
+  const w = JSON.parse(readFileSync(join(root, inc.id, "window.json"), "utf8"));
+  assert.equal(w.model, "CGB");
+  assert.equal(w.family, "cgb:mealybug:palette-scroll-bg");
+  assert.ok(inc.pixels > 0, "the black frame differs from the CGB reference");
+  const ref = PNG.sync.read(readFileSync(join(root, inc.id, "oracle.png")));
+  let colour = false;
+  for (let i = 0; i < ref.data.length; i += 4) if (ref.data[i] !== ref.data[i + 1] || ref.data[i + 1] !== ref.data[i + 2]) { colour = true; break; }
+  assert.ok(colour, "oracle.png carries a non-grey pixel of the CGB reference");
+  const cgb = replay(["--incident", inc.id, "--evidence-dir", join(root, inc.id), "--core-dir", join(REPO, "suites", "fixtures", "cgb-nop-core")]);
+  assert.equal(cgb.code, 1);
+  assert.match(cgb.out, /^fail: mealybug-tearoom-tests\/ppu\/m3_bgp_change\.gb pixel match/);
+  const dmg = replay(["--incident", inc.id, "--evidence-dir", join(root, inc.id), "--core-dir", join(REPO, "suites", "fixtures", "nop-core")]);
+  assert.equal(dmg.code, 1);
+  assert.match(dmg.out, /no CGB support/);
+});
+
 test("tools/replay.mjs equals a fresh esbuild bundle of tools/replay.ts", async () => {
   assert.equal(readFileSync(REPLAY_OUT, "utf8"), await bundleReplay(false));
 });

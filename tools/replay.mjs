@@ -2170,8 +2170,28 @@ function romsDir() {
   const v = process.env.RATCHET_ROMS;
   return v ? v.replace(/^~(?=\/|$)/, homedir()) : join(homedir(), ".cache", "ratchet", "roms");
 }
-function loadSplits(path = SPLITS_PATH) {
-  return JSON.parse(readFileSync(path, "utf8"));
+function splitsPaths(env = process.env) {
+  const v = env.RATCHET_SPLITS?.trim();
+  if (!v) return [SPLITS_PATH];
+  return v.split(",").map((s) => s.trim()).filter(Boolean).map((s) => resolve(import.meta.dirname, "..", s));
+}
+function mergeSplits(all) {
+  const out = { version: all.map((s) => s.version).join("+"), families: {}, dmg_suffixes: [], excluded: [] };
+  for (const s of all) {
+    for (const [f, fam] of Object.entries(s.families)) {
+      if (out.families[f]) throw new Error(`mergeSplits: family ${f} is in two splits files`);
+      out.families[f] = fam;
+    }
+    for (const x of s.dmg_suffixes ?? []) if (!out.dmg_suffixes.includes(x)) out.dmg_suffixes.push(x);
+    out.excluded.push(...s.excluded ?? []);
+  }
+  return out;
+}
+function loadSplits(path) {
+  if (path !== void 0) return JSON.parse(readFileSync(path, "utf8"));
+  const ps = splitsPaths();
+  if (ps.length === 1) return JSON.parse(readFileSync(ps[0], "utf8"));
+  return mergeSplits(ps.map((p) => JSON.parse(readFileSync(p, "utf8"))));
 }
 function passRule(rom) {
   if (rom.startsWith("blargg/")) return "serial";
@@ -2711,7 +2731,7 @@ function formatOutcome(o) {
   return `first mismatch: counter ${o.counter} (${what})`;
 }
 function replaySuite(createCore, w, root, caps) {
-  const reading = runRom(createCore, root, w.rom_rel, caps);
+  const reading = runRom(createCore, root, w.rom_rel, caps, void 0, w.model ?? "DMG");
   return { clean: reading.pass, reading, repro: w.repro };
 }
 function scoreRomList(createCore, split, family, roms, root, caps, onRom) {
@@ -2758,7 +2778,7 @@ async function main() {
       const romPath = join8(romsDir(), w.rom_rel);
       if (sha256(readFileSync6(romPath)) !== w.incident.rom_sha) throw new Error(`${romPath} is not the incident's ROM (sha ${w.incident.rom_sha})`);
       const r = replaySuite(createCore, w, romsDir());
-      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)})`);
+      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)}) on ${w.model ?? "DMG"}: ${r.reading.detail}`.slice(0, 400));
       return r.clean ? 0 : 1;
     }
     const rom = new Uint8Array(readFileSync6(v.rom ?? w.rom.path));

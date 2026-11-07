@@ -26,11 +26,11 @@ Power-on without a start state is not the same starting condition. Under frame a
 - **What the core does.** `core/index.ts` `ioWrite` `0xFF02` completes the transfer within the write. It sets SB to `0xFF` and raises the serial IF bit, and it never clears SC bit 7.
 - **What SameBoy does.** SameBoy shifts the 8 bits on the serial clock, clears SC bit 7 and raises the interrupt when the transfer ends.
 - **Check.** A scratch copy of the core, never committed, completed the transfer 4096 T-cycles after the write and cleared SC bit 7. With it, the core leaves the title, and its frames match the oracle's from frame 32 of a Start-at-20 reading from the title state.
-- **Lockstep reading.** From the title start state, a frame incident opens at frame 23 (scene 48, band 0) and a logic incident at frame 28 (mode: oracle menu `0x38`, core title `0x30`). Both are in `readings.json`. `title-start-serial-core.png` and `title-start-serial-oracle.png` are the frame-23 pair. The registry start state begins at level 1, so a run on it does not reach this incident. Reaching it takes a trace that returns to the title.
+- **Lockstep reading.** From the title start state, a frame incident opens at frame 23 (scene 48, band 0) and a logic incident at frame 28 (mode: oracle menu `0x38`, core title `0x30`). Both are in `readings.json`. `title-start-serial-core.png` and `title-start-serial-oracle.png` are the frame-23 pair. `games.json` `start` is this title state, and `loop/game-trace.ts` presses START from it, so RUN-0004 reaches the incident. The level-1 start (`other_starts["level-1"]`) does not reach it.
 
 ## Lockstep after the fixes
 
-From the registry start state on the S0 core, three puzzle traces of 1800, 5400 and 5400 frames opened 0 incidents. Every frame and the mapped mode, score, board and level bytes were compared. The frames varied: 236 distinct oracle frames appeared in the 1800-frame trace.
+From the level-1 start on the S0 core, three puzzle traces of 1800, 5400 and 5400 frames opened 0 incidents. Every frame and the mapped mode, score, board and level bytes were compared. The frames varied: 236 distinct oracle frames appeared in the 1800-frame trace.
 
 ## game.gb and RUN-0001
 
