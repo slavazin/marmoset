@@ -28,7 +28,7 @@ export const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
  * Outbound TCP ports the confined process may reach on any host. A localhost-only profile also blocks Muse's own
  * model API (HTTPS), so the attempt could not run. 443 is the API port. The shell can therefore reach any HTTPS host.
  * Reading: a scratchpad sandbox-exec run on 2026-11-07, with this profile's network rules, got curl https://example.com
- * 200 and http://example.com exit 7 (refused). See D-draft-seatbelt-https.
+ * 200 and http://example.com exit 7 (refused). See D-0024.
  */
 export const CONFINE_OUTBOUND_TCP_PORTS: readonly number[] = [443];
 /** The DNS resolver socket. Name lookups for the model API go through it. */
