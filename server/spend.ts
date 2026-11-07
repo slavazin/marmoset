@@ -4,9 +4,11 @@
 //   runs/<run>/spend-override.json   {"usd": <Meta console total>, "at": "<ISO time read>", "pre_run_usd": <spend
 //                                    before the run opened, run null>}, filled by the owner from the Meta console;
 //   RATCHET_SPEND_OFFSET_USD         a signed dollar offset on the priced figure, read only when no override exists.
-// The owner-read figure is the run's spend: console total minus pre_run_usd, plus the priced dollars of records that
-// carry this run and were written after `at`, or after the file's write time when `at` is later, with a warning
-// (readOverride; list rates until the owner's next reading). The guard acts on owner-read
+// The owner-read figure is the run's spend: console total minus pre_run_usd, plus ratio × the priced dollars of
+// records that carry this run and were written after `at` (or after the file's write time when `at` is later, with a
+// warning; readOverride). ratio is ownerRatio: the console total over every priced dollar up to `at`, pre-run
+// included, clamped to (0, 1], so list rates are scaled by the owner's reading until the next one
+// (campaign.test.ts "scaled by the owner's ratio"). The guard acts on owner-read
 // when the override file exists, else on priced + offset. Owner reading 2026-11-07 ~12:50: about $5 in total against
 // over $90 by PRICES (ATT-0001 alone $66.35), so PRICES read roughly 18x high; both figures stay on the meter.
 
@@ -33,6 +35,8 @@ export interface SpendMeter {
   offset_usd: number;
   /** The run's spend by the owner's console reading (see the file header); null with no override file. */
   owner_read_usd: number | null;
+  /** ownerRatio at the reading: the factor on priced dollars after it; null with no override file. */
+  ratio: number | null;
   override: SpendOverride | null;
   /** The figure the guard acts on. */
   usd: number;
@@ -77,6 +81,31 @@ export function readOverride(runsDir: string, run: string | null): (SpendOverrid
   } catch { return null; }
 }
 
+/**
+ * The reserve per in-flight attempt before the run has a finished one, in console dollars: the owner's console total
+ * of about $5 on 2026-11-07 ~12:50 covered all pre-run work including ATT-0001 (runs/RUN-0001/spend-override.json
+ * note), so one attempt costs at most that; held by review.
+ */
+export const ATTEMPT_RESERVE_USD = 5;
+
+/**
+ * The guard's reserve per in-flight attempt: the median spent.usd × ratio (ratio null reads 1) of attempts that carry
+ * `run` and hold a result, else ATTEMPT_RESERVE_USD (campaign.test.ts "reserve is the median").
+ */
+export function attemptReserve(o: { ledger: string; run: string | null; ratio: number | null }): number {
+  const done = attempts(o.ledger).filter((a) => a.run === o.run && (a as { result?: unknown }).result != null && typeof a.spent?.usd === "number")
+    .map((a) => a.spent.usd * (o.ratio ?? 1)).sort((x, y) => x - y);
+  if (!done.length) return ATTEMPT_RESERVE_USD;
+  const k = done.length >> 1;
+  return done.length % 2 ? done[k] : (done[k - 1] + done[k]) / 2;
+}
+
+/** Console dollars per priced dollar at the reading, clamped to (0, 1]; 1 when nothing was priced before it. */
+export function ownerRatio(consoleUsd: number, pricedBeforeUsd: number): number {
+  if (!(pricedBeforeUsd > 0) || !(consoleUsd > 0)) return 1;
+  return Math.min(1, consoleUsd / pricedBeforeUsd);
+}
+
 export interface MeterOptions { ledger: string; runsDir: string; run: string | null; env?: NodeJS.ProcessEnv }
 
 /** The meter (see the file header). */
@@ -92,6 +121,7 @@ export function spendMeter(o: MeterOptions): SpendMeter {
   const override = readOverride(o.runsDir, o.run);
   let owner_read_usd: number | null = null;
   let warning: string | undefined;
+  let ratio: number | null = null;
   if (override) {
     let t = Date.parse(override.at);
     if (t > override.written_ms) {
@@ -100,11 +130,15 @@ export function spendMeter(o: MeterOptions): SpendMeter {
     }
     const after = atts.filter((a) => a.run === o.run && Date.parse(a.spent_at ?? a.at) > t).reduce((s, a) => s + (a.spent?.usd ?? 0), 0)
       + calls.filter((r) => r.run === o.run && Date.parse(r.at) > t).reduce((s, r) => s + r.usd, 0);
-    owner_read_usd = override.usd - override.pre_run_usd + after;
+    // every priced dollar up to the reading, any run or none: the owner's console total stands against it
+    const before = atts.filter((a) => Date.parse(a.spent_at ?? a.at) <= t).reduce((s, a) => s + (a.spent?.usd ?? 0), 0)
+      + calls.filter((r) => Date.parse(r.at) <= t).reduce((s, r) => s + r.usd, 0);
+    ratio = ownerRatio(override.usd, before);
+    owner_read_usd = override.usd - override.pre_run_usd + ratio * after;
   }
   const usd = owner_read_usd ?? priced_usd + offset_usd;
   return {
-    priced_usd, attempts_usd, attempts_n: atts.length, calls_usd, calls_n: calls.length, offset_usd, owner_read_usd, override, usd,
+    priced_usd, attempts_usd, attempts_n: atts.length, calls_usd, calls_n: calls.length, offset_usd, owner_read_usd, ratio, override, usd,
     source: owner_read_usd !== null ? "owner-read" : offset_usd ? "priced+offset" : "priced", ask_usd: SPEND_ASK_USD, stop_usd: SPEND_STOP_USD,
     ...(warning ? { warning } : {}),
   };
@@ -118,6 +152,6 @@ export function spendGate(usd: number): SpendGate {
 
 /** One meter line naming both figures (the campaign prints it; the History tab shows the same fields). */
 export function meterLine(m: SpendMeter): string {
-  const owner = m.owner_read_usd === null ? "no runs/<run>/spend-override.json" : `$${m.owner_read_usd.toFixed(2)}`;
+  const owner = m.owner_read_usd === null ? "no runs/<run>/spend-override.json" : `$${m.owner_read_usd.toFixed(2)} (list rates × ${(m.ratio ?? 1).toFixed(3)} since reading)`;
   return `spend: ${OWNER_LABEL} ${owner} · ${PRICED_LABEL} $${m.priced_usd.toFixed(2)}${m.offset_usd ? ` (offset ${m.offset_usd})` : ""} · guard reads ${m.source} $${m.usd.toFixed(2)} (ask $${m.ask_usd}, stop $${m.stop_usd})${m.warning ? ` · warning: ${m.warning}` : ""}`;
 }

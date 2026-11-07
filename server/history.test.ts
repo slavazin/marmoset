@@ -95,10 +95,25 @@ test("a sabotage incident and the attempt and verdict tracing to it are marked a
   assert.equal(before.vread, null);
   assert.equal(before.incidents.find((i) => i.id === "INC-0009")!.sabotage, true);
   assert.equal(before.verdicts.find((v) => v.id === "VER-0009")!.sabotage, true);
-  assert.deepEqual(before.figures, [{ run: "RUN-0001", incidents: 1, attempts: 0, graduated: 0, refused: 0, skills_graduated: 0, skills_refused: 0, policies_graduated: 0, policies_refused: 0, fires: 0 }]);
+  assert.deepEqual(before.figures, [{ run: "RUN-0001", incidents: 1, repaired: 0, repaired_by_graduate: 0, attempts: 0, graduated: 0, refused: 0, skills_graduated: 0, skills_refused: 0, policies_graduated: 0, policies_refused: 0, fires: 0 }]);
   mkdirSync(join(runs, "RUN-0001"), { recursive: true });
   writeFileSync(join(runs, "RUN-0001", "vread.json"), JSON.stringify({ run: "RUN-0001", arms: { baseline: [], ratchet: [] }, n_family_runs_per_arm: 1, residue: [] }));
   assert.equal((await readHistory(opts(led, runs))).vread!.run, "RUN-0001");
+});
+
+test("an incident another graduate repaired (repaired_by) counts as repaired in the run figures and adds no attempt", async () => {
+  const led = join(tmp, "repaired-ledger");
+  mkdirSync(led);
+  const rec = (file: string, o: Record<string, unknown>) => appendFileSync(join(led, file), JSON.stringify(o) + "\n");
+  rec("incidents.jsonl", { id: "INC-0001", run: "RUN-0001", source: "play", status: "open", files: { dir: "evidence/incidents/INC-0001" } });
+  rec("incidents.jsonl", { id: "INC-0003", run: "RUN-0001", source: "play", status: "open", files: { dir: "evidence/incidents/INC-0003" } });
+  rec("attempts.jsonl", { id: "ATT-0001", run: "RUN-0001", task: { kind: "incident", incident: "INC-0001", arm: "fast", skills: [] }, spent: { usd: 1 } });
+  rec("verdicts.jsonl", { id: "VER-0001", run: "RUN-0001", subject: { kind: "attempt", id: "ATT-0001" }, decision: "GRADUATE", checks: [], reason: "r", residue: [], rule_version: "x" });
+  rec("incidents.jsonl", { t: "status", id: "INC-0001", field: "status", value: "repaired", at: "2026-11-07T14:40:00.000Z" });
+  rec("incidents.jsonl", { t: "status", id: "INC-0003", field: "repaired_by", value: "VER-0001", at: "2026-11-07T14:40:01.000Z" });
+  rec("incidents.jsonl", { t: "status", id: "INC-0003", field: "status", value: "repaired", at: "2026-11-07T14:40:01.000Z" });
+  const f = (await readHistory(opts(led))).figures[0];
+  assert.deepEqual([f.incidents, f.repaired, f.repaired_by_graduate, f.attempts, f.graduated], [2, 2, 1, 1, 1]);
 });
 
 test("readHistory lists policies beside skills, with graduated and tombstoned status, and counts policy verdicts per run apart from skill verdicts", async () => {

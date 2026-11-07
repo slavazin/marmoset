@@ -12,7 +12,7 @@ export const TRIAL_FAMILIES: readonly string[] = ["mealybug:window", "mooneye:pp
 export const SUITE_MIN_GAIN = 0.01;
 /** Incidents between slow-loop generations. */
 export const K = 4;
-/** Repairer step cap per attempt (D-0025: 60 left a third of the cap unspendable inside the wall). */
+/** Repairer step cap per attempt (D-0026, superseding D-0025: 60 left a third of the cap unspendable inside the wall). */
 export const MAX_STEPS = 90;
 /** Attempts per incident. */
 export const MAX_ATTEMPTS = 2;

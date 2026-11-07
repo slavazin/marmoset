@@ -15,7 +15,7 @@ import { verdictCard } from "./cards/verdict-card.ts";
 import { incidentCard } from "./cards/incident-card.ts";
 import { gateBanks, latestByKind } from "./cards/gate-lamps.ts";
 import { pulse, mountGridToggle, mountLookToggle } from "./fx.ts";
-import { esc, fmtReading, evidenceUrl, verdictIncident } from "./format.ts";
+import { esc, fmtReading, fmtVArmRow, evidenceUrl, verdictIncident } from "./format.ts";
 import { detectReplay, startReplay } from "./replay.ts";
 import { mountTelemetryLed } from "./telemetry-led.ts";
 import "./present/mount.ts";
@@ -261,7 +261,7 @@ function renderVRead(): void {
   const el = $("vread");
   if (!vread) { el.hidden = true; return; }
   el.hidden = false;
-  const rows = (arm: "baseline" | "ratchet") => vread!.arms[arm].map((r) => `<div>${esc(arm)} · ${esc(fmtReading(r))}</div>`).join("");
+  const rows = (arm: "baseline" | "ratchet") => vread!.arms[arm].map((r) => `<div>${esc(fmtVArmRow(arm, r))}</div>`).join("");
   el.innerHTML = `<h3>V read · ${esc(vread.run)} · n ${esc(vread.n_family_runs_per_arm)} family-runs/arm</h3>${rows("baseline")}${rows("ratchet")}<div class="dim">residue: ${esc(vread.residue.join(", "))}</div>`;
 }
 

@@ -8,7 +8,7 @@ import { makeBed, writeSkill, type Bed } from "./fixtures/harness.ts";
 import { openManifest, readManifest, sDirs } from "./run-records.ts";
 import { append, all, current } from "./ledger.ts";
 import { steer } from "./steer.ts";
-import { spendMeter } from "../server/spend.ts";
+import { ATTEMPT_RESERVE_USD, attemptReserve, meterLine, SPEND_ASK_USD, spendMeter } from "../server/spend.ts";
 import { MAX_ATTEMPTS } from "./gate.ts";
 import { ruleVersion } from "./gate-repair.ts";
 import type { Attempt, Incident, Manifest, Verdict } from "../src/schema.ts";
@@ -77,8 +77,13 @@ test("a dry campaign on a scratch ledger opens incidents, routes each, runs atte
     assert.equal(verdicts.length, atts.length);
     assert.ok(verdicts.some((v) => v.decision === "GRADUATE") && verdicts.some((v) => v.decision === "REFUSE"));
     assert.ok(atts.every((a) => a.run === "RUN-0001"));
-    assert.equal(atts.filter((a) => a.task.incident === "INC-0002").length, 2);
-    assert.equal(current<Incident>("incidents.jsonl", "INC-0002", L)!.status, "unrepaired");
+    // INC-0002 and INC-0003 are clones of INC-0001: its GRADUATE's re-check on the merged head repairs them, attempt or not
+    const grad = verdicts.find((v) => v.decision === "GRADUATE")!;
+    for (const id of ["INC-0002", "INC-0003"]) {
+      const inc = current<Incident & { repaired_by?: string }>("incidents.jsonl", id, L)!;
+      assert.deepEqual([inc.status, inc.repaired_by], ["repaired", grad.id], id);
+      assert.ok(atts.filter((a) => a.task.incident === id).length <= MAX_ATTEMPTS);
+    }
     assert.match(out.stopped, /^idle/);
     assert.equal(readCampaign(deps.runsDir, deps.run).at(-1)!.t, "stop");
   } finally { if (saved === undefined) delete process.env.RATCHET_RUN; else process.env.RATCHET_RUN = saved; }
@@ -130,10 +135,55 @@ test("the owner-read override is what the guard acts on: $61 priced with a $5 co
   assert.equal(m.source, "owner-read");
   await runCampaign(g.deps);
   assert.equal(g.calls[0], "INC-0001");
-  // the run's priced records after the reading add to it; records with run null never do
+  // the run's priced records after the reading add to it at the owner's ratio ($5 console / $61 priced); run-null records never do
   append("attempts.jsonl", { id: "ATT-0002", at: "2026-11-07T14:40:00.000Z", run: "RUN-0001", spent: { usd: 2.5 } }, g.bed.paths.ledger);
   append("spend.jsonl", { at: "2026-11-07T14:41:00.000Z", run: null, role: "narrator", model: "m", tokens_in: 1, tokens_out: 1, usd: 9 }, g.bed.paths.ledger);
-  assert.equal(spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" }).owner_read_usd, 2.5);
+  const after = spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" });
+  assert.equal(after.ratio, 5 / 61);
+  assert.equal(after.owner_read_usd, (5 / 61) * 2.5);
+});
+
+test("before a start the guard adds a reserve per in-flight attempt: ATTEMPT_RESERVE_USD until the run has a finished attempt, so $50 with two in flight pauses at $60", async () => {
+  const g = guardBed(50);
+  const base = current<Incident>("incidents.jsonl", "INC-0001", g.bed.paths.ledger)!;
+  for (const id of ["INC-0002", "INC-0003", "INC-0004"]) append("incidents.jsonl", { ...base, id }, g.bed.paths.ledger);
+  g.deps.minutes = 0.005;
+  g.deps.fast = async (id) => { g.calls.push(id); await new Promise((r) => setTimeout(r, 600)); throw new Error("slow fake attempt"); };
+  assert.equal(attemptReserve({ ledger: g.bed.paths.ledger, run: "RUN-0001", ratio: null }), ATTEMPT_RESERVE_USD);
+  await runCampaign(g.deps);
+  const n = Math.ceil((SPEND_ASK_USD - 50) / ATTEMPT_RESERVE_USD);
+  assert.equal(g.calls.length, n, `starts until $50 + ${ATTEMPT_RESERVE_USD} x in-flight reaches $${SPEND_ASK_USD}`);
+  const pause = readCampaign(g.runsDir, "RUN-0001").find((r) => r.t === "pause") as { reserve_usd: number; inflight: number } | undefined;
+  assert.deepEqual(pause && [pause.inflight, pause.reserve_usd], [n, n * ATTEMPT_RESERVE_USD]);
+});
+
+test("the reserve is the median scaled cost of the run's finished attempts", () => {
+  const bed = makeBed();
+  const L = bed.paths.ledger;
+  for (const [id, usd, run] of [["ATT-0001", 2, "RUN-0001"], ["ATT-0002", 4, "RUN-0001"], ["ATT-0003", 30, "RUN-0001"], ["ATT-0004", 99, null]] as const)
+    append("attempts.jsonl", { id, at: "2026-11-07T14:31:00.000Z", run, task: { kind: "incident", incident: "INC-0001" }, spent: { usd }, result: { summary: "s" } }, L);
+  append("attempts.jsonl", { id: "ATT-0005", at: "2026-11-07T14:31:00.000Z", run: "RUN-0001", task: { kind: "incident", incident: "INC-0001" }, spent: { usd: 500 } }, L); // in flight: no result
+  assert.equal(attemptReserve({ ledger: L, run: "RUN-0001", ratio: null }), 4);
+  assert.equal(attemptReserve({ ledger: L, run: "RUN-0001", ratio: 0.5 }), 2);
+});
+
+test("post-reading priced dollars are scaled by the owner's ratio, console usd at `at` over every priced dollar up to `at` (pre-run included), clamped to (0, 1], and the meter line names it", () => {
+  const g = guardBed(10); // ATT-0001, run RUN-0001, $10 at 14:31
+  const L = g.bed.paths.ledger;
+  append("spend.jsonl", { at: "2026-11-07T10:00:00.000Z", run: null, role: "consolidator", model: "m", tokens_in: 1, tokens_out: 1, usd: 90 }, L);
+  const f = join(g.runsDir, "RUN-0001", "spend-override.json");
+  mkdirSync(join(g.runsDir, "RUN-0001"), { recursive: true });
+  writeFileSync(f, JSON.stringify({ usd: 5, at: "2026-11-07T14:32:00.000Z", pre_run_usd: 5 }));
+  append("attempts.jsonl", { id: "ATT-0002", at: "2026-11-07T14:40:00.000Z", run: "RUN-0001", spent: { usd: 20 } }, L);
+  const m = spendMeter({ ledger: L, runsDir: g.runsDir, run: "RUN-0001" });
+  assert.equal(m.ratio, 0.05);
+  assert.ok(Math.abs(m.owner_read_usd! - 1) < 1e-9, String(m.owner_read_usd));
+  assert.match(meterLine(m), /list rates × 0\.050 since reading/);
+  // a console total above the priced total clamps to 1; no priced dollar before the reading reads 1
+  writeFileSync(f, JSON.stringify({ usd: 500, at: "2026-11-07T14:32:00.000Z", pre_run_usd: 5 }));
+  assert.equal(spendMeter({ ledger: L, runsDir: g.runsDir, run: "RUN-0001" }).ratio, 1);
+  writeFileSync(f, JSON.stringify({ usd: 5, at: "2026-11-07T09:00:00.000Z", pre_run_usd: 5 }));
+  assert.equal(spendMeter({ ledger: L, runsDir: g.runsDir, run: "RUN-0001" }).ratio, 1);
 });
 
 test("an override whose `at` is later than the file was written is read at the file's write time, with a warning, so the run's priced records after the write still count", () => {

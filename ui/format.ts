@@ -1,7 +1,7 @@
 // Formatting for readings and ledger records. Every figure it prints comes from the record passed in;
 // the card templates under ui/cards/ call these and carry no numeric literal (ui/cards.test.ts).
 
-import type { Verdict, SuiteReading, Attempt, Incident } from "../src/schema.ts";
+import type { Verdict, SuiteReading, Attempt, Incident, VArmReading } from "../src/schema.ts";
 
 export function esc(s: unknown): string {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -20,6 +20,12 @@ export function fmtPixelMatch(v: number): string {
 
 export function fmtSuiteReading(r: SuiteReading): string {
   return `${r.split}/${r.family}: ${r.pass}/${r.roms} pass, ${r.exact} exact, ${fmtPixelMatch(r.pixel_match)}`;
+}
+
+/** One V-read row: arm, reading, and "apply failed: base core scored" when the arm's diff did not apply (VArmReading). */
+export function fmtVArmRow(arm: string, r: VArmReading): string {
+  const { apply_failed, ...reading } = r;
+  return `${arm} · ${fmtSuiteReading(reading)}${apply_failed ? " · apply failed: base core scored" : ""}`;
 }
 
 /** One reading (a check's `reading: unknown`) as text. */

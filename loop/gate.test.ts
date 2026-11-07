@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, symlinkSync, mkdtempSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, symlinkSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { current, read } from "./ledger.ts";
-import type { Verdict } from "../src/schema.ts";
+import { append, current, read } from "./ledger.ts";
+import type { Incident, Verdict } from "../src/schema.ts";
 import { makeBed, makeDiff, setShade, attemptFor, FIX, BREAKS_ADMITTED, type Bed } from "./fixtures/harness.ts";
 import { gateAttempt, diffScope, longestLiteral, type SuitesJudge } from "./gate-repair.ts";
 import { isolatedReplayer } from "./replay-seam.ts";
@@ -188,7 +188,30 @@ test("a merge into core-live that throws writes a REFUSE Verdict naming the erro
   assert.deepEqual(readdirSync(bed.paths.traces), ["TRC-0001.json"]);
 });
 
-type Seen = { dir: string; split: string; a: boolean; b: boolean };
+test("after a GRADUATE merge every other open or unrepaired incident that no longer reproduces on the merged head gets repaired_by <VER> and status repaired, without an attempt; one that still reproduces is left as it was", async () => {
+  const bed = makeBed();
+  const L = bed.paths.ledger;
+  // the dry run's INC-0003 shape: a clone of INC-0001 with its own evidence copy and band
+  const clone = (id: string, status: Incident["status"]) => {
+    cpSync(join(bed.paths.evidence, "incidents", "INC-0001"), join(bed.paths.evidence, "incidents", id), { recursive: true });
+    append("incidents.jsonl", { ...bed.incident, id, status, signature: { ...bed.incident.signature, band: 5 }, files: { dir: `evidence/incidents/${id}` } }, L);
+  };
+  clone("INC-0002", "open"); clone("INC-0003", "unrepaired"); clone("INC-0004", "open"); clone("INC-0005", "repaired");
+  const base = isolatedReplayer(bed.paths.root);
+  const replayed: string[] = [];
+  // INC-0004 still reproduces on the merged head
+  const replayer = { ...base, async incident(a: Parameters<typeof base.incident>[0]) { replayed.push(a.id); const r = await base.incident(a); return a.id === "INC-0004" ? { ...r, clean: false } : r; } };
+  const out = await gateAttempt({ attempt: attemptFor(bed), diff: makeDiff((d) => setShade(d, FIX)), incident: bed.incident, paths: bed.paths, replayer, suites: steadySuites, quiet: true });
+  assert.equal(out.verdict.decision, "GRADUATE", out.verdict.reason);
+  const cur = (id: string) => current<Incident & { repaired_by?: string }>("incidents.jsonl", id, L)!;
+  assert.deepEqual(["INC-0002", "INC-0003", "INC-0004", "INC-0005"].map((id) => [id, cur(id).status, cur(id).repaired_by ?? null]),
+    [["INC-0002", "repaired", out.verdict.id], ["INC-0003", "repaired", out.verdict.id], ["INC-0004", "open", null], ["INC-0005", "repaired", null]]);
+  assert.deepEqual(out.repaired_by, ["INC-0002", "INC-0003"]);
+  assert.ok(!replayed.includes("INC-0005"), "a repaired incident is not re-checked");
+  assert.equal(read("attempts.jsonl", L).length, 0, "a re-check mints no attempt");
+});
+
+type Seen ={ dir: string; split: string; a: boolean; b: boolean };
 /** Suites that record, per score call, which marker files (core/a.ts, core/b.ts) the scored core holds. */
 function markerSuites(seen: Seen[]): SuitesJudge {
   return { async score(dir, split) { seen.push({ dir, split, a: existsSync(join(dir, "a.ts")), b: existsSync(join(dir, "b.ts")) }); return steadySuites.score(dir, split); } };

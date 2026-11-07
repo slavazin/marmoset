@@ -2,8 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { makeBed, setShade, writeSkill, FIX } from "./fixtures/harness.ts";
+import { all, current } from "./ledger.ts";
+import { coreAt } from "./trial.ts";
+import { TRIAL_WALL_S } from "./budget.ts";
+import { MAX_STEPS } from "./gate.ts";
+import type { Attempt } from "../src/schema.ts";
 import { fakeRunner } from "./repair.ts";
 import { freeze, lockPath, manifestPath, openManifest, readLock, setSha, sDirs } from "./run-records.ts";
 import { progressFile, runVRead, vreadFile, type VJudge } from "./vread.ts";
@@ -71,6 +76,26 @@ test("a second V read cannot overwrite the first: a vread.json written while a r
   freeze({ runsDir: t2.runsDir, run: "RUN-0001", root: t2.b.paths.root, skills: t2.b.paths.skills });
   writeFileSync(progressFile(t2.runsDir, "RUN-0001"), "");
   await assert.rejects(runVRead({ paths: t2.b.paths, runsDir: t2.runsDir, run: "RUN-0001", runner, judge: async (_d, f) => reading(f, 0), families: FAMS, familyRoms: () => [t2.b.incRom] }), /exists/);
+});
+
+test("a V-read arm whose diff fails to apply is scored on the base core and marked apply_failed in vread.json and the progress file; every arm runs at TRIAL_WALL_S", async () => {
+  const { b, runsDir } = bed();
+  freeze({ runsDir, run: "RUN-0001", root: b.paths.root, skills: b.paths.skills });
+  const runner = fakeRunner((d) => setShade(d, FIX), { dispositions: {}, off_map: null, beliefs: [], summary: "fixture" });
+  // the ratchet arm's diff on fake:v-b fails to apply
+  const applyCore: typeof coreAt = (paths, commit, dir, diff = "") => {
+    const t = current<Attempt>("attempts.jsonl", basename(dir), b.paths.ledger)?.task; // the arm's core dir is named for its ATT
+    if (diff && t?.arm === "vread-ratchet" && t.family === "fake:v-b") throw new Error("patch does not apply");
+    return coreAt(paths, commit, dir, diff);
+  };
+  const v = await runVRead({ paths: b.paths, runsDir, run: "RUN-0001", runner, judge: async (_d, f) => reading(f, 0.5), families: FAMS, familyRoms: () => [b.incRom], applyCore });
+  assert.deepEqual(v.arms.ratchet.map((r) => [r.family, r.apply_failed ?? false]), [["fake:v-a", false], ["fake:v-b", true]]);
+  assert.ok(v.arms.baseline.every((r) => !r.apply_failed));
+  const done = readFileSync(progressFile(runsDir, "RUN-0001"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.t === "done");
+  assert.deepEqual(done.filter((r) => r.apply_failed).map((r) => [r.arm, r.family]), [["vread-ratchet", "fake:v-b"]]);
+  const atts = all<Attempt>("attempts.jsonl", b.paths.ledger).filter((a) => a.task.kind === "family");
+  assert.equal(atts.length, 4);
+  assert.ok(atts.every((a) => a.task.budget.wall_s === TRIAL_WALL_S && a.task.budget.max_steps === MAX_STEPS));
 });
 
 test("a crashed V read reruns only its unfinished arm with --resume, and vread.json holds both arms with n and per-family readings", async () => {

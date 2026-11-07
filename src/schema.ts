@@ -230,8 +230,10 @@ export interface Calibration { run: string; at: string; family: string; baseline
 export interface VReadLock { run: string; at: string; token: string } // runs/RUN-NNNN/vread.lock
 export interface VRead {
   run: string; at: string; core_commit: string; s0_sha: string; s_star_sha: string;
-  arms: { baseline: SuiteReading[]; ratchet: SuiteReading[] }; n_family_runs_per_arm: number; residue: string[];
+  arms: { baseline: VArmReading[]; ratchet: VArmReading[] }; n_family_runs_per_arm: number; residue: string[];
 } // runs/RUN-NNNN/vread.json
+/** One family's V reading in one arm; apply_failed: the arm's core/** diff did not apply, so the base core was scored. */
+export type VArmReading = SuiteReading & { apply_failed?: true };
 
 // §6.18 UI events (SSE, server/events.ts)
 export type UiEvent =

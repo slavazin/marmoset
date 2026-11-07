@@ -8,7 +8,8 @@
 //      through the projection: vread-baseline (S₀: no skills, no policies) and vread-ratchet (S*: the graduated skills
 //      under MAX_SHOWN and the graduated policies). Each family-run is an Attempt (task.kind "family") and writes no
 //      observation; its core/** diff is applied to a copy of the base core and scored on its family, split V, with
-//      RATCHET_VREAD_TOKEN set from the lock;
+//      RATCHET_VREAD_TOKEN set from the lock; a diff that does not apply scores the base core and marks the
+//      reading and its progress record apply_failed: true (vread.test.ts "fails to apply");
 //   4. appends each finished family-run to runs/<run>/vread-progress.jsonl; --resume reruns only the arm-family pairs
 //      not in it, from the commit the first start recorded there;
 //   5. writes runs/<run>/vread.json (§6.19 VRead) once every pair has a reading.
@@ -28,7 +29,7 @@ import { policiesInForce } from "./policies.ts";
 import { readLock, readManifest, RUN_ID, sDirs, setSha, writeExcl } from "./run-records.ts";
 import { vreadAuthorized } from "../suites/score.ts";
 import { tlog } from "../src/telemetry.ts";
-import type { Attempt, Fire, RepairTask, SuiteReading, VRead } from "../src/schema.ts";
+import type { Attempt, Fire, RepairTask, SuiteReading, VArmReading, VRead } from "../src/schema.ts";
 
 /** What the V read does not check (SPEC §6.8 residue). */
 export const VREAD_RESIDUE: readonly string[] = ["audio", "CGB (RUN-0002 reads V-cgb)", "serial timing",
@@ -56,10 +57,12 @@ export interface VReadDeps {
   familyRoms?: (family: string) => string[];
   budget?: RepairTask["budget"];
   resume?: boolean;
+  /** Builds an arm's core dir from the base commit and its diff; default trial.ts coreAt (tests make it throw). */
+  applyCore?: typeof coreAt;
 }
 
 interface Progress { t: "start"; at: string; core_commit: string; s0_sha: string; s_star_sha: string; families: string[] }
-interface Done { t: "done"; at: string; arm: VArm; family: string; attempt: string; reading: SuiteReading }
+interface Done { t: "done"; at: string; arm: VArm; family: string; attempt: string; reading: VArmReading; apply_failed?: true }
 
 export const progressFile = (runsDir: string, run: string) => join(runsDir, run, "vread-progress.jsonl");
 export const vreadFile = (runsDir: string, run: string) => join(runsDir, run, "vread.json");
@@ -98,12 +101,16 @@ async function familyRun(arm: VArm, family: string, base: string, shown: ShownSk
   S("fires", all<Fire>("fires.jsonl", d.paths.ledger).filter((f) => f.attempt === att.id).map((f) => f.id));
   S("result", rep.result ?? { dispositions: {}, off_map: null, beliefs: [], summary: `no packet/RESULT.json (muse exit ${rep.exitCode})` });
   const coreDir = join(d.paths.cache, "vread", att.id);
-  try { coreAt(d.paths, base, coreDir, rep.diff); } catch (e) { tlog("loop", "vread.arm.apply-failed", { attempt: att.id, error: (e as Error).message }); coreAt(d.paths, base, coreDir); }
-  let reading: SuiteReading;
+  const apply = d.applyCore ?? coreAt;
+  let apply_failed = false;
+  // a diff that does not apply leaves the base core scored, and the reading says so (apply_failed)
+  try { apply(d.paths, base, coreDir, rep.diff); } catch (e) { apply_failed = true; tlog("loop", "vread.arm.apply-failed", { attempt: att.id, error: (e as Error).message }); coreAt(d.paths, base, coreDir); }
+  let reading: VArmReading;
   try { reading = await d.judge(join(coreDir, "core"), family); }
   finally { removeScratch(packet.dir); removeScratch(coreDir); rmSync(`${packet.dir}.home`, { recursive: true, force: true }); }
+  if (apply_failed) reading = { ...reading, apply_failed: true };
   tlog("loop", "vread.arm.end", { arm, family, attempt: att.id, reading, model: rep.model, exit: rep.exitCode });
-  return { t: "done", at: new Date().toISOString(), arm, family, attempt: att.id, reading };
+  return { t: "done", at: new Date().toISOString(), arm, family, attempt: att.id, reading, ...(apply_failed ? { apply_failed: true as const } : {}) };
 }
 
 /** The V read (see the file header). */

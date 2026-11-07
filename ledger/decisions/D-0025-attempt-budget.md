@@ -1,8 +1,9 @@
 ---
 id: D-0025
 title: Each attempt is told its step and wall budget and to edit by half of it, and its wall follows MAX_STEPS
-status: admitted
+status: superseded
 supersedes: null
+superseded_by: D-0026
 ---
 **Decision:** before the run opens:
 - `TASK_TEXT` (`loop/projection.ts`) gains one sentence, filled per task by `taskText(budget)`: the repairer gets its step cap and wall, is told that an empty diff is refused, and is told to make its first `core/` edit by half of each.

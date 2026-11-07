@@ -33,8 +33,9 @@ import { loadSplits, familyRoms } from "../suites/splits.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { Attempt, Calibration, Fire, Incident, RepairTask, SuiteReading, Verdict } from "../src/schema.ts";
 
-/** Wall-clock budget of one trial arm's family-run, in seconds; every arm of a trial gets the same budget. */
-export const TRIAL_WALL_S = 900;
+/** Wall-clock budget of one trial arm's family-run, equal across arms; its home is loop/budget.ts. */
+export { TRIAL_WALL_S } from "./budget.ts";
+import { TRIAL_WALL_S } from "./budget.ts";
 /** What every skill verdict does not check (SPEC §6.8 residue). */
 export const SKILL_RESIDUE: readonly string[] = ["audio", "CGB", "V (sealed)", "H families outside TRIAL_FAMILIES",
   "1 family-run per arm per family: a gap inside run-to-run noise beyond the calibrated spread is not read"];
