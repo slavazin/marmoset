@@ -102,7 +102,7 @@ export interface Attempt {
   result?: RepairResult; fires: string[];
   spent: { steps: number; wall_s: number; tokens_in: number; tokens_out: number; usd: number }; // usd priced from tokens by PRICES in loop/llm.ts
   scratch_files: string[]; // the allowlist the projection test asserts
-  isolation: { home: string; skills_list: string; observers: "off" | "on-identical"; web_tools: "off" | "on" };
+  isolation: { home: string; skills_list: string; observers: "off" | "on-identical"; web_tools: "off" | "on"; confine?: "seatbelt" | "none" /* D-0021 */ };
 }
 
 // §6.7 Observation, steer, spend

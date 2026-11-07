@@ -14,6 +14,7 @@ import { git } from "./paths.ts";
 import type { Packet } from "./projection.ts";
 import { tlog } from "../src/telemetry.ts";
 import { priceUsd } from "./llm.ts";
+import { confineOn, confinedCommand, sandboxFlag, type Confine, type ConfinedIsolation } from "./confine.ts";
 import type { Attempt, RepairResult, RepairTask } from "../src/schema.ts";
 
 // ---- Muse Code invocation (D-0001, measured on Muse Code 1.4.14 (1.4.14-R7309.1), 2026-11-07) ----
@@ -23,11 +24,11 @@ export const MUSE_BIN = process.env.MUSE_BIN ?? "muse";
 export const MUSE_MODEL = "muse-spark-1.3";
 /** The prompt file, relative to the scratch repo (D-0001). */
 export const MUSE_PROMPT_FILE = "packet/TASK.md";
-/** D-0001's argv after `muse`, with the session id and step cap filled in. */
-export function museArgs(sessionId: string, maxSteps: number): string[] {
+/** D-0001's argv after `muse`, with the session id and step cap filled in; `--disable-sandbox` when seatbelt confines it (D-0021). */
+export function museArgs(sessionId: string, maxSteps: number, confine: Confine = "none"): string[] {
   return ["exec", "--json", "--prompt-file", MUSE_PROMPT_FILE, "--session-id", sessionId, "--max-model-steps", String(maxSteps),
     "--approval-mode", "never", "--disable-approval", "--model", MUSE_MODEL, "--disable-web-tools", "--disable-reminders",
-    "-c", "agents.execution_capacity=1", "--trust-workspace"];
+    "-c", "agents.execution_capacity=1", "--trust-workspace", ...sandboxFlag(confine)];
 }
 /** The skills listing every attempt logs (D-0001: G8's "empty" reads on --enabled-only). */
 export const MUSE_SKILLS_LIST = ["skills", "list", "--enabled-only", "--json"] as const;
@@ -44,7 +45,7 @@ export interface MuseRun {
   cwd: string; env: Record<string, string>; sessionId: string;
   maxSteps: number; wallS: number; eventsFile: string;
 }
-export interface MuseOutcome { exitCode: number; model: string; steps: number; tokens_in: number; tokens_out: number; wall_s: number }
+export interface MuseOutcome { exitCode: number; model: string; steps: number; tokens_in: number; tokens_out: number; wall_s: number; confine?: Confine }
 
 /** The one seam every repairer invocation passes through. */
 export interface MuseRunner {
@@ -92,18 +93,23 @@ export function usageFromEvents(lines: string): { model: string; steps: number; 
 /** The real runner: D-0001's command line, cwd the scratch repo, stdin /dev/null. */
 export const museCli: MuseRunner = {
   async skillsList(cwd, env) {
-    const r = await exec(MUSE_BIN, [...MUSE_SKILLS_LIST], cwd, env);
+    const c = confinedCommand(MUSE_BIN, [...MUSE_SKILLS_LIST], cwd, env.HOME);
+    const r = await exec(c.cmd, c.argv, cwd, env);
     return r.code === 127 ? `(${MUSE_BIN} not found)` : r.out.trim();
   },
   async run(r) {
     const t0 = Date.now();
-    const x = await exec(MUSE_BIN, museArgs(r.sessionId, r.maxSteps), r.cwd, r.env, r.eventsFile, r.wallS);
+    // D-0021: `sandbox-exec -f <profile> muse … --disable-sandbox`; spawn passes r.env whole, so the key is not in argv
+    const on = confineOn();
+    const c = confinedCommand(MUSE_BIN, museArgs(r.sessionId, r.maxSteps, on ? "seatbelt" : "none"), r.cwd, r.env.HOME, on);
+    tlog("loop", "confine", { attempt: r.env.ATTEMPT_ID, confine: c.confine, profile: c.profile ?? null, sha256: c.sha256 ?? null });
+    const x = await exec(c.cmd, c.argv, r.cwd, r.env, r.eventsFile, r.wallS);
     const ev = usageFromEvents(x.out);
     // the session journal holds every model call's usage, including calls before a wall kill (run_usage is lost)
     const js = r.env.HOME ? usageFromSession(r.env.HOME, r.sessionId) : null;
     const u = js && js.tokens_in >= ev.tokens_in ? js : ev;
     if (js) tlog("loop", "muse-usage", { session: r.sessionId, exit: x.code, ...js });
-    return { exitCode: x.code, model: u.model || ev.model || `${MUSE_MODEL} (not echoed)`, steps: u.steps, tokens_in: u.tokens_in, tokens_out: u.tokens_out, wall_s: (Date.now() - t0) / 1000 };
+    return { exitCode: x.code, model: u.model || ev.model || `${MUSE_MODEL} (not echoed)`, steps: u.steps, tokens_in: u.tokens_in, tokens_out: u.tokens_out, wall_s: (Date.now() - t0) / 1000, confine: c.confine };
   },
 };
 
@@ -168,7 +174,7 @@ export interface RepairOutput {
   diff: string;
   model: string;
   spent: Attempt["spent"];
-  isolation: Attempt["isolation"];
+  isolation: ConfinedIsolation;
   eventsFile: string;
   exitCode: number;
 }
@@ -217,6 +223,6 @@ export async function runRepair(task: RepairTask, packet: Packet, o: RepairOptio
   return {
     result, diff: scratchDiff(packet.dir), model: out.model, eventsFile, exitCode: out.exitCode,
     spent: { steps: out.steps, wall_s: out.wall_s, tokens_in: out.tokens_in, tokens_out: out.tokens_out, usd: priceUsd(out.model, out.tokens_in, out.tokens_out) },
-    isolation: { home, skills_list, observers: OBSERVERS, web_tools: WEB_TOOLS },
+    isolation: { home, skills_list, observers: OBSERVERS, web_tools: WEB_TOOLS, confine: out.confine ?? "none" },
   };
 }
