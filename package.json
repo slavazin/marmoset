@@ -11,7 +11,7 @@
     "core:bundle": "node -e \"console.error('not built: S1');process.exit(1)\"",
     "suites": "node suites/run.ts",
     "oracle:smoke": "node oracle/smoke.ts",
-    "game:build": "node -e \"console.error('not built: S4');process.exit(1)\"",
+    "game:build": "sh game/build.sh",
     "lockstep": "node -e \"console.error('not built: S5');process.exit(1)\"",
     "replay": "node -e \"console.error('not built: S5');process.exit(1)\"",
     "dev": "node ui/dev.ts",
