@@ -1,7 +1,9 @@
 // The V read (SPEC G6, §5 S10), V's only reader. `pnpm vread [--resume]`:
 //   1. checks the lock first: runs/<run>/vread.lock must exist, name this run, and carry a token that suites/score.ts
 //      vreadAuthorized accepts, and the manifest must hold s_star_sha (pnpm freeze); nothing runs otherwise;
-//   2. refuses when runs/<run>/vread.json exists (V is read once), and refuses a started read without --resume;
+//   2. refuses when runs/<run>/vread.json exists (V is read once), when skills/graduated plus policies/graduated no
+//      longer hash to the manifest's s_star_sha, and a started read without --resume; the start record and vread.json
+//      are written O_EXCL, so of two reads at once only one starts and only one writes (vread.test.ts "second V read");
 //   3. runs two arms on each V family, one family-run per arm per family, from one core-live commit under one budget,
 //      through the projection: vread-baseline (S₀: no skills, no policies) and vread-ratchet (S*: the graduated skills
 //      under MAX_SHOWN and the graduated policies). Each family-run is an Attempt (task.kind "family") and writes no
@@ -12,7 +14,7 @@
 //   5. writes runs/<run>/vread.json (§6.19 VRead) once every pair has a reading.
 // Tests (loop/vread.test.ts) run it with the fake runner on the fixture bed; the real read is the orchestrator's.
 
-import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MAX_SHOWN, MAX_STEPS } from "./gate.ts";
@@ -23,7 +25,7 @@ import { runRepair, type MuseRunner } from "./repair.ts";
 import { coreAt, TRIAL_WALL_S } from "./trial.ts";
 import { listSkills, selectShown, type ShownSkill } from "./shown.ts";
 import { policiesInForce } from "./policies.ts";
-import { readLock, readManifest, RUN_ID } from "./run-records.ts";
+import { readLock, readManifest, RUN_ID, sDirs, setSha, writeExcl } from "./run-records.ts";
 import { vreadAuthorized } from "../suites/score.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { Attempt, Fire, RepairTask, SuiteReading, VRead } from "../src/schema.ts";
@@ -113,12 +115,17 @@ export async function runVRead(d: VReadDeps): Promise<VRead> {
   let prog = readProgress(pf);
   if (prog.length && !d.resume) throw new Error(`${pf} exists: a V read started; pass --resume to finish its unfinished arms`);
   const m = readManifest(d.runsDir, d.run)!;
+  // the ratchet arm reads skills/graduated and policies/graduated as they stand: they must still be the frozen S*
+  const onDisk = setSha(d.paths.root, sDirs(d.paths.skills, d.paths.root));
+  if (onDisk !== m.s_star_sha) throw new Error(`S* on disk (${onDisk.slice(0, 12)}) is not the manifest's s_star_sha (${m.s_star_sha!.slice(0, 12)}): a skill or policy moved after the freeze`);
   let start = prog.find((p): p is Progress => p.t === "start");
   if (!start) {
+    if (existsSync(pf) && !d.resume) throw new Error(`${pf} exists without a start record: another V read holds it`);
     let families = d.families;
     if (!families) { const { loadSplits, familiesIn } = await import("../suites/splits.ts"); families = familiesIn(loadSplits(), "V"); }
     start = { t: "start", at: new Date().toISOString(), core_commit: git(d.paths.live, ["rev-parse", LIVE_BRANCH]), s0_sha: m.s0_sha, s_star_sha: m.s_star_sha!, families };
-    appendFileSync(pf, JSON.stringify(start) + "\n");
+    // O_EXCL: of two reads started at once, one writes the start record and the other throws EEXIST
+    if (existsSync(pf)) appendFileSync(pf, JSON.stringify(start) + "\n"); else writeExcl(pf, JSON.stringify(start) + "\n");
     prog = [start];
   }
   let romsOf = d.familyRoms ?? ((): string[] => []);
@@ -152,7 +159,8 @@ export async function runVRead(d: VReadDeps): Promise<VRead> {
     run: d.run, at: new Date().toISOString(), core_commit: start.core_commit, s0_sha: start.s0_sha, s_star_sha: start.s_star_sha,
     arms: { baseline: pick("vread-baseline"), ratchet: pick("vread-ratchet") }, n_family_runs_per_arm: 1, residue: [...VREAD_RESIDUE],
   };
-  writeFileSync(out, JSON.stringify(v, null, 2) + "\n");
+  try { writeExcl(out, JSON.stringify(v, null, 2) + "\n"); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${out} exists: V is read once (another read wrote it first; this read's arms are in ${pf})`); throw e; }
   tlog("loop", "vread.written", v);
   return v;
 }

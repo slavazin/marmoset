@@ -103,7 +103,8 @@ export function runDir(runsDir: string, run: string): string { return join(runsD
 export const manifestPath = (runsDir: string, run: string) => join(runDir(runsDir, run), "manifest.json");
 export const lockPath = (runsDir: string, run: string) => join(runDir(runsDir, run), "vread.lock");
 
-function writeExcl(p: string, body: string): void {
+/** Writes `body` to a file that must not exist (O_CREAT | O_EXCL); throws an EEXIST error when it does. */
+export function writeExcl(p: string, body: string): void {
   mkdirSync(join(p, ".."), { recursive: true });
   const fd = openSync(p, "wx"); // O_CREAT | O_EXCL: throws EEXIST when the file is already there
   try { writeSync(fd, body); } finally { closeSync(fd); }

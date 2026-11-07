@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeBed, setShade, FIX } from "./fixtures/harness.ts";
+import { makeBed, setShade, writeSkill, FIX } from "./fixtures/harness.ts";
 import { fakeRunner } from "./repair.ts";
 import { freeze, lockPath, manifestPath, openManifest, readLock, setSha, sDirs } from "./run-records.ts";
 import { progressFile, runVRead, vreadFile, type VJudge } from "./vread.ts";
@@ -44,6 +44,33 @@ test("the V read checks the lock token before running anything: no lock, or a lo
   await assert.rejects(runVRead({ paths: b.paths, runsDir, run: "RUN-0001", runner, judge, families: FAMS, familyRoms: () => [b.incRom] }), /names RUN-0009/);
   assert.equal(runner.calls.length, 0);
   assert.equal(existsSync(progressFile(runsDir, "RUN-0001")), false);
+});
+
+test("a skill graduated after the freeze makes the V read refuse before any family-run: S* on disk no longer hashes to the manifest's s_star_sha", async () => {
+  const { b, runsDir } = bed();
+  freeze({ runsDir, run: "RUN-0001", root: b.paths.root, skills: b.paths.skills });
+  writeSkill(b, "SKL-0001");
+  const runner = fakeRunner(() => {}, null);
+  await assert.rejects(runVRead({ paths: b.paths, runsDir, run: "RUN-0001", runner, judge: async (_d, f) => reading(f, 0), families: FAMS, familyRoms: () => [b.incRom] }), /s_star_sha/);
+  assert.equal(runner.calls.length, 0);
+  assert.equal(existsSync(progressFile(runsDir, "RUN-0001")), false);
+});
+
+test("a second V read cannot overwrite the first: a vread.json written while a read runs is kept and the read refuses; a progress file without a start record refuses a fresh start", async () => {
+  const { b, runsDir } = bed();
+  freeze({ runsDir, run: "RUN-0001", root: b.paths.root, skills: b.paths.skills });
+  const runner = fakeRunner(() => {}, null);
+  const out = vreadFile(runsDir, "RUN-0001");
+  const judge: VJudge = async (_d, f) => { if (!existsSync(out)) writeFileSync(out, "other reader\n"); return reading(f, 0); };
+  await assert.rejects(runVRead({ paths: b.paths, runsDir, run: "RUN-0001", runner, judge, families: FAMS, familyRoms: () => [b.incRom] }), /V is read once/);
+  assert.equal(readFileSync(out, "utf8"), "other reader\n");
+  // the repairer's environment never carries the lock's token (loop/repair.ts repairEnv)
+  assert.ok(runner.calls.length > 0 && runner.calls.every((c) => !("RATCHET_VREAD_TOKEN" in c.env)));
+
+  const t2 = bed();
+  freeze({ runsDir: t2.runsDir, run: "RUN-0001", root: t2.b.paths.root, skills: t2.b.paths.skills });
+  writeFileSync(progressFile(t2.runsDir, "RUN-0001"), "");
+  await assert.rejects(runVRead({ paths: t2.b.paths, runsDir: t2.runsDir, run: "RUN-0001", runner, judge: async (_d, f) => reading(f, 0), families: FAMS, familyRoms: () => [t2.b.incRom] }), /exists/);
 });
 
 test("a crashed V read reruns only its unfinished arm with --resume, and vread.json holds both arms with n and per-family readings", async () => {
