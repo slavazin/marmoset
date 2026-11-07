@@ -517,11 +517,11 @@ async function main(argv: string[]): Promise<number> {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  // dry: telemetry goes to a temp dir, so a dry RUN-0001 never writes under the repository's runs/
+  // dry: telemetry goes to a temp dir whatever the environment names, so a dry run never writes under the repository's runs/
   if (process.argv.includes("--dry")) {
-    process.env.RATCHET_TELEMETRY_DIR ??= mkdtempSync(join(tmpdir(), "ratchet-dry-telemetry-"));
+    process.env.RATCHET_TELEMETRY_DIR = mkdtempSync(join(tmpdir(), "ratchet-dry-telemetry-"));
     // the dry run's fake SubQ answers must not land in a real run's runs/<run>/subq-cache (loop/subq.ts cacheDir)
-    process.env.RATCHET_SUBQ_CACHE ??= mkdtempSync(join(tmpdir(), "ratchet-dry-subq-"));
+    process.env.RATCHET_SUBQ_CACHE = mkdtempSync(join(tmpdir(), "ratchet-dry-subq-"));
   }
   else { const i = process.argv.indexOf("--run"); process.env.RATCHET_RUN = i > 0 ? process.argv[i + 1] : (process.env.RATCHET_RUN || RUN_ID); }
   (await import("../src/telemetry-process.ts")).processStart("campaign");
