@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
@@ -140,6 +140,31 @@ test("a ROM in a splits.json V family is refused without the token through runRo
     delete process.env.RATCHET_VREAD_TOKEN;
     assert.throws(() => runRom(counting, root, vRom, FAST, runsDir), VReadRefused);
     assert.throws(() => scoreFamilies(counting, { split: "base", splits: relabelled, root, caps: FAST, runsDir }), VReadRefused);
+    assert.equal(created, 0);
+  } finally {
+    if (saved === undefined) delete process.env.RATCHET_VREAD_TOKEN; else process.env.RATCHET_VREAD_TOKEN = saved;
+  }
+});
+
+test("a V ROM named by an aliased path (dot segment, parent segment, symlink, letter case) is refused through runRom before any core is created", () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+  const vRom = "mooneye-test-suite/acceptance/oam_dma/basic.gb";
+  const root = tmpRoot({ [vRom]: new Uint8Array(0x8000) });
+  symlinkSync(join(root, vRom), join(root, "mooneye-test-suite/acceptance/alias.gb"));
+  const aliases = [
+    "mooneye-test-suite/./acceptance/oam_dma/basic.gb",
+    "mooneye-test-suite/acceptance/../acceptance/oam_dma/basic.gb",
+    "mooneye-test-suite/acceptance//oam_dma/basic.gb",
+    "mooneye-test-suite/acceptance/alias.gb",
+  ];
+  // On a case-insensitive file system (APFS default) another letter case opens the same file.
+  if (existsSync(join(root, "mooneye-test-suite/acceptance/OAM_DMA/basic.gb"))) aliases.push("mooneye-test-suite/acceptance/OAM_DMA/basic.gb");
+  let created = 0;
+  const counting: CreateCore = (rom) => { created++; return nopCore(rom); };
+  const saved = process.env.RATCHET_VREAD_TOKEN;
+  try {
+    delete process.env.RATCHET_VREAD_TOKEN;
+    for (const a of aliases) assert.throws(() => runRom(counting, root, a, FAST, runsDir), VReadRefused, a);
     assert.equal(created, 0);
   } finally {
     if (saved === undefined) delete process.env.RATCHET_VREAD_TOKEN; else process.env.RATCHET_VREAD_TOKEN = saved;
