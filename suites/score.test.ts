@@ -78,12 +78,12 @@ test("screenshot rule passes on an exact frame 2 frames after LD B,B; pixel_matc
   const rom = new Uint8Array(0x8000); rom[0x150] = 0x40;
   const ref = loadReference(join(ROMS, "dmg-acid2/dmg-acid2-dmg.png"));
   const root = tmpRoot({ "dmg-acid2/dmg-acid2.gb": rom, "dmg-acid2/dmg-acid2-dmg.png": readFileSync(join(ROMS, "dmg-acid2/dmg-acid2-dmg.png")) });
-  let frames = 0;
-  const good = fixture((c) => { const rf = c.runFrame; c.runFrame = () => { rf(); frames++; }; c.frame = () => ref; });
+  let breakAt = -1, shotAt = -1;
+  const good = fixture((c) => { c.frame = () => { shotAt = c.cycles; return ref; }; const s = c.step; c.step = () => { if (c.cpu.pc === 0x150 && breakAt < 0) breakAt = c.cycles; s(); }; });
   const r = runRom(good, root, "dmg-acid2/dmg-acid2.gb", FAST);
   assert.equal(r.pass, true);
   assert.equal(r.pixel_match, 1);
-  assert.equal(frames, 2);
+  assert.equal(shotAt - breakAt, 2 * 70_224);
   const half = ref.slice(); for (let i = 0; i < half.length / 2; i++) half[i] = (half[i] + 1) & 3;
   const r2 = runRom(fixture((c) => { c.frame = () => half; }), root, "dmg-acid2/dmg-acid2.gb", FAST);
   assert.equal(r2.pass, false);
@@ -126,4 +126,36 @@ test("split V is refused without a RATCHET_VREAD_TOKEN matching a vread.lock, be
   } finally {
     if (saved === undefined) delete process.env.RATCHET_VREAD_TOKEN; else process.env.RATCHET_VREAD_TOKEN = saved;
   }
+});
+
+test("a ROM in a splits.json V family is refused without the token through runRom and through a caller's relabelled splits, before any core is created", () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+  const vRom = "mooneye-test-suite/acceptance/oam_dma/basic.gb";
+  const root = tmpRoot({ [vRom]: new Uint8Array(0x8000) });
+  let created = 0;
+  const counting: CreateCore = (rom) => { created++; return nopCore(rom); };
+  const relabelled: Splits = { version: "t", families: { x: { split: "base", roms: ["mooneye-test-suite/acceptance/oam_dma/*.gb"] } }, dmg_suffixes: [], excluded: [] };
+  const saved = process.env.RATCHET_VREAD_TOKEN;
+  try {
+    delete process.env.RATCHET_VREAD_TOKEN;
+    assert.throws(() => runRom(counting, root, vRom, FAST, runsDir), VReadRefused);
+    assert.throws(() => scoreFamilies(counting, { split: "base", splits: relabelled, root, caps: FAST, runsDir }), VReadRefused);
+    assert.equal(created, 0);
+  } finally {
+    if (saved === undefined) delete process.env.RATCHET_VREAD_TOKEN; else process.env.RATCHET_VREAD_TOKEN = saved;
+  }
+});
+
+test("the 2 frames after LD B,B are stepped under the wall cap, so a core whose runFrame never returns still ends", () => {
+  const rom = new Uint8Array(0x8000); rom[0x150] = 0x40;
+  const root = tmpRoot({ "dmg-acid2/dmg-acid2.gb": rom, "dmg-acid2/dmg-acid2-dmg.png": png([0xff, 0xff, 0xff]) });
+  // runFrame runs until LY 143 -> 144 (SPEC §6.1); on a core whose LCD never gets there it does not return.
+  const noFrame = fixture((c) => { c.runFrame = () => { throw new Error("runFrame called"); }; });
+  const r = runRom(noFrame, root, "dmg-acid2/dmg-acid2.gb", FAST);
+  assert.equal(r.outcome, "pass", r.detail);
+  const stalled = fixture((c) => { const s = c.step; c.step = () => { if (c.cpu.pc < 0x150) s(); }; });
+  const t0 = Date.now();
+  const cap = runRom(stalled, root, "dmg-acid2/dmg-acid2.gb", { wallMs: 100, cycles: Infinity });
+  assert.equal(cap.outcome, "cap");
+  assert.ok(Date.now() - t0 < 5_000);
 });
