@@ -2133,17 +2133,49 @@ function romsDir() {
   const v = process.env.RATCHET_ROMS;
   return v ? v.replace(/^~(?=\/|$)/, homedir()) : join(homedir(), ".cache", "ratchet", "roms");
 }
+function loadSplits(path = SPLITS_PATH) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
 function passRule(rom) {
   if (rom.startsWith("blargg/")) return "serial";
   if (rom.startsWith("mooneye-test-suite/")) return "registers";
   if (rom.startsWith("mealybug-tearoom-tests/") || rom.startsWith("dmg-acid2/")) return "screenshot";
   return null;
 }
+function expandGlob(root, glob) {
+  const segs = glob.split("/");
+  let paths = [""];
+  for (const [i, seg] of segs.entries()) {
+    const last = i === segs.length - 1;
+    const next = [];
+    for (const p of paths) {
+      const abs = join(root, p);
+      if (!seg.includes("*")) {
+        const q = p ? `${p}/${seg}` : seg;
+        if (existsSync(join(root, q)) && (last ? statSync(join(root, q)).isFile() : statSync(join(root, q)).isDirectory())) next.push(q);
+        continue;
+      }
+      if (!existsSync(abs)) continue;
+      const re = new RegExp("^" + seg.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*") + "$");
+      for (const name of readdirSync(abs)) {
+        if (!re.test(name)) continue;
+        const q = p ? `${p}/${name}` : name;
+        const st = statSync(join(root, q));
+        if (last ? st.isFile() : st.isDirectory()) next.push(q);
+      }
+    }
+    paths = next;
+  }
+  return paths.sort();
+}
 function referencePath(root, rom) {
   const stem = rom.replace(/\.gb$/, "");
   const candidates = rom.startsWith("dmg-acid2/") ? [`${stem}-dmg.png`] : [`${stem}_dmg_blob.png`, `${stem}_dmg_b.png`];
   for (const c of candidates) if (existsSync(join(root, c))) return c;
   return null;
+}
+function familiesIn(splits, split) {
+  return Object.entries(splits.families).filter(([, f]) => f.split === split).map(([n]) => n);
 }
 
 // lockstep/core-dir.ts
@@ -2237,10 +2269,13 @@ var WALL_CAP_MS = 6e4;
 var CYCLE_CAP = 30 * 4194304;
 var CHECK_EVERY = 1024;
 var FRAMES_AFTER_BREAK = 2;
+var FRAME_CYCLES = 70224;
 var LD_B_B = 64;
 var MOONEYE_PASS = [3, 5, 8, 13, 21, 34];
 var SHADE_MAP = { 16777215: 0, 11184810: 1, 5592405: 2, 0: 3 };
 var ReferenceLoadError = class extends Error {
+};
+var VReadRefused = class extends Error {
 };
 function loadReference(path) {
   const png = import_pngjs2.PNG.sync.read(readFileSync3(path));
@@ -2259,7 +2294,17 @@ function pixelMatch(frame, ref) {
   for (let i = 0; i < ref.length; i++) if (frame[i] === ref[i]) eq++;
   return eq / ref.length;
 }
-function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYCLE_CAP }) {
+function vRoms(root) {
+  const splits = loadSplits(SPLITS_PATH);
+  const out = /* @__PURE__ */ new Set();
+  for (const f of familiesIn(splits, "V")) for (const g of splits.families[f].roms) for (const r of expandGlob(root, g)) out.add(r);
+  return out;
+}
+function refuseV() {
+  throw new VReadRefused("split V refused: RATCHET_VREAD_TOKEN matches no runs/<id>/vread.lock (loop/vread.ts is V's only reader)");
+}
+function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYCLE_CAP }, runsDir) {
+  if (vRoms(root).has(rom) && !vreadAuthorized(process.env.RATCHET_VREAD_TOKEN, runsDir)) refuseV();
   const rule = passRule(rom);
   if (!rule) throw new Error(`no pass rule for ${rom}`);
   let ref = null;
@@ -2283,8 +2328,13 @@ function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYC
     return res(false, "error", `createCore threw: ${String(e)}`);
   }
   const deadline = Date.now() + caps.wallMs;
+  let shotAt = null;
   try {
     for (let n = 1; ; n++) {
+      if (shotAt !== null && core.cycles >= shotAt) {
+        const pm = frameMatch(core);
+        return res(pm === 1, pm === 1 ? "pass" : "fail", `screenshot pixel match ${pm.toFixed(4)}`, pm);
+      }
       if (n % CHECK_EVERY === 0) {
         if (rule === "serial") {
           if (core.serial.includes("Passed")) return res(true, "pass", "serial Passed");
@@ -2293,16 +2343,14 @@ function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYC
         const capped = Date.now() > deadline ? `wall cap ${caps.wallMs} ms` : core.cycles > caps.cycles ? `cycle cap ${caps.cycles}` : null;
         if (capped) return res(false, "cap", capped, ref ? frameMatch(core) : 0);
       }
-      if (rule !== "serial" && core.read(core.cpu.pc) === LD_B_B) {
+      if (rule !== "serial" && shotAt === null && core.read(core.cpu.pc) === LD_B_B) {
         if (rule === "registers") {
           const c = core.cpu;
           const regs = [c.b, c.c, c.d, c.e, c.h, c.l];
           const ok = regs.every((v, i) => v === MOONEYE_PASS[i]);
           return res(ok, ok ? "pass" : "fail", `LD B,B regs ${regs.join("/")}`);
         }
-        for (let f = 0; f < FRAMES_AFTER_BREAK; f++) core.runFrame();
-        const pm = frameMatch(core);
-        return res(pm === 1, pm === 1 ? "pass" : "fail", `screenshot pixel match ${pm.toFixed(4)}`, pm);
+        shotAt = core.cycles + FRAMES_AFTER_BREAK * FRAME_CYCLES;
       }
       core.step();
     }
@@ -2310,6 +2358,19 @@ function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYC
     if (e instanceof ReferenceLoadError) throw e;
     return res(false, "error", `core threw: ${String(e)}`, ref ? frameMatch(core) : 0);
   }
+}
+function vreadAuthorized(token, runsDir = resolve4(import.meta.dirname, "..", "runs")) {
+  if (!token || !existsSync3(runsDir)) return false;
+  for (const id of readdirSync2(runsDir)) {
+    const lock = join5(runsDir, id, "vread.lock");
+    if (!existsSync3(lock)) continue;
+    const first = readFileSync3(lock, "utf8").split("\n").find((l) => l.trim());
+    try {
+      if (first && JSON.parse(first).token === token) return true;
+    } catch {
+    }
+  }
+  return false;
 }
 
 // lockstep/replay.ts
