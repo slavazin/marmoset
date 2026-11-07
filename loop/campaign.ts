@@ -436,6 +436,16 @@ export async function gameManifestRoms(romPath: string): Promise<Record<string, 
   return out;
 }
 
+/** The conditions.json `start` of a play run on `romPath`: its registry game's start state (built when absent), or undefined. */
+export async function startConditions(romPath: string): Promise<{ game: string; key: string; sha: string } | undefined> {
+  const { gameBySha } = await import("../lockstep/games.ts");
+  const { buildStartState, startFileSha, startPath } = await import("../lockstep/start-state.ts");
+  const g = gameBySha(new Uint8Array(readFileSync(romPath)));
+  if (!g?.start) return undefined;
+  const st = await buildStartState(romPath, { ...g.start, ram_init: "zero" });
+  return { game: g.id, key: st.key, sha: startFileSha(startPath(st.spec)) };
+}
+
 export interface RunOptions {
   run: string; rom: string; source: IncidentSource;
   /** Other runs on the one Meta account (server/spend.ts combinedMeter). */
@@ -526,7 +536,8 @@ async function main(argv: string[]): Promise<number> {
     const { runConditions, openConditions, checkConditions, conditionsPath } = await import("./run-conditions.ts");
     const { LIVE_BRANCH } = await import("./paths.ts");
     const { splitsPaths } = await import("../suites/splits.ts");
-    const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion() });
+    const start = source === "play" ? await startConditions(rom) : undefined;
+    const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion(), start });
     // --rules-as RUN-NNNN (in this runs dir) or <runs dir>/RUN-NNNN: this run judges under that run's rule_version, or
     // it does not open (owner requirement 2026-11-07)
     for (const other of v["rules-as"] ?? []) {
