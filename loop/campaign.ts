@@ -391,6 +391,9 @@ export async function dryDeps(minutes: number, run: string = RUN_ID): Promise<{ 
   const { isolatedReplayer } = await import("./replay-seam.ts");
   const { route } = await import("./route.ts");
   const bed = makeBed();
+  // the bed's clone holds core-live; a run on another branch (RATCHET_LIVE_BRANCH) gets that branch cut from it
+  const { git, LIVE_BRANCH } = await import("./paths.ts");
+  if (LIVE_BRANCH !== "core-live") git(bed.paths.live, ["checkout", "--quiet", "-b", LIVE_BRANCH]);
   const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
   // the fake repairer fixes every incident but INC-0002, which it leaves unedited (a REFUSE at diff-scope); INC-0002 and
   // INC-0003 clone INC-0001, so INC-0001's GRADUATE re-check marks them repaired_by its verdict (gate-repair.ts recheckIncidents)
