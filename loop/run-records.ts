@@ -49,6 +49,13 @@ export function setSha(root: string, dirs: string[]): string {
 /** The S dirs: skills/graduated and policies/graduated under the given skills dir and root. */
 export function sDirs(skills: string, root: string): string[] { return [join(skills, "graduated"), join(root, "policies", "graduated")]; }
 
+/** Every file under `dirs` except a .gitkeep, relative to each dir: the members setSha hashes beyond the placeholder. Empty is S₀ = ∅. */
+export function sMembers(dirs: string[]): string[] {
+  const out: string[] = [];
+  for (const d of dirs) { const files: string[] = []; walk(d, d, files); out.push(...files.filter((f) => !f.endsWith("/.gitkeep")).map((f) => relative(join(d, ".."), f))); }
+  return out.sort();
+}
+
 function jsonl(file: string): Record<string, unknown>[] {
   if (!existsSync(file)) return [];
   const out: Record<string, unknown>[] = [];

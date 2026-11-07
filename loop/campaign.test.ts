@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dryDeps, openRun, pickIncident, readCampaign, runCampaign, type CampaignDeps } from "./campaign.ts";
-import { makeBed } from "./fixtures/harness.ts";
+import { makeBed, writeSkill, type Bed } from "./fixtures/harness.ts";
+import { readManifest, sDirs } from "./run-records.ts";
 import { append, all, current } from "./ledger.ts";
 import { steer } from "./steer.ts";
 import { spendMeter } from "../server/spend.ts";
@@ -20,6 +21,27 @@ test("openRun writes the manifest once, refuses a second open without --resume, 
   const m = await openRun({ runsDir, run: "RUN-0001", resume: true, build: () => { throw new Error("must not rebuild"); } });
   assert.equal(m.rule_version, "r");
   assert.deepEqual(readCampaign(runsDir, "RUN-0001").map((r) => r.t), ["open", "open"]);
+});
+
+test("openRun refuses to open the run when S0 is not empty (a skill or policy already graduated), unless the owner passes allowNonEmptyS0", async () => {
+  const bed = makeBed();
+  const dirs = sDirs(bed.paths.skills, bed.paths.root);
+  writeFileSync(join(bed.paths.skills, "graduated", ".gitkeep"), "");
+  const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+  // a .gitkeep alone is an empty S0
+  await openRun({ runsDir, run: "RUN-0001", resume: false, build: () => M(), s0Dirs: dirs });
+  const graduateSkill = (b: Bed) => writeSkill(b, "SKL-0001");
+  const graduatePolicy = (b: Bed) => { const p = join(b.paths.root, "policies", "graduated", "POL-0001"); mkdirSync(p, { recursive: true }); writeFileSync(join(p, "POLICY.md"), "---\nid: POL-0001\n---\n"); };
+  for (const make of [graduateSkill, graduatePolicy]) {
+    const b2 = makeBed();
+    const d2 = sDirs(b2.paths.skills, b2.paths.root);
+    make(b2);
+    const r2 = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+    await assert.rejects(openRun({ runsDir: r2, run: "RUN-0001", resume: false, build: () => M(), s0Dirs: d2 }), /S0 is not empty/);
+    assert.equal(readManifest(r2, "RUN-0001"), null);
+    await openRun({ runsDir: r2, run: "RUN-0001", resume: false, build: () => M(), s0Dirs: d2, allowNonEmptyS0: true });
+    assert.ok(readManifest(r2, "RUN-0001"));
+  }
 });
 
 test("pickIncident takes a frame incident covering the parallax lines before a larger one that does not, then the most pixels", () => {

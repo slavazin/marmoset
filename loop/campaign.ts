@@ -1,5 +1,7 @@
-// The campaign (SPEC §5 S10). `pnpm campaign [--resume] [--minutes M] [--dry]` opens RUN-0001 and runs it:
-//   open      writes runs/RUN-0001/manifest.json (loop/run-records.ts) with O_EXCL; refuses when it exists unless --resume.
+// The campaign (SPEC §5 S10). `pnpm campaign [--resume] [--minutes M] [--dry] [--allow-nonempty-s0]` opens RUN-0001 and runs it:
+//   open      writes runs/RUN-0001/manifest.json (loop/run-records.ts) with O_EXCL; refuses when it exists unless --resume,
+//             and refuses a first open while skills/graduated or policies/graduated holds a member (S₀ must be ∅,
+//             run-records.ts sMembers) unless the owner passes --allow-nonempty-s0.
 //             Every record written after carries run RUN-0001 (RATCHET_RUN is set in this process and its children).
 //   play      explorer segments with rotating seeds (CAMPAIGN_SEED0 + segment index) → lockstep against core-live's
 //             core, spot sampling every CAMPAIGN_SPOT_EVERY-th counter (player/spot.ts), incidents into the ledger;
@@ -30,7 +32,7 @@ import { all, appendNew, current, status } from "./ledger.ts";
 import { pathsFromEnv, type LoopPaths } from "./paths.ts";
 import { openIncidents, runFastCycle, type CycleOutput } from "./fast.ts";
 import { generationsDue } from "./slow.ts";
-import { buildManifest, manifestPath, openManifest, readManifest, RUN_ID } from "./run-records.ts";
+import { buildManifest, manifestPath, openManifest, readManifest, RUN_ID, sDirs, sMembers } from "./run-records.ts";
 import { meterLine, spendGate, spendMeter, type SpendMeter } from "../server/spend.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { Attempt, Incident, Manifest, Steer } from "../src/schema.ts";
@@ -229,9 +231,18 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
   return { attempts: done, segments, paused, stopped, records: readCampaign(d.runsDir, d.run) };
 }
 
-export interface OpenOptions { runsDir: string; run: string; resume: boolean; build: () => Promise<Manifest> | Manifest }
+export interface OpenOptions {
+  runsDir: string; run: string; resume: boolean; build: () => Promise<Manifest> | Manifest;
+  /** The S dirs (run-records.ts sDirs); a first open refuses when they hold any member (sMembers): the curve starts at S₀ = ∅. */
+  s0Dirs?: string[];
+  /** The owner's --allow-nonempty-s0: opens the run over a non-empty S₀. */
+  allowNonEmptyS0?: boolean;
+}
 
-/** Opens the run: writes the manifest, or with --resume reads the existing one. Throws when it exists without --resume. */
+/**
+ * Opens the run: writes the manifest, or with --resume reads the existing one. Throws when it exists without --resume,
+ * and on a first open when s0Dirs hold a graduated skill or policy, unless allowNonEmptyS0 (campaign.test.ts "S0 is not empty").
+ */
 export async function openRun(o: OpenOptions): Promise<Manifest> {
   const existing = readManifest(o.runsDir, o.run);
   if (existing) {
@@ -240,6 +251,8 @@ export async function openRun(o: OpenOptions): Promise<Manifest> {
     return existing;
   }
   if (o.resume) throw new Error(`--resume: ${manifestPath(o.runsDir, o.run)} does not exist`);
+  const s0 = o.s0Dirs ? sMembers(o.s0Dirs) : [];
+  if (s0.length && !o.allowNonEmptyS0) throw new Error(`S0 is not empty (${s0.slice(0, 6).join(", ")}${s0.length > 6 ? ", …" : ""}): the curve starts at S0 = ∅; retire them first, or pass --allow-nonempty-s0`);
   const m = await o.build();
   const p = openManifest(o.runsDir, m);
   record(o.runsDir, o.run, { t: "open", at: m.opened_at, run: o.run, manifest: p, resumed: false });
@@ -361,12 +374,12 @@ async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest
 }
 
 async function main(argv: string[]): Promise<number> {
-  const { values: v } = parseArgs({ args: argv, options: { resume: { type: "boolean" }, dry: { type: "boolean" }, minutes: { type: "string" } } });
+  const { values: v } = parseArgs({ args: argv, options: { resume: { type: "boolean" }, dry: { type: "boolean" }, minutes: { type: "string" }, "allow-nonempty-s0": { type: "boolean" } } });
   const minutes = Number(v.minutes ?? (v.dry ? 2 : 75));
   process.env.RATCHET_RUN = RUN_ID; // every record written from here carries the run (loop/ledger.ts runId)
   const { deps, manifest } = v.dry ? await dryDeps(minutes) : await realDeps(minutes);
   if (v.dry) console.log(`dry campaign: scratch ledger ${deps.paths.ledger}, runs ${deps.runsDir}`);
-  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest });
+  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"] });
   console.log(`${m.id} open: rule_version ${m.rule_version.slice(0, 12)}, s0 ${m.s0_sha.slice(0, 12)}, ${Object.keys(m.roms).length} ROM hashes, models ${JSON.stringify(m.models)}`);
   console.log(meterLine(spendMeter({ ledger: deps.paths.ledger, runsDir: deps.runsDir, run: deps.run, env: deps.env })));
   console.log(`K ${K}, MAX_ATTEMPTS ${MAX_ATTEMPTS}, CAMPAIGN_PARALLEL ${CAMPAIGN_PARALLEL}, ${minutes} min`);
