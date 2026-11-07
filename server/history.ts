@@ -55,7 +55,8 @@ export interface DecisionItem { id: string; title: string; status: string; super
 export interface FindingItem { id: string; slice: string; claim: string; reading: string; disposition: string }
 export interface CommitItem { sha: string; at: string; subject: string; attempts: string[]; skills: string[] }
 export interface SpendSummary { attempts_usd: number; attempts_n: number; by_role: Record<string, { usd: number; n: number }>; total_usd: number }
-export interface RunFigures { run: string; incidents: number; attempts: number; graduated: number; refused: number; skills_graduated: number; skills_refused: number; policies_graduated: number; policies_refused: number; fires: number }
+/** repaired: incidents with status repaired; repaired_by_graduate: those repaired by another attempt's GRADUATE re-check (repaired_by), with no attempt of their own counted. */
+export interface RunFigures { run: string; incidents: number; repaired: number; repaired_by_graduate: number; attempts: number; graduated: number; refused: number; skills_graduated: number; skills_refused: number; policies_graduated: number; policies_refused: number; fires: number }
 
 export interface History {
   incidents: (Incident & { sabotage: boolean })[];
@@ -214,7 +215,10 @@ export async function readHistory(o: HistoryOptions): Promise<History> {
     const inRun = <T extends { run?: string | null; sabotage?: boolean }>(xs: T[]) => xs.filter((x) => x.run === run && !x.sabotage);
     const vs = inRun(V);
     return {
-      run, incidents: inRun(I).length, attempts: inRun(A).length,
+      run, incidents: inRun(I).length,
+      repaired: inRun(I).filter((i) => i.status === "repaired").length,
+      repaired_by_graduate: inRun(I).filter((i) => i.status === "repaired" && (i as { repaired_by?: string }).repaired_by).length,
+      attempts: inRun(A).length,
       graduated: vs.filter((v) => v.subject.kind === "attempt" && v.decision === "GRADUATE").length,
       refused: vs.filter((v) => v.subject.kind === "attempt" && v.decision === "REFUSE").length,
       skills_graduated: vs.filter((v) => v.subject.kind === "skill" && v.decision === "GRADUATE").length,

@@ -103,7 +103,8 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
 
   tlog("loop", "attempt-end", { attempt: id, verdict: gate.verdict.id, decision: gate.verdict.decision, model: rep.model, spent: rep.spent, exit: rep.exitCode, summary: rep.result?.summary ?? null, ms });
   if (gate.verdict.decision === "GRADUATE") status("incidents.jsonl", incidentId, "status", "repaired", paths.ledger);
-  else if (prior + 1 >= MAX_ATTEMPTS) status("incidents.jsonl", incidentId, "status", "unrepaired", paths.ledger);
+  // a parallel graduate's re-check (gate-repair.ts recheckIncidents) may have repaired it meanwhile: only an open one flips
+  else if (prior + 1 >= MAX_ATTEMPTS && current<Incident>("incidents.jsonl", incidentId, paths.ledger)?.status === "open") status("incidents.jsonl", incidentId, "status", "unrepaired", paths.ledger);
 
   const observation = appendNew<Observation>("observations.jsonl", "OBS", (oid) => ({
     id: oid, at: new Date().toISOString(), run: runId(), anchor: { incident: incidentId, attempt: id, counter: inc.counter },

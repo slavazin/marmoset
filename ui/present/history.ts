@@ -7,7 +7,7 @@
 
 import type { History } from "../../server/history.ts";
 import { esc, fmtReading, fmtVArmRow, decidingCheck, shortSha } from "../format.ts";
-import { fmtUsd, fmtRatio, fmtAt } from "./units.ts";
+import { fmtUsd, fmtRatio, fmtSpendRatio, fmtAt } from "./units.ts";
 
 interface Row { at: string; kind: string; id: string; html: string; cls: string; run?: string | null }
 
@@ -36,8 +36,8 @@ function figures(h: History): string {
   const any = h.incidents.length || h.attempts.length || h.verdicts.length;
   if (!any) return empty("ledger/ holds no incident, attempt or verdict yet.");
   if (!h.figures.length) return empty("No run is open in this ledger: every record below carries run: null, was written before a run opened, and enters no figure.");
-  return `<table class="map"><thead><tr><th>run</th><th>incidents</th><th>attempts</th><th>repairs graduated</th><th>repairs refused</th><th>skills graduated</th><th>skills refused</th><th>hook fires</th></tr></thead><tbody>
-${h.figures.map((f) => `<tr><td>${esc(f.run)}</td><td>${esc(f.incidents)}</td><td>${esc(f.attempts)}</td><td>${esc(f.graduated)}</td><td>${esc(f.refused)}</td><td>${esc(f.skills_graduated)}</td><td>${esc(f.skills_refused)}</td><td>${esc(f.fires)}</td></tr>`).join("")}</tbody></table>
+  return `<table class="map"><thead><tr><th>run</th><th>incidents</th><th>repaired (by another graduate)</th><th>attempts</th><th>repairs graduated</th><th>repairs refused</th><th>skills graduated</th><th>skills refused</th><th>hook fires</th></tr></thead><tbody>
+${h.figures.map((f) => `<tr><td>${esc(f.run)}</td><td>${esc(f.incidents)}</td><td>${esc(f.repaired)} (${esc(f.repaired_by_graduate)})</td><td>${esc(f.attempts)}</td><td>${esc(f.graduated)}</td><td>${esc(f.refused)}</td><td>${esc(f.skills_graduated)}</td><td>${esc(f.skills_refused)}</td><td>${esc(f.fires)}</td></tr>`).join("")}</tbody></table>
 <div class="dim">Counted from ledger/*.jsonl per run; sabotage incidents, their attempts and verdicts, and run-null records are left out.</div>`;
 }
 
@@ -74,7 +74,7 @@ ${s.subsystem ? `<div class="dim">subsystem agreement: ${esc(fmtReading(s.subsys
 function meter(h: History): string {
   const m = h.meter;
   if (!m) return "";
-  const owner = m.owner_read_usd === null ? "no spend-override.json" : `${fmtUsd(m.owner_read_usd)} (list rates × ${(m.ratio ?? 1).toFixed(3)} since reading)`;
+  const owner = m.owner_read_usd === null ? "no spend-override.json" : `${fmtUsd(m.owner_read_usd)} (list rates × ${fmtSpendRatio(m.ratio)} since reading)`;
   return `<div>owner-read (Meta console) <b>${esc(owner)}</b> · priced (list rates, held by review) ${esc(fmtUsd(m.priced_usd))} · the guard reads ${esc(m.source)} ${esc(fmtUsd(m.usd))}: ask at ${esc(fmtUsd(m.ask_usd))}, stop at ${esc(fmtUsd(m.stop_usd))}</div>${m.warning ? `<div class="dim">warning: ${esc(m.warning)}</div>` : ""}`;
 }
 

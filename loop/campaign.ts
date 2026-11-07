@@ -335,7 +335,8 @@ export async function dryDeps(minutes: number): Promise<{ deps: CampaignDeps; ma
   const { route } = await import("./route.ts");
   const bed = makeBed();
   const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
-  // the fake repairer fixes every incident but INC-0002, which it leaves unedited: two REFUSEs at diff-scope, then unrepaired
+  // the fake repairer fixes every incident but INC-0002, which it leaves unedited (a REFUSE at diff-scope); INC-0002 and
+  // INC-0003 clone INC-0001, so INC-0001's GRADUATE re-check marks them repaired_by its verdict (gate-repair.ts recheckIncidents)
   const runner = fakeRunner((dir) => { if (!readFileSync(join(dir, "packet", "incident.json"), "utf8").includes('"INC-0002"')) setShade(dir, FIX); }, { dispositions: {}, off_map: null, beliefs: [], summary: "Renders a ROM's first byte as its shade." });
   const steady = { async score() { return { readings: [], roms: {} }; } };
   const client = async () => ({ status: 200, wall_ms: 1, body: { model: "subq-snap-1.1 (dry)", answers: { subsystem: { type: "choice", probabilities: { ppu_fetcher: 0.7, other: 0.3 } } } as never, usage: { input_tokens: 10, output_tokens: 0 } } });

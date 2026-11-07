@@ -77,8 +77,13 @@ test("a dry campaign on a scratch ledger opens incidents, routes each, runs atte
     assert.equal(verdicts.length, atts.length);
     assert.ok(verdicts.some((v) => v.decision === "GRADUATE") && verdicts.some((v) => v.decision === "REFUSE"));
     assert.ok(atts.every((a) => a.run === "RUN-0001"));
-    assert.equal(atts.filter((a) => a.task.incident === "INC-0002").length, 2);
-    assert.equal(current<Incident>("incidents.jsonl", "INC-0002", L)!.status, "unrepaired");
+    // INC-0002 and INC-0003 are clones of INC-0001: its GRADUATE's re-check on the merged head repairs them, attempt or not
+    const grad = verdicts.find((v) => v.decision === "GRADUATE")!;
+    for (const id of ["INC-0002", "INC-0003"]) {
+      const inc = current<Incident & { repaired_by?: string }>("incidents.jsonl", id, L)!;
+      assert.deepEqual([inc.status, inc.repaired_by], ["repaired", grad.id], id);
+      assert.ok(atts.filter((a) => a.task.incident === id).length <= MAX_ATTEMPTS);
+    }
     assert.match(out.stopped, /^idle/);
     assert.equal(readCampaign(deps.runsDir, deps.run).at(-1)!.t, "stop");
   } finally { if (saved === undefined) delete process.env.RATCHET_RUN; else process.env.RATCHET_RUN = saved; }

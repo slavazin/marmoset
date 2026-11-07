@@ -11,7 +11,8 @@
 // GRADUATE merges the branch into core-live with trailers "Attempt: ATT-…" and "Skills: SKL-…"; a merge that throws
 // turns the verdict into a REFUSE naming the error. The Verdict is appended next, before any side effect. The
 // side effects then admit the trace window to traces/TRC-NNNN.json, write RepairResult.beliefs as ledger/beliefs/
-// files marked suspected, regenerate ledger/provenance.json, run `pnpm core:bundle` (recorded as skipped when it
+// files marked suspected, regenerate ledger/provenance.json, re-check every other open or unrepaired incident on
+// the merged head (recheckIncidents: repaired_by <VER> and status repaired when it no longer reproduces), run `pnpm core:bundle` (recorded as skipped when it
 // fails) and post an SSE `core` event; each one that throws is listed in the verdict's `side_effect_error` status
 // record and in the loop telemetry stream, and the rest still run (gate.test.ts "throwing provenance writer").
 // REFUSE leaves the branch unmerged; the verdict is the attempt's tombstone (SPEC §6.10).
@@ -21,7 +22,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync
 import { join, resolve } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { RULE_CONSTANTS, LITERAL_LIMIT, H_TOLERANCE, SUITE_MIN_GAIN } from "./gate.ts";
-import { appendNew, current, nextId, runId, status } from "./ledger.ts";
+import { all, appendNew, current, nextId, runId, status } from "./ledger.ts";
 import { tlog } from "../src/telemetry.ts";
 import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
 import { romBySha } from "./roms.ts";
@@ -160,7 +161,7 @@ export interface GateInput {
   effects?: { provenance?: (paths: LoopPaths, tag: string) => Promise<unknown> };
 }
 
-export interface GateOutput { verdict: Verdict; branch: string; head_commit?: string; trace?: string; beliefs: string[]; bundle: string }
+export interface GateOutput { verdict: Verdict; branch: string; head_commit?: string; trace?: string; beliefs: string[]; bundle: string; repaired_by: string[] }
 
 /** The incident's evidence dir (Incident.files.dir, relative to the repository or absolute). */
 export function evidenceDir(paths: LoopPaths, inc: Incident): string {
@@ -251,6 +252,32 @@ async function postCore(server: string, commit: string): Promise<void> {
   try {
     await fetch(`${server}/api/event`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ t: "core", commit, bundle_url: `/dist/core-${commit}.js` }), signal: AbortSignal.timeout(2000) });
   } catch { /* no server: the core event is lost, the ledger holds the verdict */ }
+}
+
+/**
+ * After a GRADUATE merge: replays every other open or unrepaired, non-sabotage incident on core-live's merged head;
+ * one whose window replays clean (a suite incident: its ROM passes) gets status records repaired_by <verdict> and
+ * status repaired. It mints no attempt. Returns the incident ids it flipped (gate.test.ts "repaired_by").
+ */
+export async function recheckIncidents(g: GateInput, verdictId: string): Promise<string[]> {
+  const { paths } = g;
+  const todo = all<Incident>("incidents.jsonl", paths.ledger).filter((i) => i.id !== g.incident.id && i.source !== "sabotage" && (i.status === "open" || i.status === "unrepaired"));
+  if (!todo.length) return [];
+  const coreDir = archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "gate", `${g.attempt.id}.recheck`));
+  const romDirs = [paths.roms, join(paths.root, "game")];
+  const flipped: string[] = [];
+  for (const i of todo) {
+    let r: { clean: boolean };
+    try { r = await g.replayer.incident({ coreDir, id: i.id, evidenceDir: evidenceDir(paths, i), rom: romBySha(i.rom_sha, romDirs), cache: paths.cache }); }
+    catch (e) { tlog("loop", "recheck-error", { incident: i.id, verdict: verdictId, error: errText(e) }); continue; }
+    tlog("loop", "recheck", { incident: i.id, verdict: verdictId, clean: r.clean });
+    if (!r.clean) continue;
+    status("incidents.jsonl", i.id, "repaired_by", verdictId, paths.ledger);
+    status("incidents.jsonl", i.id, "status", "repaired", paths.ledger);
+    flipped.push(i.id);
+  }
+  rmSync(join(coreDir, ".."), { recursive: true, force: true });
+  return flipped;
 }
 
 /** Judges one attempt (see the file header); appends and returns the Verdict. */
@@ -365,7 +392,7 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   const failed = checks.find((c) => !c.pass);
   let decision: Verdict["decision"] = failed ? "REFUSE" : "GRADUATE";
   let reason = failed ? `${failed.name} failed: ${JSON.stringify(failed.reading).slice(0, 300)}` : `all ${checks.length} checks passed; deciding: ${checks.at(-1)!.name}`;
-  const out: GateOutput = { verdict: undefined as unknown as Verdict, branch, head_commit: head, beliefs: [], bundle: "not run (REFUSE)" };
+  const out: GateOutput = { verdict: undefined as unknown as Verdict, branch, head_commit: head, beliefs: [], bundle: "not run (REFUSE)", repaired_by: [] };
 
   // the merge decides the verdict: a merge that throws is a REFUSE naming the error, and core-live is left as it was
   let merged: string | undefined;
@@ -416,6 +443,7 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
       }
     });
     await sideEffect("provenance", () => (fx.provenance ?? regenerateProvenance)(paths, attempt.id));
+    await sideEffect("recheck", async () => { out.repaired_by = await recheckIncidents(g, out.verdict.id); });
     out.bundle = "not run (side effect failed)";
     await sideEffect("bundle", () => { out.bundle = rebuildBundle(paths, archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "gate", `${attempt.id}.bundle`)), merged!); });
     if (!g.quiet) await sideEffect("core-event", () => postCore(paths.server, merged!));
