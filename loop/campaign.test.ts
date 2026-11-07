@@ -8,6 +8,7 @@ import { makeBed } from "./fixtures/harness.ts";
 import { append, all, current } from "./ledger.ts";
 import { steer } from "./steer.ts";
 import { spendMeter } from "../server/spend.ts";
+import { MAX_ATTEMPTS } from "./gate.ts";
 import type { Attempt, Incident, Manifest, Verdict } from "../src/schema.ts";
 
 const M = (id = "RUN-0001"): Manifest => ({ id, opened_at: "2026-11-07T14:30:00.000Z", models: {}, oracle: { core: "fake", build_hash: "h" }, roms: {}, splits_sha: "s", rule_version: "r", s0_sha: "z" });
@@ -103,4 +104,33 @@ test("the owner-read override is what the guard acts on: $61 priced with a $5 co
   append("attempts.jsonl", { id: "ATT-0002", at: "2026-11-07T14:40:00.000Z", run: "RUN-0001", spent: { usd: 2.5 } }, g.bed.paths.ledger);
   append("spend.jsonl", { at: "2026-11-07T14:41:00.000Z", run: null, role: "narrator", model: "m", tokens_in: 1, tokens_out: 1, usd: 9 }, g.bed.paths.ledger);
   assert.equal(spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" }).owner_read_usd, 2.5);
+});
+
+type Parked = Incident & { parked?: { early_throws: number; attempts: number; error: string } };
+
+test("an attempt that throws before minting its ATT counts against MAX_ATTEMPTS: after MAX_ATTEMPTS such throws the incident is parked unrepaired with a status record, and no further attempt starts", async () => {
+  const g = guardBed(0);
+  await runCampaign(g.deps);
+  assert.equal(g.calls.length, MAX_ATTEMPTS);
+  const inc = current<Parked>("incidents.jsonl", "INC-0001", g.bed.paths.ledger)!;
+  assert.equal(inc.status, "unrepaired");
+  assert.deepEqual(inc.parked && [inc.parked.early_throws, inc.parked.attempts, inc.parked.error], [MAX_ATTEMPTS, 0, "fake attempt"]);
+  const recs = readCampaign(g.runsDir, "RUN-0001");
+  assert.equal(recs.filter((r) => r.t === "attempt-error").length, MAX_ATTEMPTS);
+  assert.equal(recs.filter((r) => r.t === "park").length, 1);
+});
+
+test("an attempt that throws after minting its ATT counts once, and the MAX_ATTEMPTS-th such attempt flips the incident to unrepaired", async () => {
+  const g = guardBed(0);
+  let n = 0;
+  g.deps.fast = async (id) => {
+    g.calls.push(id);
+    append("attempts.jsonl", { id: `ATT-01${String(++n).padStart(2, "0")}`, at: new Date().toISOString(), run: "RUN-0001", task: { kind: "incident", incident: id }, spent: { usd: 0 } }, g.bed.paths.ledger);
+    throw new Error("repairer crashed");
+  };
+  await runCampaign(g.deps);
+  assert.equal(g.calls.length, MAX_ATTEMPTS);
+  const inc = current<Parked>("incidents.jsonl", "INC-0001", g.bed.paths.ledger)!;
+  assert.equal(inc.status, "unrepaired");
+  assert.deepEqual(inc.parked && [inc.parked.early_throws, inc.parked.attempts], [0, MAX_ATTEMPTS]);
 });

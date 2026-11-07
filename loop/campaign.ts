@@ -7,12 +7,15 @@
 //   narrate   one Gemini sentence per new incident, best-effort;
 //   fast      the open incident whose box covers the parallax lines first (SPEC §7.8), then the largest pixel count;
 //             at most CAMPAIGN_PARALLEL attempts at once, MAX_ATTEMPTS per incident (loop/fast.ts), the gate step
-//             serialised through one mutex because every gate works in the one live clone;
+//             serialised through one mutex because every gate works in the one live clone; an attempt that throws
+//             counts against MAX_ATTEMPTS (its ATT, or an attempt-error record when it threw before minting one),
+//             and at MAX_ATTEMPTS the incident is parked: status records "parked" then status unrepaired
+//             (campaign.test.ts "throws before minting");
 //   slow      one slow-loop generation (loop/slow.ts runGeneration) whenever generationsDue says one is owed (every K);
 //   spend     before every attempt, server/spend.ts's meter: at SPEND_ASK_USD a `pause` record and "owner gate: spend $X",
 //             no new attempt until a steer "resume spend" (pnpm steer "resume spend") written after the pause; at
 //             SPEND_STOP_USD a `stop` record and the campaign ends once in-flight attempts finish.
-// The campaign's own records (open, segment, pause, resume, stop) go to runs/<run>/campaign.jsonl.
+// The campaign's own records (open, segment, pause, resume, attempt-error, park, stop) go to runs/<run>/campaign.jsonl.
 // --dry runs the same loop on a scratch test bed (loop/fixtures/harness.ts) with the fake runner, a fake SubQ client,
 // fake play that opens DRY_INCIDENTS incidents and no Gemini, and stops when the deadline passes or nothing is left.
 
@@ -23,14 +26,14 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { K, MAX_ATTEMPTS } from "./gate.ts";
-import { all, appendNew, current } from "./ledger.ts";
+import { all, appendNew, current, status } from "./ledger.ts";
 import { pathsFromEnv, type LoopPaths } from "./paths.ts";
 import { openIncidents, runFastCycle, type CycleOutput } from "./fast.ts";
 import { generationsDue } from "./slow.ts";
 import { buildManifest, manifestPath, openManifest, readManifest, RUN_ID } from "./run-records.ts";
 import { meterLine, spendGate, spendMeter, type SpendMeter } from "../server/spend.ts";
 import { tlog } from "../src/telemetry.ts";
-import type { Incident, Manifest, Steer } from "../src/schema.ts";
+import type { Attempt, Incident, Manifest, Steer } from "../src/schema.ts";
 
 /** Attempts in flight at once. S8 Wiggle allows 3; the gate step is serialised (gateLock), the repairs run in parallel. */
 export const CAMPAIGN_PARALLEL = 3;
@@ -54,6 +57,9 @@ export type CampaignRecord =
   | { t: "segment"; at: string; run: string; seed: number; opened: string[]; error?: string }
   | { t: "pause"; at: string; run: string; usd: number; source: SpendMeter["source"]; priced_usd: number; owner_read_usd: number | null }
   | { t: "resume"; at: string; run: string; steer: string }
+  /** An attempt that threw; `minted` says whether it wrote its ATT before throwing. */
+  | { t: "attempt-error"; at: string; run: string; incident: string; minted: boolean; error: string }
+  | { t: "park"; at: string; run: string; incident: string; early_throws: number; attempts: number }
   | { t: "stop"; at: string; run: string; reason: string; attempts: number };
 
 export interface CampaignDeps {
@@ -133,13 +139,32 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
   let exhausted = false;
   let stopped = "";
 
+  // an attempt that throws counts against MAX_ATTEMPTS: its ATT if it minted one, else its attempt-error record;
+  // at MAX_ATTEMPTS the incident is parked: a "parked" status record, then status unrepaired
+  const attemptFailed = (incident: string, minted: boolean, error: string) => {
+    record(d.runsDir, d.run, { t: "attempt-error", at: new Date(now()).toISOString(), run: d.run, incident, minted, error });
+    const early_throws = readCampaign(d.runsDir, d.run).filter((r) => r.t === "attempt-error" && r.incident === incident && !r.minted).length;
+    const attempts = attemptsOn(incident);
+    if (attempts + early_throws < MAX_ATTEMPTS || current<Incident>("incidents.jsonl", incident, d.paths.ledger)?.status !== "open") return;
+    status("incidents.jsonl", incident, "parked", { at: new Date(now()).toISOString(), early_throws, attempts, error }, d.paths.ledger);
+    status("incidents.jsonl", incident, "status", "unrepaired", d.paths.ledger);
+    record(d.runsDir, d.run, { t: "park", at: new Date(now()).toISOString(), run: d.run, incident, early_throws, attempts });
+    log(`${incident} parked unrepaired: ${attempts} attempts and ${early_throws} early throws reach MAX_ATTEMPTS ${MAX_ATTEMPTS}`);
+  };
+  const attemptsOn = (id: string) => all<Attempt>("attempts.jsonl", d.paths.ledger).filter((a) => a.task.incident === id).length;
   const startAttempt = (inc: Incident) => {
+    const before = attemptsOn(inc.id);
     const p = (async () => {
       try {
         const r = await d.fast(inc.id, gateLock);
         done.push(r);
         log(`${r.attempt.id} on ${inc.id}: ${r.verdict.id} ${r.verdict.decision} (${r.verdict.reason})`);
-      } catch (e) { log(`attempt on ${inc.id} failed: ${(e as Error).message}`); tlog("loop", "campaign.attempt-failed", { incident: inc.id, error: (e as Error).message }); }
+      } catch (e) {
+        const error = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300);
+        log(`attempt on ${inc.id} failed: ${error}`);
+        tlog("loop", "campaign.attempt-failed", { incident: inc.id, error });
+        attemptFailed(inc.id, attemptsOn(inc.id) > before, error);
+      }
       finally { inflight.delete(inc.id); }
     })();
     inflight.set(inc.id, p);
