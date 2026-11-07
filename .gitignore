@@ -92,3 +92,8 @@ runs/prerun/
 !game/*.gb
 !oracle/fixtures/*.gb
 !game2/*.gb
+
+# --- ROM-derived run files: kept on disk for the UI, never committed (S24; scripts/collect-runs.test.ts) ---
+runs/RUN-0004/evidence/
+runs/RUN-0004/telemetry/
+runs/**/start/
