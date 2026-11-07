@@ -2,8 +2,10 @@
 // commit with Muse Code's own learning on: a persistent HOME and XDG_CONFIG_HOME at $RATCHET_CACHE/muse-native-home
 // kept across this arm's runs only, observers on (D-0001's command line without --disable-reminders), no shown
 // skills and no hooks. Its readings go to runs/<run>/muse-native.jsonl and nowhere else: it appends no Attempt, no
-// Verdict, no Calibration and no vread record (muse-native.test.ts asserts the ledger and calibration files are
-// untouched). Off by default: `node loop/slow.ts --muse-native`, run only after S9's Accept is green (D-0013).
+// Verdict, no Calibration and no vread record (loop/muse-native.test.ts asserts the ledger and calibration files are
+// untouched). Each reading carries the repairer's priced `spent`, which server/spend.ts combinedMeter reads through
+// extraFiles. `base` pins the commit (a generation's base_commit; loop/muse-native-watch.ts), else the live branch head.
+// Off by default: `node loop/slow.ts --muse-native`, or the watcher, run only after S9's Accept is green (D-0013).
 
 import { appendFileSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -11,7 +13,7 @@ import { join } from "node:path";
 import { TRIAL_FAMILIES, MAX_STEPS } from "./gate.ts";
 import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
 import { repairPacket, removeScratch } from "./projection.ts";
-import { MUSE_BIN, MUSE_SETTINGS_FILE, museArgs, runRepair, usageFromEvents, MUSE_MODEL, type MuseRunner } from "./repair.ts";
+import { MUSE_BIN, MUSE_SETTINGS_FILE, museArgs, runRepair, usageFromEvents, MUSE_MODEL, type MuseRunner, type RepairOutput } from "./repair.ts";
 import { coreAt, TRIAL_WALL_S, type TrialJudge } from "./trial.ts";
 import { loadSplits, familyRoms } from "../suites/splits.ts";
 import { tlog } from "../src/telemetry.ts";
@@ -50,14 +52,14 @@ export function nativeRunner(home: string, inner?: MuseRunner): MuseRunner {
   };
 }
 
-export interface NativeDeps { paths: LoopPaths; judge: TrialJudge; run: string; runsDir?: string; generation: number; runner?: MuseRunner; families?: readonly string[]; familyRoms?: (f: string) => string[] }
-export interface NativeReading { at: string; run: string; generation: number; arm: "muse-native"; family: string; base_commit: string; reading: SuiteReading; model: string; exit: number; home: string }
+export interface NativeDeps { paths: LoopPaths; judge: TrialJudge; run: string; runsDir?: string; generation: number; runner?: MuseRunner; families?: readonly string[]; familyRoms?: (f: string) => string[]; base?: string; home?: string }
+export interface NativeReading { at: string; run: string; generation: number; arm: "muse-native"; family: string; base_commit: string; reading: SuiteReading; model: string; exit: number; home: string; spent?: RepairOutput["spent"] }
 
 /** One muse-native pass over the trial families (see the file header); returns the records appended. */
 export async function runMuseNative(d: NativeDeps): Promise<NativeReading[]> {
-  const home = nativeHome(d.paths.cache);
+  const home = d.home ?? nativeHome(d.paths.cache);
   const runner = nativeRunner(home, d.runner);
-  const base = git(d.paths.live, ["rev-parse", LIVE_BRANCH]);
+  const base = d.base ?? git(d.paths.live, ["rev-parse", LIVE_BRANCH]);
   const file = join(d.runsDir ?? join(d.paths.root, "runs"), d.run, "muse-native.jsonl");
   mkdirSync(join(file, ".."), { recursive: true });
   const out: NativeReading[] = [];
@@ -72,7 +74,7 @@ export async function runMuseNative(d: NativeDeps): Promise<NativeReading[]> {
     try { coreAt(d.paths, base, coreDir, rep.diff); } catch { coreAt(d.paths, base, coreDir); }
     const [reading] = await d.judge.score(join(coreDir, "core"), "H", family);
     removeScratch(packet.dir); removeScratch(coreDir);
-    const rec: NativeReading = { at: new Date().toISOString(), run: d.run, generation: d.generation, arm: "muse-native", family, base_commit: base, reading, model: rep.model, exit: rep.exitCode, home };
+    const rec: NativeReading = { at: new Date().toISOString(), run: d.run, generation: d.generation, arm: "muse-native", family, base_commit: base, reading, model: rep.model, exit: rep.exitCode, home, spent: rep.spent };
     appendFileSync(file, JSON.stringify(rec) + "\n");
     tlog("loop", "muse-native.end", rec);
     out.push(rec);

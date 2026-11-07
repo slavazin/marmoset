@@ -43,7 +43,7 @@ async function main(): Promise<number> {
     },
   });
   if (v.gemini && v.explore) { console.error("usage: pnpm play [--gemini|--explore] [--frames N] [--seed S]"); return 2; }
-  const romPath = resolve(v.rom ?? join(REPO, "game", "game.gb"));
+  const romPath = resolve(v.rom ?? process.env.RATCHET_GAME ?? join(REPO, "game", "game.gb"));
   const coreDir = resolve(v["core-dir"] ?? join(REPO, "core"));
   const run = process.env.RATCHET_RUN ?? null;
   const ledger = v.ledger ? resolve(v.ledger) : ledgerDir();

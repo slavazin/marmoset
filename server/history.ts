@@ -59,6 +59,29 @@ export interface SpendSummary { attempts_usd: number; attempts_n: number; by_rol
 /** repaired: incidents with status repaired; repaired_by_graduate: those repaired by another attempt's GRADUATE re-check (repaired_by), with no attempt of their own counted. */
 export interface RunFigures { run: string; incidents: number; repaired: number; repaired_by_graduate: number; attempts: number; graduated: number; refused: number; skills_graduated: number; skills_refused: number; policies_graduated: number; policies_refused: number; fires: number }
 
+/** One muse-native reading (loop/muse-native.ts NativeReading), as the History tab plots it beside the curve. */
+export interface NativeRow { run: string; generation: number; family: string; base_commit: string; pixel_match: number; pass: number; roms: number; at: string; /** base_commit's first 12 characters */ base_short: string; /** pixel_match to 4 decimals */ pixel_match_text: string }
+
+/** Every runs/RUN-*\/muse-native.jsonl line with a reading, in file order per run (server/history.test.ts "muse-native rows"). */
+export function readNative(runsDir: string): NativeRow[] {
+  if (!existsSync(runsDir) || !statSync(runsDir).isDirectory()) return [];
+  const out: NativeRow[] = [];
+  for (const run of readdirSync(runsDir).filter((d) => /^RUN-\d+$/.test(d)).sort()) {
+    const f = join(runsDir, run, "muse-native.jsonl");
+    if (!existsSync(f)) continue;
+    for (const l of readFileSync(f, "utf8").split("\n")) {
+      if (!l.trim()) continue;
+      try {
+        const r = JSON.parse(l) as { run?: string; generation?: number; family?: string; base_commit?: string; at?: string; reading?: { pixel_match?: number; pass?: number; roms?: number } };
+        if (!r.reading || typeof r.generation !== "number") continue;
+        const base_commit = String(r.base_commit ?? ""), pixel_match = Number(r.reading.pixel_match ?? 0);
+        out.push({ run: r.run ?? run, generation: r.generation, family: String(r.family ?? ""), base_commit, pixel_match, pass: Number(r.reading.pass ?? 0), roms: Number(r.reading.roms ?? 0), at: String(r.at ?? ""), base_short: base_commit.slice(0, 12), pixel_match_text: pixel_match.toFixed(4) });
+      } catch { /* partial line */ }
+    }
+  }
+  return out;
+}
+
 export interface History {
   incidents: (Incident & { sabotage: boolean })[];
   attempts: (Attempt & { run?: string | null; sabotage: boolean })[];
@@ -78,6 +101,7 @@ export interface History {
   spots: unknown | null;                   // S13's spotSummary(ledger), when player/spot-score.ts and ledger/spots.jsonl exist
   figures: RunFigures[];                   // per opened run; sabotage and run-null records excluded
   router: RouteCalibration | null;         // loop/route.ts routeCalibrationOf(ledger); null when no record carries a route or a forecast
+  native: NativeRow[];                     // runs/<run>/muse-native.jsonl of every run (D-0013): beside the curve, in no figure
   vread: VRead | null;
 }
 
@@ -253,6 +277,7 @@ export async function readHistory(o: HistoryOptions): Promise<History> {
     spots: await readSpots(o.ledger, o.root),
     figures,
     router: readRouter(o.ledger),
+    native: readNative(o.runs),
     vread: existsSync(o.runs) && statSync(o.runs).isDirectory() ? readVRead(o.runs) : null,
   };
 }

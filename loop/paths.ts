@@ -19,6 +19,11 @@ export interface LoopPaths {
   roms: string;
   server: string;
   /**
+   * The game ROM a run plays, from RATCHET_GAME (default <root>/game/game.gb). loop/roms.ts romDirs searches its
+   * directory for incident ROMs. A hand-built LoopPaths without it reads <root>/game/game.gb.
+   */
+  game?: string;
+  /**
    * Root of the scratch repos (loop/projection.ts repairPacket), from RATCHET_SCRATCH. A hand-built LoopPaths
    * without it reads scratchRoot()'s fallback.
    */
@@ -43,7 +48,7 @@ function expandHome(p: string): string {
 
 const ROOT = resolve(import.meta.dirname, "..");
 
-/** Paths from RATCHET_LEDGER, RATCHET_LIVE (default ../ratchet-live), RATCHET_CACHE, RATCHET_ROMS, RATCHET_SERVER, RATCHET_SCRATCH. */
+/** Paths from RATCHET_LEDGER, RATCHET_LIVE (default ../ratchet-live), RATCHET_CACHE, RATCHET_ROMS, RATCHET_SERVER, RATCHET_SCRATCH, RATCHET_GAME. */
 export function pathsFromEnv(env = process.env, root = ROOT): LoopPaths {
   return {
     root,
@@ -56,11 +61,17 @@ export function pathsFromEnv(env = process.env, root = ROOT): LoopPaths {
     roms: resolve(expandHome(env.RATCHET_ROMS ?? "~/.cache/ratchet/roms")),
     server: env.RATCHET_SERVER ?? "http://localhost:8787",
     scratch: resolve(expandHome(env.RATCHET_SCRATCH ?? DEFAULT_SCRATCH)),
+    game: resolve(root, expandHome(env.RATCHET_GAME ?? join("game", "game.gb"))),
   };
 }
 
-/** Branch the gate commits to in the live clone (D-0006). */
-export const LIVE_BRANCH = "core-live";
+/** The game ROM of `paths`: its `game` field, else <root>/game/game.gb. */
+export function gamePath(paths: LoopPaths): string { return paths.game ?? join(paths.root, "game", "game.gb"); }
+
+/** Branch the gate commits to in the live clone (D-0006): RATCHET_LIVE_BRANCH, read once at import, else "core-live".
+ * RUN-0002 sets "core-cgb" in ../ratchet-live-cgb (D-0019); a process serves one run, so one branch.
+ */
+export const LIVE_BRANCH = process.env.RATCHET_LIVE_BRANCH || "core-live";
 
 /** git in `cwd`; returns trimmed stdout, throws with stderr on a non-zero exit. */
 export function git(cwd: string, args: string[], input?: string): string {
