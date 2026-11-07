@@ -3,8 +3,11 @@ import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { OracleClient, oracleFrames, sha256 } from "./client.ts";
-import { ACID2_ROM, COUNTER_ROM, acid2Diff, counterHashes } from "./smoke.ts";
+import { OracleClient, oracleFrames, RGB_FRAME_BYTES, sha256 } from "./client.ts";
+import { readPngShades } from "./png.ts";
+import {
+  ACID2_FRAMES, ACID2_REF, ACID2_ROM, CGB_ACID2_FRAMES, CGB_ACID2_ROM, COUNTER_ROM, acid2Diff, cgbAcid2Diff, counterHashes,
+} from "./smoke.ts";
 
 const DYLIB = process.env.SAMEBOY_LIBRETRO ?? join(homedir(), ".cache/ratchet/tools/SameBoy/build/bin/sameboy_libretro.dylib");
 const skip = !existsSync(DYLIB) ? `SameBoy libretro absent at ${DYLIB}` : false;
@@ -31,6 +34,56 @@ test("dmg-acid2 emits exactly SameBoy's four greyscale palette values and matche
   const { pixels, colours } = await acid2Diff();
   assert.deepEqual(colours, [0x000000, 0x555555, 0xaaaaaa, 0xffffff]);
   assert.equal(pixels, 0);
+});
+
+test("cgb-acid2 under a CGB load matches its RGB reference pixel for pixel", { skip: skip || !existsSync(CGB_ACID2_ROM) }, async () => {
+  const { pixels, rgb } = await cgbAcid2Diff();
+  assert.equal(rgb.length, RGB_FRAME_BYTES);
+  assert.equal(pixels, 0);
+});
+
+/** sha256 of the RGB frame at every 10th frame 10..CGB_ACID2_FRAMES of cgb-acid2, on a fresh oracle process. */
+async function cgbRgbHashes(): Promise<string[]> {
+  const oracle = OracleClient.spawn();
+  try {
+    await oracle.load(CGB_ACID2_ROM, "frame", "CGB");
+    const out: string[] = [];
+    for (let n = 10; n <= CGB_ACID2_FRAMES; n += 10) {
+      await oracle.runToCounter(n);
+      out.push(sha256(await oracle.frameRgb()));
+    }
+    return out;
+  } finally {
+    await oracle.close();
+  }
+}
+
+test("two CGB oracle runs of cgb-acid2 give equal RGB frame hashes at every 10th frame to the compared one", { skip: skip || !existsSync(CGB_ACID2_ROM) }, async () => {
+  const [a, b] = await Promise.all([cgbRgbHashes(), cgbRgbHashes()]);
+  assert.equal(a.length, CGB_ACID2_FRAMES / 10);
+  assert.deepEqual(a, b);
+  assert.ok(new Set(a).size > 1, "the frames change through boot");
+});
+
+test("each load takes its own model: info reports CGB after a CGB load, and a DMG load after it in the same process still matches dmg-acid2 in shades", { skip: skip || !existsSync(CGB_ACID2_ROM) || !existsSync(ACID2_ROM) }, async () => {
+  const oracle = OracleClient.spawn();
+  try {
+    await oracle.load(CGB_ACID2_ROM, "frame", "CGB");
+    await oracle.runToCounter(10);
+    assert.equal((await oracle.info()).model, "CGB");
+    await oracle.load(ACID2_ROM, "frame");
+    await oracle.runToCounter(ACID2_FRAMES);
+    assert.equal((await oracle.info()).model, "DMG");
+    const shades = await oracle.frame();
+    const ref = readPngShades(ACID2_REF).shades;
+    assert.deepEqual(shades, ref);
+    // frame_rgb on a DMG load is the greyscale expansion of the same frame.
+    const rgb = await oracle.frameRgb();
+    const GREY = [0xff, 0xaa, 0x55, 0x00];
+    for (let i = 0; i < shades.length; i++) for (let c = 0; c < 3; c++) assert.equal(rgb[i * 3 + c], GREY[shades[i]]);
+  } finally {
+    await oracle.close();
+  }
 });
 
 test("two oracle runs of counter.gb give equal frame hashes at every counter 1..600", { skip }, async () => {

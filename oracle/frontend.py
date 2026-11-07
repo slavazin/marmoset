@@ -2,8 +2,11 @@
 """Oracle frontend: SameBoy's libretro core, run headless, speaking SPEC §6.4.
 
 One JSON request per stdin line, one JSON response per stdout line. Requests
-are the `OracleReq` union in src/schema.ts; `load` also takes an optional
-`align` ("counter", the default, or "frame"), a field src/schema.ts lacks.
+are the `OracleReq` union in src/schema.ts. `load` takes an optional `align`
+("counter", the default, or "frame") and an optional `model` ("DMG", the
+default, or "CGB"; D-0019). `frame` returns DMG shades and refuses any colour
+outside the greyscale palette; `frame_rgb` returns the RGB888 frame of either
+model.
 
 Alignment:
   align "counter": `run_to_counter n` runs frames until the game's counter
@@ -85,6 +88,19 @@ STALL_FRAMES = 600
 # this constant before every load so two runs start from equal RAM.
 RANDOM_SEED = 0x5EED
 
+# MODEL_OPTION: the sameboy_model value each `load` model forces. "Game Boy"
+# is GB_MODEL_DMG_B and "Game Boy Color C" is GB_MODEL_CGB_C in SameBoy's
+# libretro/libretro.c string_to_model() (commit ea667ad, read 2026-11-07).
+# CPU CGB C is chosen because the Mealybug CGB references in the ROM pack are
+# the `_cgb_c.png` set ("CPU CGB C"); cgb-acid2 and cgb-acid-hell name no
+# revision. SameBoy reads the option in retro_load_game (check_variables), so
+# each load takes the model it asks for. Colour correction stays "off": SameBoy
+# then expands each RGB555 channel by (x << 3) | (x >> 2) (Core/display.c
+# scale_channel), the convention cgb-acid2's and Mealybug's READMEs give for
+# their reference images.
+MODEL_OPTION = {"DMG": b"Game Boy", "CGB": b"Game Boy Color C"}
+RGB_BYTES = WIDTH * HEIGHT * 3
+
 COUNTER_OFFSET = 0xC0F0 - 0xC000
 WRAM_BASE, WRAM_END = 0xC000, 0xE000
 STATE_MAGIC = b"RTO1"
@@ -149,6 +165,19 @@ def rgb_to_shades(raw, width, height, pitch):
     return shades
 
 
+def xrgb_to_rgb888(raw, width, height, pitch):
+    """Map one XRGB8888 frame (little-endian B,G,R,X bytes) to 160*144*3 R,G,B bytes."""
+    if width != WIDTH or height != HEIGHT:
+        raise ValueError(f"frame is {width}x{height}, expected {WIDTH}x{HEIGHT}")
+    if pitch != WIDTH * 4:
+        raw = b"".join(raw[y * pitch:y * pitch + WIDTH * 4] for y in range(HEIGHT))
+    out = bytearray(RGB_BYTES)
+    out[0::3] = raw[2::4]
+    out[1::3] = raw[1::4]
+    out[2::3] = raw[0::4]
+    return bytes(out)
+
+
 def distinct_colours(raw, pitch):
     """The set of 0xRRGGBB values in one XRGB8888 frame (palette reading)."""
     out = set()
@@ -179,6 +208,7 @@ class Oracle:
         self.frames = 0           # frames completed since load
         self.loaded = False
         self.align = "counter"
+        self.model = "DMG"
         self.counter_live = False
         self.first_write_frame = None  # frame index of the game's first counter write
         self.compare_raw = None   # the frame `frame` returns
@@ -301,6 +331,10 @@ class Oracle:
         align = req.get("align", "counter")
         if align not in ("counter", "frame"):
             raise ValueError(f"align must be counter or frame, got {align!r}")
+        model = req.get("model", "DMG")
+        if model not in MODEL_OPTION:
+            raise ValueError(f"model must be DMG or CGB, got {model!r}")
+        self._option_bufs[b"sameboy_model"] = ctypes.create_string_buffer(MODEL_OPTION[model])
         if self.loaded:
             self.lib.retro_unload_game()
         with open(req["rom_path"], "rb") as f:
@@ -314,12 +348,13 @@ class Oracle:
             raise RuntimeError("retro_load_game refused the ROM")
         self.loaded = True
         self.align = align
+        self.model = model
         self.frames = 0
         self.counter_live = align == "frame"
         self.first_write_frame = None
         self.raw = self.raw_prev = self.compare_raw = None
         self.mask = 0
-        return {"rom_sha": hashlib.sha256(rom).hexdigest(), "align": align}
+        return {"rom_sha": hashlib.sha256(rom).hexdigest(), "align": align, "model": model}
 
     def op_run_to_counter(self, req):
         if not self.loaded:
@@ -371,6 +406,13 @@ class Oracle:
         w, h, p = self.geom
         return {"shades_b64": base64.b64encode(rgb_to_shades(raw, w, h, p)).decode()}
 
+    def op_frame_rgb(self, req):
+        raw = self.compare_raw if self.compare_raw is not None else self.raw
+        if raw is None:
+            raise RuntimeError("no frame completed")
+        w, h, p = self.geom
+        return {"rgb_b64": base64.b64encode(xrgb_to_rgb888(raw, w, h, p)).decode()}
+
     def op_colours(self, req):
         """Debug op: the distinct 0xRRGGBB values in the frame `frame` returns."""
         raw = self.compare_raw if self.compare_raw is not None else self.raw
@@ -420,7 +462,7 @@ class Oracle:
         return {}
 
     def op_info(self, req):
-        return {"core": "SameBoy", "version": self.version, "model": "DMG", "build_hash": self.build_hash,
+        return {"core": "SameBoy", "version": self.version, "model": self.model, "build_hash": self.build_hash,
                 "frames": self.frames, "first_write_frame": self.first_write_frame}
 
 

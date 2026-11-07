@@ -14,14 +14,16 @@ import type { OracleReq, OracleRes, Trace, TraceInput } from "../src/schema.ts";
 
 export const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), "frontend.py");
 export const FRAME_BYTES = 160 * 144;
+/** Bytes of one `frame_rgb` answer: 160×144 pixels × R,G,B (D-0019). */
+export const RGB_FRAME_BYTES = FRAME_BYTES * 3;
 
 export type Align = "counter" | "frame";
-// `load` carries an optional `align` that src/schema.ts's OracleReq lacks
-// (a finding for the orchestrator); every other request is OracleReq as typed.
-// `colours` is a frontend debug op: the distinct 0xRRGGBB values of the frame `frame` returns.
-export type OracleRequest = OracleReq | { op: "load"; rom_path: string; align?: Align } | { op: "colours" };
+export type Model = "DMG" | "CGB";
+// Every request is OracleReq as typed, plus `colours`, a frontend debug op:
+// the distinct 0xRRGGBB values of the frame `frame` returns.
+export type OracleRequest = OracleReq | { op: "colours" };
 
-export interface OracleInfo { core: "SameBoy"; version: string; model: "DMG"; build_hash: string; frames: number; first_write_frame: number | null }
+export interface OracleInfo { core: "SameBoy"; version: string; model: Model; build_hash: string; frames: number; first_write_frame: number | null }
 
 export function ratchetCache(): string {
   return process.env.RATCHET_CACHE ?? join(homedir(), ".cache", "ratchet");
@@ -76,8 +78,9 @@ export class OracleClient {
     return res;
   }
 
-  async load(romPath: string, align: Align = "counter"): Promise<{ rom_sha: string }> {
-    const res = await this.ok({ op: "load", rom_path: romPath, align });
+  /** Loads a ROM; `model` "CGB" runs SameBoy as a CPU CGB C (D-0019), and a DMG load sends no model field. */
+  async load(romPath: string, align: Align = "counter", model: Model = "DMG"): Promise<{ rom_sha: string }> {
+    const res = await this.ok(model === "DMG" ? { op: "load", rom_path: romPath, align } : { op: "load", rom_path: romPath, align, model });
     return { rom_sha: res.rom_sha as string };
   }
 
@@ -89,6 +92,12 @@ export class OracleClient {
   async frame(): Promise<Uint8Array> {
     const res = await this.ok({ op: "frame" });
     return new Uint8Array(Buffer.from(res.shades_b64 as string, "base64"));
+  }
+
+  /** The frame `frame` would return, as 160×144×3 RGB888 bytes (either model). */
+  async frameRgb(): Promise<Uint8Array> {
+    const res = await this.ok({ op: "frame_rgb" });
+    return new Uint8Array(Buffer.from(res.rgb_b64 as string, "base64"));
   }
 
   async ram(addr: number, len: number): Promise<Uint8Array> {
