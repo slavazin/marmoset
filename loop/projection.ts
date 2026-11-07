@@ -1,0 +1,212 @@
+// The repair projection (SPEC §2.3 declared projection, §5 S8, G7). `repairPacket(task, ctx)` materialises the
+// scratch repo at $RATCHET_CACHE/scratch/<attempt>/ holding only:
+//   core/ at the task's base commit (git archive from the live clone);
+//   packet/ TASK.md (TASK_TEXT), task.json, ATTEMPT.json ({attempt, server}, for tools/fire.mjs), and for an incident task incident.json, trace.json and the evidence
+//     files of evidence/incidents/<id>/ under packet/evidence/; roms.json, the ROM list tools/replay.mjs --family
+//     reads, in its { families: { <name>: [paths under $RATCHET_ROMS] } } form (the task family; T for "fast");
+//     T-family readings (readings-T.json) for arm "fast" only, when the caller supplies them;
+//   tools/replay.mjs and tools/fire.mjs, copied from the repository when present;
+//   .agents/skills/<SKL>/ for the shown skills, read-only, on the skill arms only (shown.ts SKILL_ARMS);
+//   .muse/hooks.json (hooksFor: entries on the skill arms, [] on baseline and vread-baseline);
+//   node_modules, a symlink to the repository's;
+//   .git, a one-commit repository whose HEAD is the projection, so the gate diffs against it.
+// ROMs and the oracle cache sit outside the scratch repo at <attempt>.env/, holding symlinks to the task's ROMs
+// only; `env` carries RATCHET_ROMS and RATCHET_CACHE pointing there. `allowed(arm, path)` is the allowlist
+// projection.test.ts asserts against the real file list per arm.
+
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync, readFileSync, lstatSync, chmodSync, statSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { git, type LoopPaths } from "./paths.ts";
+import { hooksFor, listSkills, SKILL_ARMS, type ShownSkill } from "./shown.ts";
+import { romBySha } from "./roms.ts";
+import { workingTrace } from "./gate-repair.ts";
+import type { Arm, Incident, RepairTask, SuiteReading } from "../src/schema.ts";
+
+/** TASK.md, fixed text: the Core API contract, the replay commands, the RepairResult shape (SPEC §6.1, §6.6). */
+export const TASK_TEXT = `# Repair task
+
+Edit files under core/ only. The gate reads only the diff of core/** and refuses a diff that touches any other
+path, adds a literal over the gate's literal limit, or contains the incident's frame hash or trace bytes.
+
+## Core API (core/index.ts)
+export function createCore(rom: Uint8Array): Core;  // step, runFrame, runToCounter(n), cpu, read, frame() (160*144 shades 0..3),
+                                                    // serial, cycles, setButtons(mask), snapshot/restore, tap
+export const HANDLERS: Record<HandlerId, string>;  // handler id -> implementing file under core/
+
+## The task
+packet/task.json names the task. For an incident: packet/incident.json (first diverging counter, signature),
+packet/trace.json (inputs and the window n-60 .. n+120), and the evidence files (core.png, oracle.png, diff.png,
+regwrites.jsonl, window.json) under packet/evidence/. packet/roms.json lists the ROMs per family.
+
+## Replay
+node tools/replay.mjs --incident <INC-id> --core-dir core --evidence-dir packet/evidence
+    reruns the window n-60..n+120 on core/ against the cached oracle frames; prints the first mismatch or "clean"
+node tools/replay.mjs --family <family> --core-dir core --roms packet/roms.json
+    scores one family; prints its reading as JSON
+ROMs and oracle frames are reached through $RATCHET_ROMS and $RATCHET_CACHE.
+
+## Skills
+.agents/skills/ holds the skills shown to this attempt, read-only. Mark each one in RESULT.json.
+
+## End by writing packet/RESULT.json
+{ "dispositions": { "<SKL-id>": "applied" | "considered-not-applicable" },
+  "off_map": null | "<one sentence naming a lesson you relied on that no shown skill holds>",
+  "beliefs": [ { "claim": "<a hardware claim>", "false_if": "<the observation that falsifies it>" } ],
+  "summary": "<one sentence: what the diff changes>" }
+`;
+
+export interface PacketContext {
+  attempt: string;
+  paths: LoopPaths;
+  incident?: Incident;
+  /** ROM paths for a family task, from suites/splits.ts familyRoms. */
+  familyRoms?: string[];
+  /** T families' ROM paths the fast arm may run (SPEC §5 S8), and the T readings at the base commit. */
+  tFamilies?: Record<string, string[]>;
+  tReadings?: SuiteReading[];
+  /** Skill directories to show; defaults to the task's skill ids under skills/graduated/ (shadow for candidate). */
+  shown?: ShownSkill[];
+}
+
+export interface Packet { dir: string; envDir: string; env: Record<string, string>; files: string[]; skills: ShownSkill[]; roms: string[] }
+
+/** The allowlist: true when the scratch-repo path `rel` (posix, relative) may exist for `arm`. */
+export function allowed(arm: Arm, rel: string): boolean {
+  if (rel === "core" || rel.startsWith("core/")) return true;
+  if (rel === "packet" || rel.startsWith("packet/")) return true;
+  if (rel === "tools" || rel === "tools/replay.mjs" || rel === "tools/fire.mjs") return true;
+  if (rel === ".muse" || rel === ".muse/hooks.json") return true;
+  if (rel === "node_modules") return true;
+  if (rel === ".git" || rel.startsWith(".git/")) return true;
+  if (rel === ".agents" || rel === ".agents/skills") return SKILL_ARMS.has(arm);
+  if (rel.startsWith(".agents/skills/")) return SKILL_ARMS.has(arm) && /^\.agents\/skills\/SKL-\d+(\/|$)/.test(rel);
+  return false;
+}
+
+/** Every path under `dir`, relative and posix; symlinks are listed and not followed. */
+export function fileList(dir: string, skip: (rel: string) => boolean = () => false): string[] {
+  const out: string[] = [];
+  const walk = (d: string) => {
+    for (const e of readdirSync(d).sort()) {
+      const p = join(d, e);
+      const rel = relative(dir, p).split("\\").join("/");
+      if (skip(rel)) continue;
+      out.push(rel);
+      const st = lstatSync(p);
+      if (st.isDirectory() && !st.isSymbolicLink()) walk(p);
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+/** The scratch file list an Attempt records: every non-.git path, .git collapsed to one entry. */
+export function scratchFiles(dir: string): string[] {
+  return fileList(dir, (rel) => rel.startsWith(".git/"));
+}
+
+function linkInto(dir: string, target: string, name = basename(target)): void {
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, name);
+  if (!existsSync(p)) symlinkSync(target, p);
+}
+
+function makeReadOnly(p: string): void {
+  const st = statSync(p);
+  if (st.isDirectory()) for (const e of readdirSync(p)) makeReadOnly(join(p, e));
+  chmodSync(p, st.mode & ~0o222);
+}
+
+/** Removes a scratch dir, restoring write bits first (the skills dir is a-w). */
+export function removeScratch(dir: string): void {
+  if (!existsSync(dir)) return;
+  try { execFileSync("chmod", ["-R", "u+w", dir]); } catch { /* best effort */ }
+  rmSync(dir, { recursive: true, force: true });
+}
+
+/** Materialises the scratch repo for `task` (see the file header) and returns its real file list. */
+export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
+  const { paths } = ctx;
+  const dir = join(paths.cache, "scratch", ctx.attempt);
+  const envDir = join(paths.cache, "scratch", `${ctx.attempt}.env`);
+  removeScratch(dir);
+  removeScratch(envDir);
+  mkdirSync(dir, { recursive: true });
+
+  // core/ at the base commit
+  const tar = execFileSync("git", ["archive", "--format=tar", task.base_commit, "core"], { cwd: paths.live, maxBuffer: 256 << 20 });
+  execFileSync("tar", ["-x", "-C", dir], { input: tar });
+
+  // packet/
+  const pk = join(dir, "packet");
+  mkdirSync(pk, { recursive: true });
+  writeFileSync(join(pk, "TASK.md"), TASK_TEXT);
+  writeFileSync(join(pk, "task.json"), JSON.stringify({ ...task, attempt: ctx.attempt }, null, 2));
+  // hook commands run in a cleared environment (D-0001); tools/fire.mjs reads the attempt and server from here
+  writeFileSync(join(pk, "ATTEMPT.json"), JSON.stringify({ attempt: ctx.attempt, server: paths.server }));
+  const roms: string[] = [];
+  const oracleShas: string[] = [];
+  const families: Record<string, string[]> = {};
+  if (task.kind === "incident") {
+    const inc = ctx.incident;
+    if (!inc || inc.id !== task.incident) throw new Error(`incident task ${task.incident} needs its Incident record`);
+    writeFileSync(join(pk, "incident.json"), JSON.stringify(inc, null, 2));
+    const trace = workingTrace(paths, inc);
+    if (trace) writeFileSync(join(pk, "trace.json"), JSON.stringify({ ...trace, window: inc.window }, null, 2));
+    const ev = resolve(paths.root, inc.files.dir);
+    if (existsSync(ev)) cpSync(ev, join(pk, "evidence"), { recursive: true, dereference: true });
+    roms.push(romBySha(inc.rom_sha, [paths.roms, join(paths.root, "game")]));
+    oracleShas.push(inc.rom_sha);
+  } else {
+    families[task.family ?? ""] = ctx.familyRoms ?? [];
+  }
+  if (task.arm === "fast") {
+    Object.assign(families, ctx.tFamilies ?? {});
+    if (ctx.tReadings) writeFileSync(join(pk, "readings-T.json"), JSON.stringify(ctx.tReadings, null, 2));
+  }
+  for (const rs of Object.values(families)) roms.push(...rs);
+  writeFileSync(join(pk, "roms.json"), JSON.stringify({ families: Object.fromEntries(Object.entries(families).map(([f, rs]) => [f, rs.map((r) => relative(paths.roms, r))])) }, null, 2));
+
+  // tools/
+  for (const t of ["replay.mjs", "fire.mjs"]) {
+    const src = join(paths.root, "tools", t);
+    if (existsSync(src)) { mkdirSync(join(dir, "tools"), { recursive: true }); cpSync(src, join(dir, "tools", t)); }
+  }
+
+  // shown skills and hooks
+  const shown = SKILL_ARMS.has(task.arm)
+    ? (ctx.shown ?? listSkills(paths.skills, task.arm === "candidate" ? "shadow" : "graduated").concat(task.arm === "candidate" ? listSkills(paths.skills, "graduated") : [])
+        .filter((s) => task.skills.includes(s.id)))
+    : [];
+  if (shown.length) {
+    const sk = join(dir, ".agents", "skills");
+    for (const s of shown) cpSync(s.dir, join(sk, s.id), { recursive: true, dereference: true });
+    makeReadOnly(sk);
+  }
+  mkdirSync(join(dir, ".muse"), { recursive: true });
+  writeFileSync(join(dir, ".muse", "hooks.json"), JSON.stringify(hooksFor(task.arm, shown), null, 2));
+
+  // node_modules
+  const nm = join(paths.root, "node_modules");
+  if (existsSync(nm)) symlinkSync(nm, join(dir, "node_modules"));
+
+  // the scratch repo's one commit
+  git(dir, ["init", "--quiet"]);
+  git(dir, ["add", "-A", "."]);
+  git(dir, ["commit", "--quiet", "--no-verify", "-m", `projection ${ctx.attempt} @ ${task.base_commit}`]);
+
+  // environment paths: only the task's ROMs and their oracle cache
+  const romDir = join(envDir, "roms");
+  mkdirSync(romDir, { recursive: true });
+  for (const r of roms) {
+    const rel = r.startsWith(paths.roms + "/") ? relative(paths.roms, r) : basename(r);
+    mkdirSync(join(romDir, rel, ".."), { recursive: true });
+    linkInto(join(romDir, rel, ".."), r, basename(rel));
+  }
+  const cacheDir = join(envDir, "cache");
+  mkdirSync(join(cacheDir, "oracle"), { recursive: true });
+  for (const s of oracleShas) { const o = join(paths.cache, "oracle", s); if (existsSync(o)) linkInto(join(cacheDir, "oracle"), o); }
+
+  return { dir, envDir, env: { RATCHET_ROMS: romDir, RATCHET_CACHE: cacheDir }, files: scratchFiles(dir), skills: shown, roms };
+}
