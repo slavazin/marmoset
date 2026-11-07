@@ -1,5 +1,6 @@
 // The repair projection (SPEC §2.3 declared projection, §5 S8, G7). `repairPacket(task, ctx)` materialises the
-// scratch repo at $RATCHET_CACHE/scratch/<attempt>/ holding only:
+// scratch repo at <scratch root>/<attempt>/ (paths.ts scratchRoot: $RATCHET_SCRATCH, default <tmpdir>/ratchet-scratch,
+// under none of the cache, repository, live clone or ledger; D-0017) holding only:
 //   core/ at the task's base commit (git archive from the live clone);
 //   packet/ TASK.md (TASK_TEXT), task.json, ATTEMPT.json ({attempt, server}, for tools/fire.mjs), and for an incident task incident.json, trace.json and the evidence
 //     files of evidence/incidents/<id>/ under packet/evidence/; roms.json, the ROM list tools/replay.mjs --family
@@ -8,7 +9,7 @@
 //   tools/replay.mjs and tools/fire.mjs, copied from the repository when present;
 //   .agents/skills/<SKL>/ for the shown skills, read-only, on the skill arms only (shown.ts SKILL_ARMS);
 //   .muse/hooks.json (hooksFor: entries on the skill arms, [] on baseline and vread-baseline);
-//   node_modules, a symlink to a read-only copy of the repository's (readOnlyModules);
+//   node_modules, a symlink to a read-only copy of the repository's under the scratch root (readOnlyModules);
 //   .git, a one-commit repository whose HEAD is the projection, so the gate diffs against it.
 // ROMs and the oracle cache sit outside the scratch repo at <attempt>.env/, holding read-only copies of the task's
 // ROMs and of the incident trace's oracle frames only; `env` carries RATCHET_ROMS and RATCHET_CACHE pointing there. `allowed(arm, path)` is the allowlist
@@ -18,7 +19,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeF
 import { createHash } from "node:crypto";
 import { basename, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { git, type LoopPaths } from "./paths.ts";
+import { git, scratchRoot, type LoopPaths } from "./paths.ts";
 import { hooksFor, listSkills, SKILL_ARMS, type ShownSkill } from "./shown.ts";
 import { romBySha } from "./roms.ts";
 import { workingTrace } from "./gate-repair.ts";
@@ -115,13 +116,14 @@ function makeReadOnly(p: string): void {
 }
 
 /**
- * A read-only copy of `nm` under $RATCHET_CACHE/node_modules-ro/<key>, made once per key (the lockfile's sha256 and
- * node_modules' mtime); pnpm's relative links are kept verbatim, so they resolve inside the copy.
+ * A read-only copy of `nm` under <scratch root>/node_modules-ro/<key>, made once per key (the lockfile's sha256 and
+ * node_modules' mtime); pnpm's relative links are kept verbatim, so they resolve inside the copy. It sits under the
+ * scratch root, not the cache, so `node_modules/..` from a scratch repo lands beside the scratch repos.
  */
 export function readOnlyModules(nm: string, paths: LoopPaths): string {
   const lock = join(paths.root, "pnpm-lock.yaml");
   const key = createHash("sha256").update(existsSync(lock) ? readFileSync(lock) : "").update(String(statSync(nm).mtimeMs)).digest("hex").slice(0, 16);
-  const out = join(paths.cache, "node_modules-ro", key);
+  const out = join(scratchRoot(paths), "node_modules-ro", key);
   if (existsSync(out)) return out;
   const tmp = `${out}.tmp-${process.pid}`;
   removeScratch(tmp);
@@ -141,8 +143,8 @@ export function removeScratch(dir: string): void {
 /** Materialises the scratch repo for `task` (see the file header) and returns its real file list. */
 export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
   const { paths } = ctx;
-  const dir = join(paths.cache, "scratch", ctx.attempt);
-  const envDir = join(paths.cache, "scratch", `${ctx.attempt}.env`);
+  const dir = join(scratchRoot(paths), ctx.attempt);
+  const envDir = join(scratchRoot(paths), `${ctx.attempt}.env`);
   removeScratch(dir);
   removeScratch(envDir);
   mkdirSync(dir, { recursive: true });

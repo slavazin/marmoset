@@ -8,7 +8,7 @@ import { runFastCycle, openIncidents } from "./fast.ts";
 import { fakeRunner, museArgs, usageFromEvents, repairEnv } from "./repair.ts";
 import { isolatedReplayer } from "./replay-seam.ts";
 import { current, read } from "./ledger.ts";
-import { steer, veto } from "./steer.ts";
+import { steer, veto, vetoRunCheck } from "./steer.ts";
 import { seedLive } from "./seed.ts";
 import { git } from "./paths.ts";
 import { admittedTraces, type SuitesJudge } from "./gate-repair.ts";
@@ -36,7 +36,7 @@ test("one fast cycle with the fake runner writes an attempt, a GRADUATE verdict 
   assert.match(git(bed.paths.live, ["log", "-1", "--format=%B", "core-live"]), /^Skills: SKL-0001$/m);
   // the runner ran in the scratch repo under the isolated HOME with ATTEMPT_ID and RATCHET_SERVER
   const call = runner.calls[0];
-  assert.equal(call.cwd, join(bed.paths.cache, "scratch", "ATT-0001"));
+  assert.equal(call.cwd, join(bed.paths.scratch!, "ATT-0001"));
   assert.equal(call.env.HOME, `${call.cwd}.home`);
   assert.equal(call.env.XDG_CONFIG_HOME, join(`${call.cwd}.home`, ".config"));
   assert.equal(call.env.ATTEMPT_ID, "ATT-0001");
@@ -71,7 +71,9 @@ test("a refused attempt on the MAX_ATTEMPTS-th try flips the incident to unrepai
 test("veto reverts a GRADUATE's merge in core-live and appends a steer naming the verdict", async () => {
   const bed = makeBed();
   const r = await runFastCycle("INC-0001", { paths: bed.paths, runner: fakeRunner((d) => setShade(d, FIX), RESULT), replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true });
-  const s = await veto(r.verdict.id, bed.paths);
+  assert.equal(r.verdict.run, null);
+  await assert.rejects(veto(r.verdict.id, bed.paths), /run null.*--prerun/);
+  const s = await veto(r.verdict.id, bed.paths, { prerun: true });
   assert.equal(s.vetoes, r.verdict.id);
   assert.equal(readFileSync(join(bed.paths.live, "core", "ppu.ts"), "utf8").includes("romByte === 2 ? 3"), true);
   assert.match(git(bed.paths.live, ["log", "-1", "--format=%s", "core-live"]), /^Revert/);
@@ -83,6 +85,16 @@ test("veto reverts a GRADUATE's merge in core-live and appends a steer naming th
   const plain = steer("prefer fetcher steps over delays", bed.paths);
   assert.equal(plain.id, "STR-0002");
   assert.equal(read("steers.jsonl", bed.paths.ledger).length, 2);
+});
+
+test("vetoRunCheck passes only an explicit non-null run match, or a run-null verdict with --prerun; an unset RATCHET_RUN never matches a run-bearing verdict", () => {
+  assert.equal(vetoRunCheck("RUN-0001", "RUN-0001", false), null);
+  assert.equal(vetoRunCheck(null, null, true), null);
+  assert.match(vetoRunCheck(null, null, false)!, /--prerun/);
+  assert.match(vetoRunCheck(null, "RUN-0001", false)!, /--prerun/);
+  assert.match(vetoRunCheck("RUN-0001", null, false)!, /RATCHET_RUN is unset/);
+  assert.match(vetoRunCheck("RUN-0001", null, true)!, /RATCHET_RUN is unset/);
+  assert.match(vetoRunCheck("RUN-0001", "RUN-0002", true)!, /not this run RUN-0002/);
 });
 
 test("seedLive fast-forwards core-live to main and refuses a diverged core-live", () => {

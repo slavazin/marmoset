@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, symlinkSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { current, read } from "./ledger.ts";
+import type { Verdict } from "../src/schema.ts";
 import { makeBed, makeDiff, setShade, attemptFor, FIX, BREAKS_ADMITTED, type Bed } from "./fixtures/harness.ts";
 import { gateAttempt, diffScope, longestLiteral, type SuitesJudge } from "./gate-repair.ts";
 import { isolatedReplayer } from "./replay-seam.ts";
@@ -142,5 +145,47 @@ test("a family or ROM the base reading has and the attempt's reading lacks is a 
     assert.equal(verdict.decision, "REFUSE", split);
     assert.equal(verdict.checks.at(-1)!.name, split === "base" ? "base-suites" : "H-no-regress");
   }
+});
+
+test("a throwing provenance writer after the merge still leaves one GRADUATE Verdict, with the error in a side_effect_error status record and in loop telemetry, and the later side effects run", async () => {
+  const bed = makeBed();
+  const tdir = mkdtempSync(join(tmpdir(), "ratchet-tel-"));
+  const prev = process.env.RATCHET_TELEMETRY_DIR;
+  process.env.RATCHET_TELEMETRY_DIR = tdir;
+  try {
+    const out = await gateAttempt({
+      attempt: attemptFor(bed), diff: makeDiff((d) => setShade(d, FIX)), incident: bed.incident, paths: bed.paths,
+      replayer: isolatedReplayer(bed.paths.root), suites: steadySuites, quiet: true,
+      effects: { provenance: async () => { throw new Error("provenance writer exploded"); } },
+    });
+    assert.equal(out.verdict.decision, "GRADUATE");
+    const recs = read("verdicts.jsonl", bed.paths.ledger);
+    assert.equal(recs.filter((r) => r.t !== "status").length, 1);
+    const v = current<Verdict & { side_effect_error?: { effect: string; error: string }[] }>("verdicts.jsonl", out.verdict.id, bed.paths.ledger)!;
+    assert.deepEqual(v.side_effect_error, [{ effect: "provenance", error: "provenance writer exploded" }]);
+    assert.deepEqual((out.verdict as typeof v).side_effect_error, v.side_effect_error);
+    assert.match(git(bed.paths.live, ["log", "-1", "--format=%s", "core-live"]), /^graduate ATT-0001/);
+    // the side effects before and after the throwing one ran
+    assert.ok(existsSync(join(bed.paths.traces, "TRC-0002.json")));
+    assert.match(out.bundle, /^skipped/);
+    const tel = readFileSync(join(tdir, "loop.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.deepEqual(tel.filter((r) => r.kind === "side_effect_error").map((r) => [r.data.verdict, r.data.effect]), [[out.verdict.id, "provenance"]]);
+  } finally {
+    if (prev === undefined) delete process.env.RATCHET_TELEMETRY_DIR; else process.env.RATCHET_TELEMETRY_DIR = prev;
+  }
+});
+
+test("a merge into core-live that throws writes a REFUSE Verdict naming the error and runs no side effect", async () => {
+  const bed = makeBed();
+  // a core-live commit touching ppu.ts after the attempt's base makes its merge conflict
+  const att = attemptFor(bed);
+  writeFileSync(join(bed.paths.live, "core", "ppu.ts"), "export function shadeFor(romByte: number): number {\n  return 0;\n}\n");
+  git(bed.paths.live, ["commit", "--quiet", "-am", "conflicting core-live change"]);
+  const before = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const { verdict } = await gateAttempt({ attempt: att, diff: makeDiff((d) => setShade(d, FIX)), incident: bed.incident, paths: bed.paths, replayer: isolatedReplayer(bed.paths.root), suites: steadySuites, quiet: true });
+  assert.equal(verdict.decision, "REFUSE");
+  assert.match(verdict.reason, /^merge into core-live failed/);
+  assert.equal(git(bed.paths.live, ["rev-parse", "core-live"]), before);
+  assert.deepEqual(readdirSync(bed.paths.traces), ["TRC-0001.json"]);
 });
 

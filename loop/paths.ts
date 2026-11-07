@@ -2,7 +2,7 @@
 // LoopPaths, so tests run the whole loop against temp directories and never touch the real live clone.
 
 import { resolve, join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
 export interface LoopPaths {
@@ -18,6 +18,23 @@ export interface LoopPaths {
   cache: string;
   roms: string;
   server: string;
+  /**
+   * Root of the scratch repos (loop/projection.ts repairPacket), from RATCHET_SCRATCH. A hand-built LoopPaths
+   * without it reads scratchRoot()'s fallback.
+   */
+  scratch?: string;
+}
+
+/**
+ * Default scratch root: <os.tmpdir()>/ratchet-scratch. It sits under none of the cache, the repository, the live
+ * clone or the ledger, so a `../` hop from a scratch repo lands in none of them (SPEC G7; D-0017;
+ * held by projection.test.ts "no relative hop" for the paths the test bed builds).
+ */
+export const DEFAULT_SCRATCH = join(tmpdir(), "ratchet-scratch");
+
+/** The scratch root of `paths`: its `scratch` field, else RATCHET_SCRATCH, else DEFAULT_SCRATCH. */
+export function scratchRoot(paths: LoopPaths, env = process.env): string {
+  return resolve(paths.scratch ?? expandHome(env.RATCHET_SCRATCH ?? DEFAULT_SCRATCH));
 }
 
 function expandHome(p: string): string {
@@ -26,7 +43,7 @@ function expandHome(p: string): string {
 
 const ROOT = resolve(import.meta.dirname, "..");
 
-/** Paths from RATCHET_LEDGER, RATCHET_LIVE (default ../ratchet-live), RATCHET_CACHE, RATCHET_ROMS, RATCHET_SERVER. */
+/** Paths from RATCHET_LEDGER, RATCHET_LIVE (default ../ratchet-live), RATCHET_CACHE, RATCHET_ROMS, RATCHET_SERVER, RATCHET_SCRATCH. */
 export function pathsFromEnv(env = process.env, root = ROOT): LoopPaths {
   return {
     root,
@@ -38,6 +55,7 @@ export function pathsFromEnv(env = process.env, root = ROOT): LoopPaths {
     cache: resolve(expandHome(env.RATCHET_CACHE ?? "~/.cache/ratchet")),
     roms: resolve(expandHome(env.RATCHET_ROMS ?? "~/.cache/ratchet/roms")),
     server: env.RATCHET_SERVER ?? "http://localhost:8787",
+    scratch: resolve(expandHome(env.RATCHET_SCRATCH ?? DEFAULT_SCRATCH)),
   };
 }
 

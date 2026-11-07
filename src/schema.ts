@@ -121,7 +121,7 @@ export interface SpendRecord {
 // §6.8 Readings and verdicts
 export type Split = "base" | "T" | "H" | "V";
 export interface SuiteReading { split: Split; family: string; roms: number; pass: number; exact: number; pixel_match: number /* mean, 0..1 */ }
-export type CheckName = "diff-scope" | "repro" | "admitted-traces" | "base-suites" | "H-no-regress" | "trial-margin";
+export type CheckName = "diff-scope" | "repro" | "admitted-traces" | "base-suites" | "H-no-regress" | "trial-margin" | "merge";
 export interface Verdict {
   id: string; at: string; run: string | null;
   subject: { kind: "attempt" | "skill"; id: string };
