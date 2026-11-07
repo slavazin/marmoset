@@ -10,8 +10,8 @@
     "suites": "node suites/run.ts",
     "oracle:smoke": "node oracle/smoke.ts",
     "game:build": "node -e \"console.error('not built: S4');process.exit(1)\"",
-    "lockstep": "node -e \"console.error('not built: S5');process.exit(1)\"",
-    "replay": "node -e \"console.error('not built: S5');process.exit(1)\"",
+    "lockstep": "node lockstep/run.ts",
+    "replay": "node tools/replay.mjs",
     "dev": "node -e \"console.error('not built: S6');process.exit(1)\"",
     "play": "node -e \"console.error('not built: S7');process.exit(1)\"",
     "loop:once": "node -e \"console.error('not built: S8');process.exit(1)\"",
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "esbuild": "0.24.2",
     "typescript": "^5.7.0"
   },
   "dependencies": {
