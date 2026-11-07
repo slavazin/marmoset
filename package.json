@@ -1,0 +1,27 @@
+{
+  "name": "ratchet",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test \"**/*.test.ts\"",
+    "roms:fetch": "node scripts/roms-fetch.ts",
+    "core:bundle": "node -e \"console.error('not built: S1');process.exit(1)\"",
+    "suites": "node -e \"console.error('not built: S2');process.exit(1)\"",
+    "oracle:smoke": "node -e \"console.error('not built: S3');process.exit(1)\"",
+    "game:build": "node -e \"console.error('not built: S4');process.exit(1)\"",
+    "lockstep": "node -e \"console.error('not built: S5');process.exit(1)\"",
+    "replay": "node -e \"console.error('not built: S5');process.exit(1)\"",
+    "dev": "node -e \"console.error('not built: S6');process.exit(1)\"",
+    "play": "node -e \"console.error('not built: S7');process.exit(1)\"",
+    "loop:once": "node -e \"console.error('not built: S8');process.exit(1)\"",
+    "steer": "node -e \"console.error('not built: S8');process.exit(1)\"",
+    "veto": "node -e \"console.error('not built: S8');process.exit(1)\"",
+    "campaign": "node -e \"console.error('not built: S10');process.exit(1)\"",
+    "vread": "node -e \"console.error('not built: S10');process.exit(1)\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

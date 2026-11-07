@@ -73,3 +73,11 @@ temp/
 
 # --- Claude Code (local settings only) ---
 .claude/settings.local.json
+
+
+
+# -- meta ---
+SPEC.md
+WORKFLOW.md
+GCE-DOCTRINE.md
+
