@@ -127,6 +127,7 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
       }
       if (req.method === "GET" && path === "/api/state") { bus.poll(); return send(res, 200, bus.state()); }
       if (req.method === "GET" && path === "/api/trace") return send(res, 200, trace.trace);
+      if (req.method === "GET" && path === "/api/history") return send(res, 200, await (await import("./history.ts")).historyFor(opts));
       if (req.method === "POST" && path === "/api/trace/reset") {
         const b = (await readBody(req)) as { rom_sha?: unknown };
         if (typeof b?.rom_sha !== "string") return send(res, 400, { error: "rom_sha" });
