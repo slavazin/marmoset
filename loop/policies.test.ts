@@ -14,8 +14,11 @@ import { all, appendNew, status } from "./ledger.ts";
 import { allowed } from "./projection.ts";
 import { consolidatorView } from "./consolidate.ts";
 import { TRIAL_FAMILIES } from "./gate.ts";
-import { applyPolicies, parsePolicy, parsePolicyNomination, policyText, POLICY_MENU, setRouteSkills, SUBSYSTEM_GLOBS, TOOL_HINTS, makePolicyPlacebo, policiesDir, policiesInForce } from "./policies.ts";
+import { applyPolicies, parsePolicy, parsePolicyNomination, policyText, POLICY_MENU, setRouteSkills, SUBSYSTEM_REGIONS, TOOL_HINTS, makePolicyPlacebo, policiesDir, policiesInForce } from "./policies.ts";
 import { SUBSYSTEMS } from "../player/vision.ts";
+import { HANDLERS } from "../core/index.ts";
+import { HANDLER_SUBSYSTEM } from "./route.ts";
+import { setSubqClient, type SubqClient, type SubqRequest } from "./subq.ts";
 import type { SuitesJudge } from "./gate-repair.ts";
 import type { TrialJudge } from "./trial.ts";
 import type { Attempt, RepairTask, SuiteReading, Verdict } from "../src/schema.ts";
@@ -144,8 +147,12 @@ test("a policy trial's candidate and placebo arms get the same packet/task.json 
   }
 });
 
-test("the routing twin keeps the same glob count per subsystem and routes every subsystem elsewhere; SUBSYSTEM_GLOBS covers every S13 subsystem but other", () => {
-  assert.deepEqual(Object.keys(SUBSYSTEM_GLOBS).sort(), SUBSYSTEMS.filter((s) => s !== "other").sort());
+test("the routing twin keeps the same region count per subsystem and routes every subsystem elsewhere; SUBSYSTEM_REGIONS covers every S13 subsystem but other with one HANDLERS entry of that subsystem each", () => {
+  assert.deepEqual(Object.keys(SUBSYSTEM_REGIONS).sort(), SUBSYSTEMS.filter((s) => s !== "other").sort());
+  for (const [sub, regions] of Object.entries(SUBSYSTEM_REGIONS)) {
+    assert.equal(regions.length, 1, sub);
+    for (const h of regions) { assert.ok(h in HANDLERS, `${sub}: ${h} is a HANDLERS key`); assert.equal(HANDLER_SUBSYSTEM[h], sub, `${sub}: ${h}`); }
+  }
   const bed = makeBed();
   const dir = policiesDir(bed.paths);
   const fm = { id: "POL-0001", name: "route-by-spot-subsystem", kind: "routing" as const, status: "shadow" as const, change: POLICY_MENU["route-by-spot-subsystem"].change,
@@ -227,11 +234,11 @@ function graduatePolicy(bed: Bed, template: string, params: Record<string, unkno
 
 const TEMPLATES = [["route-by-spot-subsystem", { route: "spot-subsystem" }], ["tool-hint", { hint: TOOL_HINTS[1] }], ["packet-subsystem-focus", { files: "subsystem-pointed" }], ["route-by-subq-applies", { route: "subq-applies" }]] as const;
 
-test("a packet policy's twin names a packet/focus.json file set of the same size as the candidate's, and a different set where the candidate's is not empty (D-0020 size-matched)", async () => {
+test("a packet policy's twin names a packet/focus.json handler set of the same size as the candidate's, and a different set where the candidate's is not empty (D-0020 size-matched)", async () => {
   const bed = bedWithSkills();
   const seen: { task: RepairTask; focus: string[] | null }[] = [];
   const runner = policyRunner((r) => seen.push({ task: JSON.parse(readFileSync(join(r.cwd, "packet", "task.json"), "utf8")),
-    focus: existsSync(join(r.cwd, "packet", "focus.json")) ? JSON.parse(readFileSync(join(r.cwd, "packet", "focus.json"), "utf8")).files : null }));
+    focus: existsSync(join(r.cwd, "packet", "focus.json")) ? JSON.parse(readFileSync(join(r.cwd, "packet", "focus.json"), "utf8")).handlers : null }));
   await runGeneration({ paths: bed.paths, runner, judge: policyJudge("none"), run: RUN, runsDir: join(bed.paths.root, "runs"),
     llm: fakeLlm(policyReply("packet-subsystem-focus", { files: "subsystem-pointed" })), familyRoms: () => [], tReader: async () => [] });
   let nonEmpty = 0;
@@ -241,7 +248,7 @@ test("a packet policy's twin names a packet/focus.json file set of the same size
     assert.equal(p.length, c.length, `${f}: focus sizes ${c.length} vs ${p.length}`);
     if (c.length) { nonEmpty++; assert.notDeepEqual(p, c, `${f}: the twin names the candidate's own files`); }
   }
-  assert.ok(nonEmpty >= 1, "a trial family points the candidate at a fixture core file");
+  assert.ok(nonEmpty >= 1, "a trial family points the candidate at a handler in a fixture core file");
 });
 
 test("a SubQ routing policy and its twin carry params.order in the same opaque form; the candidate still shows SubQ's pick", () => {
@@ -307,4 +314,64 @@ test("a baseline or vread-baseline task naming a policy gets no policy effect: n
       assert.deepEqual([e.policies, e.taskLines, e.packetFiles, e.route(["SKL-0001", "SKL-0002"])], [[], [], {}, ["SKL-0001", "SKL-0002"]], `${template} ${arm}`);
     }
   }
+});
+
+/** A fake SubQ client: applies:<id> answers 0.9 for the ids in `yes`, 0.1 otherwise; choice questions favour ppu_fetcher. */
+function fakeSubq(yes: string[], calls: SubqRequest[]): SubqClient {
+  return async (req) => {
+    calls.push(req);
+    const answers: Record<string, any> = {};
+    for (const [k, q] of Object.entries(req.questions)) {
+      if (q.type === "noul") answers[k] = { type: "noul", noul: yes.some((id) => k === `applies:${id}`) ? 0.9 : 0.1 };
+      else if (q.type === "choice") answers[k] = { type: "choice", choice: "ppu_fetcher", probabilities: { ppu_fetcher: 0.6, stat_irq: 0.1, oam_dma: 0.1, window: 0.1, timer: 0.05, other: 0.05 }, confidence: 0.6 };
+      else answers[k] = { type: "score", score: 1, legend: {}, probabilities: { 0: 0.3, 1: 0.4, 2: 0.3 }, confidence: 0.4 };
+    }
+    return { status: 200, wall_ms: 3, body: { model: "subq-snap-1.1", answers, usage: { input_tokens: 100, output_tokens: 0 } } };
+  };
+}
+
+test("S15-R3: a SubQ routing policy trial routes each family task through SubQ once per family; the candidate arm shows SubQ's pick and the placebo arm a seeded pick of the same size that differs on some family", async () => {
+  const bed = bedWithSkills();
+  gradSkill(bed, "SKL-0003", "core/index.ts");
+  gradSkill(bed, "SKL-0004", "core/mbc1.ts");
+  const calls: SubqRequest[] = [];
+  const prev = setSubqClient(fakeSubq(["SKL-0001"], calls));
+  try {
+    await runGeneration({ paths: bed.paths, runner: policyRunner(), judge: policyJudge("none"), run: RUN, runsDir: join(bed.paths.root, "runs"),
+      llm: fakeLlm(policyReply("route-by-subq-applies", { route: "subq-applies" })), familyRoms: () => [], tReader: async () => [] });
+  } finally { setSubqClient(prev); }
+  const famCalls = calls.filter((c) => (c.state as { task?: { kind?: string } }).task?.kind === "family");
+  assert.deepEqual(famCalls.map((c) => (c.state as { task: { family: string } }).task.family).sort(), [...TRIAL_FAMILIES].sort(), "one SubQ call per trial family");
+  const atts = all<Attempt>("attempts.jsonl", bed.paths.ledger).filter((a) => a.task.kind === "family" && a.task.policies?.length);
+  let differ = 0;
+  for (const f of TRIAL_FAMILIES) {
+    const cand = atts.find((a) => a.task.family === f && a.task.arm === "candidate")!.task.skills;
+    const plac = atts.find((a) => a.task.family === f && a.task.arm === "placebo")!.task.skills;
+    assert.deepEqual(cand, ["SKL-0001"], `${f}: the candidate shows SubQ's pick`);
+    assert.equal(plac.length, cand.length, `${f}: the placebo pick is size-matched`);
+    if (JSON.stringify(plac) !== JSON.stringify(cand)) differ++;
+  }
+  assert.ok(differ >= 1, "the arms differ on at least one family");
+  const base = all<Attempt>("attempts.jsonl", bed.paths.ledger).filter((a) => a.task.arm === "baseline");
+  assert.ok(base.length && base.every((a) => a.task.skills.length === 0), "the baseline arm is never routed");
+});
+
+test("S15-R4: a packet focus policy narrows the real core to one handler region for every subsystem, not only ppu_fetcher; a routing policy keeps the skills on that region's file", () => {
+  const bed = makeBed();
+  graduatePolicy(bed, "packet-subsystem-focus", { files: "subsystem-pointed" });
+  const core = [...new Set(Object.values(HANDLERS))].sort();
+  assert.ok(core.length > 1, "the real core spans several files");
+  const task: RepairTask = { kind: "incident", incident: "INC-0001", base_commit: "x", arm: "fast", skills: [], policies: ["POL-0001"], budget: { max_steps: 1, wall_s: 1 } };
+  for (const [sub, [handler]] of Object.entries(SUBSYSTEM_REGIONS)) {
+    const incident = { ...bed.incident, spot: { spot: "SPT-0001", subsystem: sub, bbox: null, confidence: 0.8 } };
+    const e = applyPolicies(task, { paths: bed.paths, incident, coreFiles: core, site: "packet" });
+    const focus = JSON.parse(e.packetFiles["focus.json"]);
+    assert.deepEqual(focus, { handlers: [handler], files: [HANDLERS[handler]] }, sub);
+    assert.ok(focus.files.length < core.length, `${sub}: focus narrows`);
+  }
+  rmSync(policiesDir(bed.paths), { recursive: true, force: true });
+  graduatePolicy(bed, "route-by-spot-subsystem", { route: "spot-subsystem" });
+  const skills = [{ id: "SKL-0001", dir: "", paths: ["core/ppu.ts"], owed: "" }, { id: "SKL-0002", dir: "", paths: ["core/index.ts"], owed: "" }];
+  const incident = { ...bed.incident, spot: { spot: "SPT-0001", subsystem: "stat_irq", bbox: null, confidence: 0.8 } };
+  assert.deepEqual(applyPolicies(task, { paths: bed.paths, incident, skills, site: "shown" }).route(["SKL-0001", "SKL-0002"]), ["SKL-0002"]);
 });

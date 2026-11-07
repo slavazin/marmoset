@@ -1,0 +1,3 @@
+INC-0003: 4 questions + 2 planted in 1 call(s) (0 served from cache), 3 images, 2603 input tokens, $0.000104, 590 ms
+  subsystem {"ppu_fetcher":0.177,"stat_irq":0.061,"oam_dma":0.454,"window":0.139,"timer":0.082,"other":0.087} mid_line {"yes":0.15} severity {"0":0.465,"1":0.526,"2":0.009,"score":0.544}
+  sensor {"top_p":0.454,"p_other":0.087,"abstain":0,"decoy_yes":0.005,"decoy_rejected":1,"twin_agree":0,"twin_dp":0.228} nominates "oam_dma"

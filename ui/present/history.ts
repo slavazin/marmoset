@@ -8,6 +8,7 @@
 import type { History } from "../../server/history.ts";
 import { esc, fmtReading, decidingCheck, shortSha } from "../format.ts";
 import { fmtUsd, fmtRatio, fmtAt } from "./units.ts";
+import { routerBlock } from "./reliability.ts";
 
 interface Row { at: string; kind: string; id: string; html: string; cls: string; run?: string | null }
 
@@ -100,6 +101,7 @@ export function historyTab(h: History | null, error?: string): string {
 <h2>V read</h2>${vread(h)}
 <h2>core-live commits</h2><div class="scrollbox">${commits(h)}</div>
 <h2>Gemini sensor</h2>${spots(h)}
+<h2>SubQ router</h2>${routerBlock(h)}
 <h2>Spend</h2>${spend(h)}
 <h2>Decisions</h2><div class="scrollbox">${decisions(h)}</div>
 <h2>Cold-read findings</h2><div class="scrollbox">${findings(h)}</div>

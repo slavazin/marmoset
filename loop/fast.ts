@@ -3,7 +3,8 @@
 // runs the repairer (loop/repair.ts), gates the diff (loop/gate-repair.ts), flips the incident's status
 // (GRADUATE → repaired; REFUSE on the MAX_ATTEMPTS-th attempt → unrepaired), and writes one Observation for the
 // arm "fast" attempt. It reads skills and policies and never writes them; every graduated policy is named in
-// task.policies (loop/policies.ts policiesInForce) and its routing picks the shown skills (selectShown).
+// task.policies (loop/policies.ts policiesInForce) and its routing picks the shown skills (selectShown). The SubQ
+// forecasts (loop/sensors.ts senseAttempt) are asked where the attempt starts and ends; nothing here reads them.
 
 import { MAX_ATTEMPTS, MAX_SHOWN, MAX_STEPS } from "./gate.ts";
 import { policiesInForce } from "./policies.ts";
@@ -13,6 +14,7 @@ import { repairPacket } from "./projection.ts";
 import { runRepair, type MuseRunner } from "./repair.ts";
 import { gateAttempt, type GateOutput, type SuitesJudge } from "./gate-repair.ts";
 import { listSkills, selectShown } from "./shown.ts";
+import { senseAttempt } from "./sensors.ts";
 import type { Replayer } from "./replay-seam.ts";
 import { tlog } from "../src/telemetry.ts";
 import { join } from "node:path";
@@ -67,6 +69,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   const id = start.id;
   tlog("loop", "attempt-start", { attempt: id, incident: incidentId, base_commit: base, skills: shownIds, policies: task.policies });
   const S = (field: string, value: unknown) => status("attempts.jsonl", id, field, value, paths.ledger);
+  const sensing = senseAttempt({ paths, attempt: id, incident: inc, task }); // S17b forecasts: never read by the loop
 
   const splits = loadSplits();
   const tFamilies = Object.fromEntries(familiesIn(splits, "T").map((f) => [f, familyRoms(splits, f, paths.roms).map((r) => join(paths.roms, r))]));
@@ -95,6 +98,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   tlog("loop", "attempt-end", { attempt: id, verdict: gate.verdict.id, decision: gate.verdict.decision, model: rep.model, spent: rep.spent, exit: rep.exitCode, summary: rep.result?.summary ?? null, ms });
   if (gate.verdict.decision === "GRADUATE") status("incidents.jsonl", incidentId, "status", "repaired", paths.ledger);
   else if (prior + 1 >= MAX_ATTEMPTS) status("incidents.jsonl", incidentId, "status", "unrepaired", paths.ledger);
+  await sensing.after({ diff: rep.diff });
 
   const observation = appendNew<Observation>("observations.jsonl", "OBS", (oid) => ({
     id: oid, at: new Date().toISOString(), run: runId(), anchor: { incident: incidentId, attempt: id, counter: inc.counter },

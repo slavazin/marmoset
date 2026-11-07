@@ -1,0 +1,26 @@
+S17b readout: one live SubQ route of INC-0003 (prerun), then the same route in RATCHET_SUBQ_REPLAY=1 mode.
+
+Measured 2026-11-07 (cache entry `at` 2026-11-07T21:08:59.614Z), model requested subq-snap-1.1, echoed subq-snap-1.1.
+Ledger: a scratch copy of the main checkout's ledger/*.jsonl (RATCHET_LEDGER), so ledger/incidents.jsonl took no
+route record. Evidence: the main checkout's evidence/incidents/INC-0003 (RATCHET_ROOT). Skills: none graduated or
+shadow, so the call held 4 questions (subsystem, mid_line, severity, same_shape_as:OBS-0001) plus the planted pair.
+
+Command (live):   RATCHET_LEDGER=<copy> RATCHET_ROOT=<main checkout> node loop/route.ts INC-0003
+Output:           inc-0003-live.txt
+Command (replay): RATCHET_SUBQ_REPLAY=1 RATCHET_LEDGER=<copy> RATCHET_ROOT=<main checkout> node loop/route.ts INC-0003
+Output:           inc-0003-replay.txt ("1 served from cache", $0.000000, no spend record, same answers)
+Replay miss:      RATCHET_SUBQ_REPLAY=1 RATCHET_SUBQ_CACHE=<empty dir> ... threw SubqReplayMiss "SubQ replay: no
+                  cached answer for state 52227b39b0b82a4e questions fb84f5e30c04c01f under <empty dir>; no live call made"
+Cache entry:      subq-cache-INC-0003.json, a copy of runs/prerun/subq-cache/subq-snap-1.1/52227b39b0b82a4e-fb84f5e30c04c01f.json
+                  (questions sent and the raw response; the state is keyed by sha, not stored)
+
+Readings, copied from inc-0003-live.txt and the cache entry:
+  latency 590 ms for 1 call; 2603 input tokens; $0.000104 (output free)
+  subsystem: oam_dma 0.454 top, ppu_fetcher 0.177, window 0.139, other 0.087 -> top-p 0.454, p(other) 0.087
+  abstain 0 (0.454 >= ROUTE_ABSTAIN_P 0.35, other not top); the route nominates oam_dma
+  decoy applies:SKL-0002 (DECOY_POOL: channel 1 frequency sweep, core/index.ts): p 0.005 -> rejected
+  twin emulator_part: stat_irq 0.254 top, oam_dma 0.226 -> twin_agree 0, twin_dp 0.228 (|0.454 - 0.226|)
+  question order sent: subsystem, applies:SKL-0002, emulator_part, mid_line, severity, same_shape_as:OBS-0001
+
+Not read here: whether oam_dma is the right subsystem for INC-0003; no graduated repair of INC-0003 exists in the
+ledger, so routeCalibration scores this route on no row.

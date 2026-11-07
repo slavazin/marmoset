@@ -41,6 +41,17 @@ export const LABEL_DX_PX = 5;
 export const LABEL_DY_PX = 4;
 export const ORIGIN_PX = 0;
 
+/** The History tab's reliability plot (ui/present/reliability.ts): its square side, inner margin and point radius. */
+export const REL_SIDE_PX = 180;
+export const REL_PAD_PX = 24;
+export const REL_DOT_PX = 4;
+/** A probability in [0, 1] as the plot's x (left to right) and y (bottom to top). */
+export const relX = (p: number): number => REL_PAD_PX + p * (REL_SIDE_PX - REL_PAD_PX * 2);
+export const relY = (p: number): number => REL_SIDE_PX - REL_PAD_PX - p * (REL_SIDE_PX - REL_PAD_PX * 2);
+/** Where an axis label sits: below the x axis, left of the y axis. */
+export const relBelow = (): number => REL_SIDE_PX - REL_PAD_PX / 2 + HEAD_PX;
+export const relLeft = (): number => REL_PAD_PX / 2;
+
 /** Height of a box that lists `lines` lines below its title (none when omitted). */
 export const boxH = (lines?: number): number => BOX_H_PX + (lines ?? 0) * LINE_PX;
 /** Per row, the most lines any box in that row lists. */
