@@ -177,15 +177,69 @@ test("a throwing provenance writer after the merge still leaves one GRADUATE Ver
 
 test("a merge into core-live that throws writes a REFUSE Verdict naming the error and runs no side effect", async () => {
   const bed = makeBed();
-  // a core-live commit touching ppu.ts after the attempt's base makes its merge conflict
+  // an uncommitted edit to ppu.ts in the live clone's working tree makes the merge throw; core-live's head does not move
   const att = attemptFor(bed);
   writeFileSync(join(bed.paths.live, "core", "ppu.ts"), "export function shadeFor(romByte: number): number {\n  return 0;\n}\n");
-  git(bed.paths.live, ["commit", "--quiet", "-am", "conflicting core-live change"]);
   const before = git(bed.paths.live, ["rev-parse", "core-live"]);
   const { verdict } = await gateAttempt({ attempt: att, diff: makeDiff((d) => setShade(d, FIX)), incident: bed.incident, paths: bed.paths, replayer: isolatedReplayer(bed.paths.root), suites: steadySuites, quiet: true });
   assert.equal(verdict.decision, "REFUSE");
   assert.match(verdict.reason, /^merge into core-live failed/);
   assert.equal(git(bed.paths.live, ["rev-parse", "core-live"]), before);
   assert.deepEqual(readdirSync(bed.paths.traces), ["TRC-0001.json"]);
+});
+
+type Seen = { dir: string; split: string; a: boolean; b: boolean };
+/** Suites that record, per score call, which marker files (core/a.ts, core/b.ts) the scored core holds. */
+function markerSuites(seen: Seen[]): SuitesJudge {
+  return { async score(dir, split) { seen.push({ dir, split, a: existsSync(join(dir, "a.ts")), b: existsSync(join(dir, "b.ts")) }); return steadySuites.score(dir, split); } };
+}
+
+test("two attempts from one base: the second's checks run on core-live's merged head with its diff rebased onto it, and its base readings are the merged head's", async () => {
+  const bed = makeBed();
+  // both attempts take their task while core-live is at one commit, as CAMPAIGN_PARALLEL attempts do
+  const a = attemptFor(bed, "ATT-0001"), b = attemptFor(bed, "ATT-0002");
+  assert.equal(a.task.base_commit, b.task.base_commit);
+  const seenA: Seen[] = [], seenB: Seen[] = [];
+  const gate = (att: typeof a, diff: string, seen: Seen[]) => gateAttempt({ attempt: att, diff, incident: bed.incident, paths: bed.paths, replayer: isolatedReplayer(bed.paths.root), suites: markerSuites(seen), quiet: true });
+  const outA = await gate(a, makeDiff((d) => { setShade(d, FIX); writeFileSync(join(d, "core", "a.ts"), "export const A = 1;\n"); }), seenA);
+  assert.equal(outA.verdict.decision, "GRADUATE", outA.verdict.reason);
+  const merged = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const outB = await gate(b, makeDiff((d) => { setShade(d, FIX); writeFileSync(join(d, "core", "b.ts"), "export const B = 1;\n"); }), seenB);
+  assert.equal(outB.verdict.decision, "GRADUATE", outB.verdict.reason);
+  assert.deepEqual((outB.verdict.checks[0].reading as { base_moved?: unknown }).base_moved, { from: b.task.base_commit, onto: merged });
+  // the candidate B's base-suites and H-no-regress score holds A's merged change and B's own
+  assert.deepEqual(seenB.filter((s) => !s.dir.endsWith(".base/core")).map((s) => [s.split, s.a, s.b]), [["base", true, true], ["H", true, true]]);
+  // B's base reading is the merged head's (a.ts, no b.ts), not its stale base's
+  assert.deepEqual(seenB.filter((s) => s.dir.endsWith(".base/core")).map((s) => [s.split, s.a, s.b]), [["base", true, false], ["H", true, false]]);
+  assert.ok(existsSync(join(bed.paths.live, "core", "a.ts")) && existsSync(join(bed.paths.live, "core", "b.ts")));
+});
+
+test("an attempt whose diff conflicts with a core-live commit made after its base is REFUSED at merge, naming the moved base, before any later check runs", async () => {
+  const bed = makeBed();
+  const att = attemptFor(bed);
+  writeFileSync(join(bed.paths.live, "core", "ppu.ts"), "export function shadeFor(romByte: number): number {\n  return 0;\n}\n");
+  git(bed.paths.live, ["commit", "--quiet", "-am", "conflicting core-live change"]);
+  const moved = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const { verdict } = await gateAttempt({ attempt: att, diff: makeDiff((d) => setShade(d, FIX)), incident: bed.incident, paths: bed.paths, replayer: isolatedReplayer(bed.paths.root), suites: steadySuites, quiet: true });
+  assert.equal(verdict.decision, "REFUSE");
+  assert.deepEqual(verdict.checks.map((c) => [c.name, c.pass]), [["diff-scope", true], ["merge", false]]);
+  assert.deepEqual((verdict.checks[1].reading as { base_moved: unknown }).base_moved, { from: att.task.base_commit, onto: moved });
+  assert.match(verdict.reason, /^merge failed: .*base_moved/);
+  assert.equal(git(bed.paths.live, ["rev-parse", "core-live"]), moved);
+  assert.deepEqual(readdirSync(bed.paths.traces), ["TRC-0001.json"]);
+});
+
+test("an attempt whose change core-live already holds after its base moved is REFUSED at merge as empty", async () => {
+  const bed = makeBed();
+  const a = attemptFor(bed, "ATT-0001"), b = attemptFor(bed, "ATT-0002");
+  const diff = makeDiff((d) => setShade(d, FIX));
+  const gate = (att: typeof a) => gateAttempt({ attempt: att, diff, incident: bed.incident, paths: bed.paths, replayer: isolatedReplayer(bed.paths.root), suites: steadySuites, quiet: true });
+  assert.equal((await gate(a)).verdict.decision, "GRADUATE");
+  const merged = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const vb = (await gate(b)).verdict;
+  assert.equal(vb.decision, "REFUSE");
+  assert.deepEqual(vb.checks.map((c) => [c.name, c.pass]), [["diff-scope", true], ["merge", false]]);
+  assert.match(JSON.stringify(vb.checks[1].reading), /empty/);
+  assert.equal(git(bed.paths.live, ["rev-parse", "core-live"]), merged);
 });
 

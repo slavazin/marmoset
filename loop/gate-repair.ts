@@ -2,8 +2,11 @@
 // `gateAttempt(input)` takes the scratch diff, refuses it at diff-scope when it touches a path outside core/**,
 // adds a literal over LITERAL_LIMIT bytes, or contains the incident's frame hash or trace bytes, or when what git
 // staged from it (read from the index, not the diff text) holds a non-core path, a symlink or a binary file; otherwise
-// it applies the diff on branch attempt/<ATT> in the live clone and runs, cheapest first and stopping at the first
-// failure: repro, admitted-traces, base-suites, H-no-regress. The judging code is this process's (main's loop/
+// it applies the diff on branch attempt/<ATT> in the live clone. When core-live moved past task.base_commit (a
+// parallel attempt graduated first), it rebases that commit onto core-live's head and judges the rebased candidate
+// against the head; a rebase that conflicts or leaves nothing is a REFUSE at "merge" naming base_moved {from, onto}
+// (gate.test.ts "two attempts from one base"). It then runs, cheapest first and stopping at the first failure:
+// repro, admitted-traces, base-suites, H-no-regress. The judging code is this process's (main's loop/
 // and suites/); only core/ comes from the branch. It appends one Verdict to ledger/verdicts.jsonl.
 // GRADUATE merges the branch into core-live with trailers "Attempt: ATT-…" and "Skills: SKL-…"; a merge that throws
 // turns the verdict into a REFUSE naming the error. The Verdict is appended next, before any side effect. The
@@ -293,6 +296,23 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
     }
   }
 
+  // G4 under parallel attempts: when core-live moved past the attempt's base, the candidate is the attempt's commit
+  // rebased onto core-live's head, and every later check (and its base reading) reads that head, not the stale base
+  let judgedBase = attempt.task.base_commit;
+  const liveHead = git(paths.live, ["rev-parse", LIVE_BRANCH]);
+  if (scope.pass && head && liveHead !== attempt.task.base_commit) {
+    const base_moved = { from: attempt.task.base_commit, onto: liveHead };
+    try {
+      git(wt, ["rebase", "--quiet", liveHead]);
+      head = git(wt, ["rev-parse", "HEAD"]);
+      if (head === liveHead) checks.push({ name: "merge", pass: false, reading: { base_moved, error: "empty after rebase: core-live already holds the change" } });
+      else { judgedBase = liveHead; (scope.reading as Record<string, unknown>).base_moved = base_moved; }
+    } catch (e) {
+      try { git(wt, ["rebase", "--abort"]); } catch { /* no rebase in progress */ }
+      checks.push({ name: "merge", pass: false, reading: { base_moved, error: `rebase onto ${LIVE_BRANCH} failed: ${errText(e)}` } });
+    }
+  }
+
   const run = async (name: CheckName, fn: () => Promise<{ pass: boolean; reading: unknown }>) => {
     if (checks.some((c) => !c.pass)) return;
     tlog("loop", "gate-check-start", { attempt: attempt.id, name });
@@ -304,7 +324,7 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
     checks.push({ name, ...r });
   };
   const coreDir = join(wt, "core");
-  const baseDir = (): string => archiveCore(paths.live, attempt.task.base_commit, join(paths.cache, "gate", `${attempt.id}.base`));
+  const baseDir = (): string => archiveCore(paths.live, judgedBase, join(paths.cache, "gate", `${attempt.id}.base`));
   const romDirs = [paths.roms, join(paths.root, "game")];
 
   await run("repro", async () => {
@@ -325,14 +345,14 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   let baseDirCached: string | undefined;
   const bd = () => (baseDirCached ??= baseDir());
   await run("base-suites", async () => {
-    const before = await baseReadings(g.suites, paths, attempt.task.base_commit, bd(), "base");
+    const before = await baseReadings(g.suites, paths, judgedBase, bd(), "base");
     const after = await g.suites.score(coreDir, "base");
     const regressed = after.readings.filter((a) => { const b = before.readings.find((x) => x.family === a.family); return b && (a.pass < b.pass || a.pixel_match < b.pixel_match - 1e-9); }).map((a) => a.family)
       .concat(missingFamilies(before.readings, after.readings));
     return { pass: regressed.length === 0, reading: { families: after.readings.length, pass: after.readings.reduce((s, r) => s + r.pass, 0), roms: after.readings.reduce((s, r) => s + r.roms, 0), regressed } };
   });
   await run("H-no-regress", async () => {
-    const before = await baseReadings(g.suites, paths, attempt.task.base_commit, bd(), "H");
+    const before = await baseReadings(g.suites, paths, judgedBase, bd(), "H");
     const after = await g.suites.score(coreDir, "H");
     const drops: Record<string, number> = {};
     for (const a of after.readings) { const b = before.readings.find((x) => x.family === a.family); if (b && b.pixel_match - a.pixel_match > H_TOLERANCE) drops[a.family] = +(b.pixel_match - a.pixel_match).toFixed(5); }
