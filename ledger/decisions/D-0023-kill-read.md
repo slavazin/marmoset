@@ -1,7 +1,7 @@
 ---
-id: D-draft-kill-read
+id: D-0023
 title: The S1 kill read leaves room; the headline stays improvement on held-out hardware behaviour, not cost to pass
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:** the improvement room D-0002 (track and task) names stands: with test access, `muse-spark-1.3` reaches exact on 0 of 9 T tests of `mealybug:palette-scroll-bg` in 15 minutes of model wall time, below the threshold of 7 (SPEC §5 S1, "Kill read"). The headline stays as SPEC §3 states it; the cost-to-pass headline is not taken.
