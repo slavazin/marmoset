@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dryDeps, openRun, pickIncident, readCampaign, runCampaign, type CampaignDeps } from "./campaign.ts";
 import { makeBed, writeSkill, type Bed } from "./fixtures/harness.ts";
-import { readManifest, sDirs } from "./run-records.ts";
+import { openManifest, readManifest, sDirs } from "./run-records.ts";
 import { append, all, current } from "./ledger.ts";
 import { steer } from "./steer.ts";
 import { spendMeter } from "../server/spend.ts";
@@ -142,7 +142,17 @@ test("an override whose `at` is later than the file was written is read at the f
   assert.match(m.warning ?? "", /later than the file was written/);
 });
 
-type Parked =Incident & { parked?: { early_throws: number; attempts: number; error: string } };
+test("a frozen run (manifest holds s_star_sha) starts no attempt and no slow generation: the campaign stops learning at curve freeze", async () => {
+  const g = guardBed(0);
+  openManifest(g.runsDir, { ...M(), s_star_sha: "frozen", frozen_at: "2026-11-07T15:45:00.000Z" });
+  let slow = 0;
+  const out = await runCampaign({ ...g.deps, slow: async () => { slow++; } });
+  assert.deepEqual(g.calls, []);
+  assert.equal(slow, 0);
+  assert.match(out.stopped, /^frozen at 2026-11-07T15:45:00.000Z/);
+});
+
+type Parked = Incident &{ parked?: { early_throws: number; attempts: number; error: string } };
 
 test("an attempt that throws before minting its ATT counts against MAX_ATTEMPTS: after MAX_ATTEMPTS such throws the incident is parked unrepaired with a status record, and no further attempt starts", async () => {
   const g = guardBed(0);

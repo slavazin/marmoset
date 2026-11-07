@@ -17,6 +17,8 @@
 //   spend     before every attempt, server/spend.ts's meter: at SPEND_ASK_USD a `pause` record and "owner gate: spend $X",
 //             no new attempt until a steer "resume spend" (pnpm steer "resume spend") written after the pause; at
 //             SPEND_STOP_USD a `stop` record and the campaign ends once in-flight attempts finish.
+//   freeze    once runs/<run>/manifest.json holds s_star_sha (pnpm freeze), the loop starts nothing more and stops when
+//             in-flight attempts finish (campaign.test.ts "frozen run").
 // The campaign's own records (open, segment, pause, resume, attempt-error, park, stop) go to runs/<run>/campaign.jsonl.
 // --dry runs the same loop on a scratch test bed (loop/fixtures/harness.ts) with the fake runner, a fake SubQ client,
 // fake play that opens DRY_INCIDENTS incidents and no Gemini, and stops when the deadline passes or nothing is left.
@@ -174,6 +176,9 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
 
   while (!stopped) {
     if (now() >= deadline) { stopped = `deadline: ${d.minutes} min`; break; }
+    // curve freeze ends learning: no attempt and no slow generation starts once the manifest holds s_star_sha
+    const frozen = readManifest(d.runsDir, d.run);
+    if (frozen?.s_star_sha) { stopped = `frozen at ${frozen.frozen_at}: s_star_sha ${frozen.s_star_sha.slice(0, 12)}`; break; }
     let did = false;
 
     // play one segment; route and narrate what it opened
