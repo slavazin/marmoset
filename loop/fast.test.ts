@@ -134,3 +134,18 @@ test("an attempt's spent.usd is its repairer tokens priced by loop/llm.ts PRICES
   assert.ok(r.attempt.spent.usd > 0);
   assert.equal(r.attempt.spent.usd, priceUsd("muse-spark-1.3", 64_000, 1_000));
 });
+
+test("usageFromSession sums model_completed usage and duration from the isolated HOME's session journal (the --json stream carries none, and a wall kill loses run_usage)", async () => {
+  const { usageFromSession } = await import("./repair.ts");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const home = mkdtempSync(join(tmpdir(), "ratchet-musehome-"));
+  const sid = "cd6e2790-cc6c-470c-adb0-4db829a359ce";
+  const dir = join(home, ".local", "share", "muse", "sessions", "2026", "11", "07", sid);
+  mkdirSync(dir, { recursive: true });
+  const ev = (input: number, output: number, cached: number, ms: number) => JSON.stringify({ schema_version: 1, payload: { kind: "run", event: { kind: "model_completed", usage: { input_tokens: input, output_tokens: output, cached_tokens: cached }, duration_ms: ms, model: "muse-spark-1.3" } } });
+  const other = JSON.stringify({ payload: { kind: "run", event: { kind: "goal_usage_attribution", record: { quantity: { input_tokens: 999 } } } } });
+  writeFileSync(join(dir, "session.jsonl"), [ev(20596, 183, 0, 2371), other, ev(30000, 50, 20000, 1000), "not json"].join("\n") + "\n");
+  assert.deepEqual(usageFromSession(home, sid), { model: "muse-spark-1.3", steps: 2, tokens_in: 50596, tokens_out: 233, cached_tokens: 20000, model_ms: 3371 });
+  assert.equal(usageFromSession(home, "absent"), null);
+});

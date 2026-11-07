@@ -8,7 +8,7 @@
 
 import { spawn, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "./paths.ts";
 import type { Packet } from "./projection.ts";
@@ -98,10 +98,43 @@ export const museCli: MuseRunner = {
   async run(r) {
     const t0 = Date.now();
     const x = await exec(MUSE_BIN, museArgs(r.sessionId, r.maxSteps), r.cwd, r.env, r.eventsFile, r.wallS);
-    const u = usageFromEvents(x.out);
-    return { exitCode: x.code, model: u.model || `${MUSE_MODEL} (not echoed)`, steps: u.steps, tokens_in: u.tokens_in, tokens_out: u.tokens_out, wall_s: (Date.now() - t0) / 1000 };
+    const ev = usageFromEvents(x.out);
+    // the session journal holds every model call's usage, including calls before a wall kill (run_usage is lost)
+    const js = r.env.HOME ? usageFromSession(r.env.HOME, r.sessionId) : null;
+    const u = js && js.tokens_in >= ev.tokens_in ? js : ev;
+    if (js) tlog("loop", "muse-usage", { session: r.sessionId, exit: x.code, ...js });
+    return { exitCode: x.code, model: u.model || ev.model || `${MUSE_MODEL} (not echoed)`, steps: u.steps, tokens_in: u.tokens_in, tokens_out: u.tokens_out, wall_s: (Date.now() - t0) / 1000 };
   },
 };
+
+/**
+ * Usage from Muse's session journal under the isolated HOME, `.local/share/muse/sessions/<y>/<m>/<d>/<sessionId>/
+ * session.jsonl` (layout read on Muse Code 1.4.14, 2026-11-07): one `model_completed` run event per model call
+ * with `usage` {input_tokens, output_tokens, cached_tokens} and `duration_ms`. Steps are the model calls; null
+ * when no journal for the session exists.
+ */
+export function usageFromSession(home: string, sessionId: string): { model: string; steps: number; tokens_in: number; tokens_out: number; cached_tokens: number; model_ms: number } | null {
+  const root = join(home, ".local", "share", "muse", "sessions");
+  if (!existsSync(root)) return null;
+  const hit = readdirSync(root, { recursive: true, encoding: "utf8" }).find((p) => p.endsWith(join(sessionId, "session.jsonl")) && !p.includes(".msp-view"));
+  if (!hit) return null;
+  const out = { model: "", steps: 0, tokens_in: 0, tokens_out: 0, cached_tokens: 0, model_ms: 0 };
+  for (const l of readFileSync(join(root, hit), "utf8").split("\n")) {
+    if (!l.includes("model_completed")) continue;
+    let e: { payload?: { event?: { kind?: string; usage?: Record<string, number>; duration_ms?: number; model?: string } } };
+    try { e = JSON.parse(l); } catch { continue; }
+    const ev = e.payload?.event;
+    if (ev?.kind !== "model_completed") continue;
+    const u = ev.usage ?? {};
+    out.steps++;
+    out.tokens_in += Number(u.input_tokens ?? 0) || 0;
+    out.tokens_out += Number(u.output_tokens ?? 0) || 0;
+    out.cached_tokens += Number(u.cached_tokens ?? u.cache_read_tokens ?? 0) || 0;
+    out.model_ms += Number(ev.duration_ms ?? 0) || 0;
+    if (typeof ev.model === "string") out.model = ev.model;
+  }
+  return out;
+}
 
 /** A test runner: applies `edit(scratchDir)` and writes `result` to packet/RESULT.json, emitting MSP-shaped events. */
 export function fakeRunner(edit: (dir: string) => void, result: RepairResult | null, model = "fake-muse"): MuseRunner & { calls: MuseRun[] } {
