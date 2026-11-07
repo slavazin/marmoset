@@ -45,3 +45,12 @@ Cold-read findings, one line each: id, claim or property, reading, disposition (
 | S9-F9 | S9 | tie graduates with no floor and zero spread | reachable only via test override | accept-residue |
 | S9-F10 | S9 | tombstone keeps every byte | true for single-file skills only | accept-residue |
 | S9-F11 | S9 | calibration commit unrecorded | margin reused across core-live commits per SPEC | accept-residue |
+| S15-F0 | S15 | frame: no SPEC slice | contract is D-0020 only | accept-residue: D-0020 is the contract |
+| S15-F1 | S15 | G4: packet placebo size-matched | twin focus.json empty vs candidate's 1 file | fix: fix/s15-cold-read f8ecfad |
+| S15-F2 | S15 | D-0020: policies in force need a GRADUATE verdict | a hand-placed POLICY.md applied | fix: f8ecfad |
+| S15-F3 | S15 | order field tells twins apart | probability vs seeded:<hex> | fix: f8ecfad, opaque token on both |
+| S15-F4 | S15 | G7: policies never change what the gate judges; never reach baseline | no truth-maker | fix: f8ecfad, tests + UNPOLICIED_ARMS |
+| S15-F5 | S15 | diagram stage for policy verdicts | fell through to attempt gate | fix: 599baf5 |
+| S15-F6 | S15 | history policy figures | not counted | fix: 599baf5 |
+| S15-F7 | S15 | displayables and curve include policies | triggered on skill only | fix: 599baf5 |
+| S15-R1..R5 | S15 | routing twin map readable as wrong; id order; subq route empty on family tasks; only ppu globs match real core; baseline shows no skills in policy trials | readings in cold read | accept-residue |
