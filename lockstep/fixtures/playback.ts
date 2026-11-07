@@ -1,6 +1,7 @@
 // A playback core for lockstep tests: it implements the SPEC §6.1 Core interface by playing back a
 // recording of the oracle's own frames and game-state RAM per counter, so it matches the oracle by
-// construction. It is not an emulator: lockstep logic tested against it says nothing about any core.
+// construction under lockstep/align.ts: frame() at counter c is the oracle's frame for counter c + 1, the
+// frame completed before the VBlank that writes c + 1. It is not an emulator: lockstep logic tested against it says nothing about any core.
 // recordPlayback writes the recording at $RATCHET_CACHE/playback/<rom_sha>/<n>.bin and <n>.ram from a
 // fresh oracle run with no inputs. A Mutation plants one difference: a PPU band of flipped shades, or one
 // game-state byte XORed, from a chosen counter on.
@@ -63,8 +64,9 @@ export function createPlaybackCore(rom: Uint8Array, mutation?: Mutation): Core {
       return 0;
     },
     frame() {
-      const f = counter > 0 && has(counter) ? new Uint8Array(readFileSync(join(dir, `${counter}.bin`))) : new Uint8Array(160 * 144);
-      if (mutation?.kind === "ppu-band" && counter >= mutation.from) {
+      const next = counter + 1;
+      const f = has(next) ? new Uint8Array(readFileSync(join(dir, `${next}.bin`))) : new Uint8Array(160 * 144);
+      if (mutation?.kind === "ppu-band" && next >= mutation.from) {
         for (let y = mutation.lines[0]; y < mutation.lines[1]; y++)
           for (let x = mutation.xs[0]; x < mutation.xs[1]; x++) f[y * 160 + x] ^= 3;
       }

@@ -2434,6 +2434,38 @@ function vreadAuthorized(token, runsDir = resolve4(import.meta.dirname, "..", "r
   return false;
 }
 
+// lockstep/align.ts
+init_define_RATCHET_V_GLOBS();
+var STALL_FRAMES = 5;
+var LOAD_FRAMES = 600;
+function counterStepper(core, addr = GAME_RAM.addr) {
+  const read = () => (core.read(addr) | core.read(addr + 1) << 8) & 65535;
+  let live = false;
+  let compared = null;
+  return {
+    to(n) {
+      const target = n & 65535;
+      let cur = read();
+      if (live && cur === target) return compared;
+      let still = 0;
+      for (; ; ) {
+        if (live && cur > target) return null;
+        const before = core.frame();
+        core.runFrame();
+        const nxt = read();
+        if (nxt === cur) {
+          if (++still >= (live ? STALL_FRAMES : LOAD_FRAMES)) return null;
+        } else {
+          still = 0;
+          live = true;
+        }
+        cur = nxt;
+        if (live && cur === target) return compared = before;
+      }
+    }
+  };
+}
+
 // lockstep/replay.ts
 function defaultOracleDir(rom, align, inputs) {
   const rom_sha = sha256(rom);
@@ -2446,18 +2478,19 @@ function replayFrames(createCore, r) {
     if (!existsSync4(join6(dir, `${n}.bin`))) throw new Error(`oracle frame ${n} not cached in ${dir}`);
   }
   const core = createCore(r.rom);
+  const stepper = counterStepper(core, GAME_RAM.addr);
   let compared = 0;
   for (let n = 1; n <= to; n++) {
     core.setButtons(maskAt(r.inputs, n - 1));
-    const ok = r.align === "counter" ? core.runToCounter(n, GAME_RAM.addr) : (core.runFrame(), true);
-    if (!ok) return { clean: false, counter: n, reason: "stall", pixels: 0 };
+    const cf = r.align === "counter" ? stepper.to(n) : (core.runFrame(), core.frame());
+    if (!cf) return { clean: false, counter: n, reason: "stall", pixels: 0 };
     if (n < from) continue;
     compared++;
     const ram = r.oracleRam?.[n];
     if (ram !== void 0 && !bytesEqual(coreGameRam((a) => core.read(a)), new Uint8Array(Buffer.from(ram, "hex")))) {
       return { clean: false, counter: n, reason: "logic", pixels: 0 };
     }
-    const d = frameDiff(core.frame(), new Uint8Array(readFileSync4(join6(dir, `${n}.bin`))));
+    const d = frameDiff(cf, new Uint8Array(readFileSync4(join6(dir, `${n}.bin`))));
     if (d.pixels) return { clean: false, counter: n, reason: "frame", pixels: d.pixels };
   }
   return { clean: true, compared };

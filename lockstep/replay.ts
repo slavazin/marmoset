@@ -10,6 +10,7 @@ import { ratchetCache, sha256, traceSha } from "../oracle/client.ts";
 import { runRom, type Caps, type RomResult } from "../suites/score.ts";
 import { bytesEqual, coreGameRam, frameDiff, GAME_RAM, maskAt } from "./diff.ts";
 import type { SuiteWindow } from "./evidence.ts";
+import { counterStepper } from "./align.ts";
 
 export type ReplayOutcome =
   | { clean: true; compared: number }
@@ -38,19 +39,21 @@ export function replayFrames(createCore: CreateCore, r: FramesReplay): ReplayOut
     if (!existsSync(join(dir, `${n}.bin`))) throw new Error(`oracle frame ${n} not cached in ${dir}`);
   }
   const core = createCore(r.rom);
+  const stepper = counterStepper(core, GAME_RAM.addr);
   let compared = 0;
   for (let n = 1; n <= to; n++) {
     core.setButtons(maskAt(r.inputs, n - 1));
-    const ok = r.align === "counter" ? core.runToCounter(n, GAME_RAM.addr) : (core.runFrame(), true);
+    // align counter: the frame completed before the VBlank that wrote n (lockstep/align.ts)
+    const cf = r.align === "counter" ? stepper.to(n) : (core.runFrame(), core.frame());
     // A stall inside the window is a mismatch too: its stale frame can equal a static oracle frame.
-    if (!ok) return { clean: false, counter: n, reason: "stall", pixels: 0 };
+    if (!cf) return { clean: false, counter: n, reason: "stall", pixels: 0 };
     if (n < from) continue;
     compared++;
     const ram = r.oracleRam?.[n];
     if (ram !== undefined && !bytesEqual(coreGameRam((a) => core.read(a)), new Uint8Array(Buffer.from(ram, "hex")))) {
       return { clean: false, counter: n, reason: "logic", pixels: 0 };
     }
-    const d = frameDiff(core.frame(), new Uint8Array(readFileSync(join(dir, `${n}.bin`))));
+    const d = frameDiff(cf, new Uint8Array(readFileSync(join(dir, `${n}.bin`))));
     if (d.pixels) return { clean: false, counter: n, reason: "frame", pixels: d.pixels };
   }
   return { clean: true, compared };

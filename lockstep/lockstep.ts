@@ -11,6 +11,7 @@ import { OracleClient, ratchetCache, sha256, traceSha } from "../oracle/client.t
 import { GAME_RAM, SCENE_OFFSET, bytesEqual, coreGameRam, frameDiff, maskAt, signatureKey, signatureOf, type Signature } from "./diff.ts";
 import { EVIDENCE_ROOT, writeEvidence, type RegWrite } from "./evidence.ts";
 import type { IncidentSink } from "./incidents.ts";
+import { counterStepper } from "./align.ts";
 
 /**
  * Compare every Nth counter. SPEC §5 S5 Wiggle: every frame, or every fourth below 300 oracle fps.
@@ -34,6 +35,8 @@ export interface LockstepOptions {
   source?: Incident["source"];
   run?: string | null;
   compareEvery?: number;
+  /** Called with each compared counter's core frame and the core's scene byte (player/spot.ts samples these). */
+  onCompared?: (n: number, frame: Uint8Array, scene: number) => void;
 }
 
 export interface LockstepResult {
@@ -62,6 +65,7 @@ export async function lockstep(o: LockstepOptions): Promise<LockstepResult> {
   const every = o.compareEvery ?? COMPARE_EVERY;
 
   const core = o.createCore(rom);
+  const stepper = counterStepper(core, GAME_RAM.addr);
   const regBuf: RegWrite[] = [];
   core.tap.onRegWrite = (e) => { regBuf.push({ ...e }); };
 
@@ -109,13 +113,14 @@ export async function lockstep(o: LockstepOptions): Promise<LockstepResult> {
     for (let n = 1; n <= counter_end; n++) {
       core.setButtons(maskAt(inputs, n - 1));
       regBuf.length = 0;
-      if (align === "counter") core.runToCounter(n, GAME_RAM.addr);
-      else core.runFrame();
+      // align counter: the frame completed before the VBlank that wrote n (lockstep/align.ts)
+      const stepped = align === "counter" ? stepper.to(n) : (core.runFrame(), core.frame());
       const { frame: of, ram: oram } = await oracleStep(n);
       last = n;
       if (n % every !== 0) continue;
       compared++;
-      const cf = core.frame();
+      const cf = stepped ?? core.frame();
+      o.onCompared?.(n, cf, core.read(GAME_RAM.addr + SCENE_OFFSET) & 0xff);
       const d = frameDiff(cf, of);
       const sig = signatureOf(oram[SCENE_OFFSET], d);
       if (!bytesEqual(coreGameRam((a) => core.read(a)), oram)) {

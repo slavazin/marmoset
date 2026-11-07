@@ -105,19 +105,7 @@ export async function spotDuring(run: LockstepOptions, o: SpotDuringOptions = {}
   const frames = new Map<number, { shades: Uint8Array; scene: number }>();
   const wrapped: LockstepOptions = {
     ...run,
-    createCore: (rom) => {
-      const c: Core = run.createCore(rom);
-      let n = 0;
-      const runToCounter = c.runToCounter.bind(c), runFrame = c.runFrame.bind(c), frame = c.frame.bind(c);
-      c.runFrame = () => { runFrame(); n++; };
-      c.runToCounter = (k, addr) => { const ok = runToCounter(k, addr); n = k; return ok; };
-      c.frame = () => {
-        const f = frame();
-        frames.set(n, { shades: f.slice(), scene: c.read(GAME_RAM.addr + SCENE_OFFSET) & 0xff });
-        return f;
-      };
-      return c;
-    },
+    onCompared: (n, f, scene) => { frames.set(n, { shades: f.slice(), scene }); run.onCompared?.(n, f, scene); },
   };
   const res = await lockstep(wrapped);
 

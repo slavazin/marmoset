@@ -124,10 +124,10 @@ test("every vision request carries the core's frame and never the oracle's (band
   const oracle = await oracleFrames(COUNTER_ROM, TRACE, counters);
   for (const req of requests) {
     const n = Number(/frame counter (\d+)/.exec(req.prompt)![1]);
-    const core = createPlaybackCore(rom, BAND);
-    core.runToCounter(n);
+    const { counterStepper } = await import("../lockstep/align.ts");
+    const compared = counterStepper(createPlaybackCore(rom, BAND)).to(n);
     const sent = shadesOf(req.image.data);
-    assert.deepEqual(sent, core.frame(), `counter ${n}: request image is the core frame`);
+    assert.deepEqual(sent, compared, `counter ${n}: request image is the core's compared frame`);
     if (n >= 300) assert.notDeepEqual(sent, oracle.get(n), `counter ${n}: request image is not the oracle frame`);
     assert.doesNotMatch(req.prompt, /oracle|sameboy/i);
   }
