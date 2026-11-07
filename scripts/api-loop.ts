@@ -1,4 +1,4 @@
-// The S0 Wiggle repairer (ledger/decisions/D-draft-repairer-api-loop.md): a minimal edit loop over the streaming
+// The S0 Wiggle repairer (ledger/decisions/D-0016.md): a minimal edit loop over the streaming
 // Meta API, for when Muse Code cannot run isolated (D-0011). Each round sends the task, every file under the
 // writable prefix and the previous check output; the model answers with whole files; the loop writes only files
 // under the prefix, runs the check commands, and stops on a passing check or after MAX_ROUNDS.

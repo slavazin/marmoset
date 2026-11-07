@@ -1,7 +1,7 @@
 ---
-id: D-draft-repairer-api-loop
+id: D-0016
 title: S1's core is written by muse-spark-1.3 through a streamed whole-file edit loop, not Muse Code
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:** `scripts/api-loop.ts` (`runApiLoop`) writes `core/` for S1: each round streams one `muse-spark-1.3` call to `https://api.meta.ai/v1/chat/completions` (`META_CHAT_URL`) with the task (`scripts/s1-core-task.md`), every file under `core/` and the tail of the previous check output; the reply's whole files are written only under the prefix, never to a `*.test.ts`; `scripts/s1-check.sh` is the check; the loop stops on a passing check or after `MAX_ROUNDS` = 4 rounds (SPEC §5 S0 Wiggle). Each round's wall time, echoed model, `finish_reason` and token usage append to `evidence/s1-core/rounds.jsonl`. S8 reuses `runApiLoop` as its repairer fallback with its own prefix and checks.
