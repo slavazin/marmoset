@@ -14,4 +14,8 @@ echo "$out"
 echo "$out" | grep -q '^blargg 15/15' || fail=1
 echo "$out" | grep -q '^mooneye:mbc1 12/12' || fail=1
 echo "$out" | grep -q '^dmg-acid2 1/1' || fail=1
+if ! echo "$out" | grep -q '^blargg 15/15'; then
+  echo "== serial text of each failing Blargg ROM"
+  node scripts/s1-serial.ts core 2>&1 | head -150
+fi
 exit $fail

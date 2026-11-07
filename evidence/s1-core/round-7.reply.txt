@@ -1,0 +1,1013 @@
+Fixing CPU timings, MBC masking, and register exposure — patching the core for the failing suites.=== FILE: core/cpu.ts ===
+import type { HandlerId } from "../src/schema.ts";
+
+export interface CpuBus {
+  read(addr: number): number;
+  write(addr: number, v: number): void;
+  idle(): void;
+  pendingIrqs(): number;
+  ackIrq(bit: number): void;
+}
+
+export class Cpu {
+  a = 0x01; b = 0x00; c = 0x13; d = 0x00; e = 0xd8; f = 0xb0;
+  h = 0x01; l = 0x4d; sp = 0xfffe; pc = 0x0100;
+  ime = false; eiDelay = false; halted = false; haltBug = false;
+  hits: Record<HandlerId, number>;
+  bus!: CpuBus;
+  constructor(hits: Record<HandlerId, number>) { this.hits = hits; }
+  attach(bus: CpuBus): void { this.bus = bus; }
+  private fetch(): number {
+    const v = this.bus.read(this.pc);
+    if (this.haltBug) { this.haltBug = false; } else { this.pc = (this.pc + 1) & 0xffff; }
+    return v;
+  }
+  private get hl(): number { return (this.h << 8) | this.l; }
+  private set hl(v: number) { this.h = (v >> 8) & 0xff; this.l = v & 0xff; }
+  private get bc(): number { return (this.b << 8) | this.c; }
+  private get de(): number { return (this.d << 8) | this.e; }
+  private aluAdd(v: number, cy: number): void {
+    const a = this.a;
+    const r = a + v + cy;
+    this.f = ((r & 0xff) === 0 ? 0x80 : 0) | ((((a & 0xf) + (v & 0xf) + cy) > 0xf) ? 0x20 : 0) | (((a + v + cy) > 0xff) ? 0x10 : 0);
+    this.a = r & 0xff;
+  }
+  private aluSub(v: number, cy: number): void {
+    const a = this.a; const r = a - v - cy;
+    this.f = 0x40 | (((r & 0xff) === 0) ? 0x80 : 0) | ((((a & 0xf) - (v & 0xf) - cy) < 0) ? 0x20 : 0) | (((a - v - cy) < 0) ? 0x10 : 0);
+    this.a = r & 0xff;
+  }
+  private aluAnd(v: number): void { this.a &= v; this.f = (this.a === 0 ? 0x80 : 0) | 0x20; }
+  private aluOr(v: number): void { this.a |= v; this.a &= 0xff; this.f = this.a === 0 ? 0x80 : 0; }
+  private aluXor(v: number): void { this.a ^= v; this.a &= 0xff; this.f = this.a === 0 ? 0x80 : 0; }
+  private aluCp(v: number): void {
+    const a = this.a; const r = a - v;
+    this.f = 0x40 | (((r & 0xff) === 0) ? 0x80 : 0) | (((a & 0xf) < (v & 0xf)) ? 0x20 : 0) | ((a < v) ? 0x10 : 0);
+  }
+  private aluInc(v: number): number {
+    const r = (v + 1) & 0xff;
+    this.f = (this.f & 0x10) | (r === 0 ? 0x80 : 0) | ((v & 0xf) === 0xf ? 0x20 : 0);
+    return r;
+  }
+  private aluDec(v: number): number {
+    const r = (v - 1) & 0xff;
+    this.f = (this.f & 0x10) | 0x40 | (r === 0 ? 0x80 : 0) | ((v & 0xf) === 0 ? 0x20 : 0);
+    return r;
+  }
+  private addHl(v: number): void {
+    const hl = this.hl; const r = hl + v;
+    this.f = (this.f & 0x80) | ((((hl & 0xfff) + (v & 0xfff)) > 0xfff) ? 0x20 : 0) | ((r > 0xffff) ? 0x10 : 0);
+    this.hl = r & 0xffff;
+  }
+  private rlc(v: number): number {
+    const c = (v >> 7) & 1; const r = ((v << 1) | c) & 0xff;
+    this.f = (r === 0 ? 0x80 : 0) | (c ? 0x10 : 0);
+    return r;
+  }
+  private rrc(v: number): number {
+    const c = v & 1; const r = ((v >> 1) | (c << 7)) & 0xff;
+    this.f = (r === 0 ? 0x80 : 0) | (c ? 0x10 : 0);
+    return r;
+  }
+  private rl(v: number): number {
+    const c = (this.f >> 4) & 1; const nc = (v >> 7) & 1;
+    const r = ((v << 1) | c) & 0xff;
+    this.f = (r === 0 ? 0x80 : 0) | (nc ? 0x10 : 0);
+    return r;
+  }
+  private rr(v: number): number {
+    const c = (this.f >> 4) & 1; const nc = v & 1;
+    const r = ((v >> 1) | (c << 7)) & 0xff;
+    this.f = (r === 0 ? 0x80 : 0) | (nc ? 0x10 : 0);
+    return r;
+  }
+  private sla(v: number): number {
+    const nc = (v >> 7) & 1; const r = (v << 1) & 0xff;
+    this.f = (r === 0 ? 0x80 : 0) | (nc ? 0x10 : 0);
+    return r;
+  }
+  private sra(v: number): number {
+    const nc = v & 1; const r = ((v >> 1) | (v & 0x80)) & 0xff;
+    this.f = (r === 0 ? 0x80 : 0) | (nc ? 0x10 : 0);
+    return r;
+  }
+  private srl(v: number): number {
+    const nc = v & 1; const r = (v >> 1) & 0xff;
+    this.f = (r === 0 ? 0x80 : 0) | (nc ? 0x10 : 0);
+    return r;
+  }
+  private swap(v: number): number {
+    const r = ((v << 4) | (v >> 4)) & 0xff;
+    this.f = r === 0 ? 0x80 : 0;
+    return r;
+  }
+  private bit(n: number, v: number): void {
+    this.f = (this.f & 0x10) | 0x20 | (((v >> n) & 1) ? 0 : 0x80);
+  }
+  step(): void {
+    if (this.halted) {
+      const p = this.bus.pendingIrqs();
+      if (p !== 0) {
+        this.halted = false;
+        if (!this.ime) { this.bus.idle(); return; }
+      } else { this.bus.idle(); return; }
+    }
+    if (!this.eiDelay && this.ime) {
+      const p = this.bus.pendingIrqs();
+      if (p !== 0) {
+        let bit = 0; while (((p >> bit) & 1) === 0) bit++;
+        this.hits["irq"] = (this.hits["irq"] || 0) + 1;
+        this.ime = false;
+        this.bus.ackIrq(bit);
+        this.bus.idle(); this.bus.idle();
+        this.sp = (this.sp - 1) & 0xffff; this.bus.write(this.sp, (this.pc >> 8) & 0xff);
+        this.sp = (this.sp - 1) & 0xffff; this.bus.write(this.sp, this.pc & 0xff);
+        this.bus.idle();
+        this.pc = (0x40 + bit * 8) & 0xffff;
+        return;
+      }
+    }
+    const delayed = this.eiDelay;
+    if (delayed) this.eiDelay = false;
+    const op = this.fetch();
+    this.hits["cpu.op"] = (this.hits["cpu.op"] || 0) + 1;
+    this.exec(op);
+    if (delayed) this.ime = true;
+  }
+  private jr(cond: boolean): void {
+    const e = this.fetch();
+    if (cond) { this.bus.idle(); this.pc = (this.pc + ((e ^ 0x80) - 0x80)) & 0xffff; }
+  }
+  private jp(cond: boolean): void {
+    const lo = this.fetch(); const hi = this.fetch();
+    if (cond) { this.bus.idle(); this.pc = (lo | (hi << 8)) & 0xffff; }
+  }
+  private call(cond: boolean): void {
+    const lo = this.fetch(); const hi = this.fetch();
+    if (cond) {
+      this.bus.idle();
+      this.sp = (this.sp - 1) & 0xffff; this.bus.write(this.sp, (this.pc >> 8) & 0xff);
+      this.sp = (this.sp - 1) & 0xffff; this.bus.write(this.sp, this.pc & 0xff);
+      this.pc = (lo | (hi << 8)) & 0xffff;
+    }
+  }
+  private ret(cond: boolean): void {
+    if (cond) {
+      this.bus.idle();
+      const lo = this.bus.read(this.sp); this.sp = (this.sp + 1) & 0xffff;
+      const hi = this.bus.read(this.sp); this.sp = (this.sp + 1) & 0xffff;
+      this.bus.idle();
+      this.pc = (lo | (hi << 8)) & 0xffff;
+    } else this.bus.idle();
+  }
+  private rst(v: number): void {
+    this.bus.idle();
+    this.sp = (this.sp - 1) & 0xffff; this.bus.write(this.sp, (this.pc >> 8) & 0xff);
+    this.sp = (this.sp - 1) & 0xffff; this.bus.write(this.sp, this.pc & 0xff);
+    this.pc = v;
+  }
+  private exec(op: number): void {
+    const B = this.bus;
+    switch (op) {
+      case 0x00: break;
+      case 0x01: this.c = this.fetch(); this.b = this.fetch(); break;
+      case 0x02: B.write(this.bc, this.a); break;
+      case 0x03: B.idle(); { const v = (this.bc + 1) & 0xffff; this.b = (v >> 8) & 0xff; this.c = v & 0xff; } break;
+      case 0x04: this.b = this.aluInc(this.b); break;
+      case 0x05: this.b = this.aluDec(this.b); break;
+      case 0x06: this.b = this.fetch(); break;
+      case 0x07: { const c = (this.a >> 7) & 1; this.a = ((this.a << 1) | c) & 0xff; this.f = c ? 0x10 : 0; } break;
+      case 0x08: { const lo = this.fetch(); const hi = this.fetch(); const a = lo | (hi << 8); B.write(a, this.sp & 0xff); B.write((a + 1) & 0xffff, (this.sp >> 8) & 0xff); } break;
+      case 0x09: this.addHl(this.bc); B.idle(); break;
+      case 0x0a: this.a = B.read(this.bc); break;
+      case 0x0b: B.idle(); { const v = (this.bc - 1) & 0xffff; this.b = (v >> 8) & 0xff; this.c = v & 0xff; } break;
+      case 0x0c: this.c = this.aluInc(this.c); break;
+      case 0x0d: this.c = this.aluDec(this.c); break;
+      case 0x0e: this.c = this.fetch(); break;
+      case 0x0f: { const c = this.a & 1; this.a = ((this.a >> 1) | (c << 7)) & 0xff; this.f = c ? 0x10 : 0; } break;
+      case 0x10: { this.fetch(); B.idle(); B.idle(); B.idle(); break; }
+      case 0x11: this.e = this.fetch(); this.d = this.fetch(); break;
+      case 0x12: B.write(this.de, this.a); break;
+      case 0x13: B.idle(); { const v = (this.de + 1) & 0xffff; this.d = (v >> 8) & 0xff; this.e = v & 0xff; } break;
+      case 0x14: this.d = this.aluInc(this.d); break;
+      case 0x15: this.d = this.aluDec(this.d); break;
+      case 0x16: this.d = this.fetch(); break;
+      case 0x17: { const c = (this.f >> 4) & 1; const nc = (this.a >> 7) & 1; this.a = ((this.a << 1) | c) & 0xff; this.f = nc ? 0x10 : 0; } break;
+      case 0x18: this.jr(true); break;
+      case 0x19: this.addHl(this.de); B.idle(); break;
+      case 0x1a: this.a = B.read(this.de); break;
+      case 0x1b: B.idle(); { const v = (this.de - 1) & 0xffff; this.d = (v >> 8) & 0xff; this.e = v & 0xff; } break;
+      case 0x1c: this.e = this.aluInc(this.e); break;
+      case 0x1d: this.e = this.aluDec(this.e); break;
+      case 0x1e: this.e = this.fetch(); break;
+      case 0x1f: { const c = (this.f >> 4) & 1; const nc = this.a & 1; this.a = ((this.a >> 1) | (c << 7)) & 0xff; this.f = nc ? 0x10 : 0; } break;
+      case 0x20: this.jr((this.f & 0x80) === 0); break;
+      case 0x21: this.l = this.fetch(); this.h = this.fetch(); break;
+      case 0x22: B.write(this.hl, this.a); this.hl = (this.hl + 1) & 0xffff; break;
+      case 0x23: B.idle(); this.hl = (this.hl + 1) & 0xffff; break;
+      case 0x24: this.h = this.aluInc(this.h); break;
+      case 0x25: this.h = this.aluDec(this.h); break;
+      case 0x26: this.h = this.fetch(); break;
+      case 0x27: {
+        let a = this.a; let adj = 0; const c = (this.f & 0x10) !== 0; const h = (this.f & 0x20) !== 0; const n = (this.f & 0x40) !== 0;
+        if (!n) { if (h || (a & 0xf) > 9) adj |= 0x06; if (c || a > 0x99) adj |= 0x60; a += adj; } else { if (h) adj |= 0x06; if (c) adj |= 0x60; a -= adj; }
+        this.a = a & 0xff;
+        this.f = (this.f & 0x40) | (this.a === 0 ? 0x80 : 0) | ((adj & 0x60) !== 0 ? 0x10 : 0);
+        break;
+      }
+      case 0x28: this.jr((this.f & 0x80) !== 0); break;
+      case 0x29: this.addHl(this.hl); B.idle(); break;
+      case 0x2a: this.a = B.read(this.hl); this.hl = (this.hl + 1) & 0xffff; break;
+      case 0x2b: B.idle(); this.hl = (this.hl - 1) & 0xffff; break;
+      case 0x2c: this.l = this.aluInc(this.l); break;
+      case 0x2d: this.l = this.aluDec(this.l); break;
+      case 0x2e: this.l = this.fetch(); break;
+      case 0x2f: this.a = (~this.a) & 0xff; this.f |= 0x60; break;
+      case 0x30: this.jr((this.f & 0x10) === 0); break;
+      case 0x31: { const lo = this.fetch(); const hi = this.fetch(); this.sp = (lo | (hi << 8)) & 0xffff; } break;
+      case 0x32: B.write(this.hl, this.a); this.hl = (this.hl - 1) & 0xffff; break;
+      case 0x33: B.idle(); this.sp = (this.sp + 1) & 0xffff; break;
+      case 0x34: { const v = B.read(this.hl); const r = this.aluInc(v); B.write(this.hl, r); } break;
+      case 0x35: { const v = B.read(this.hl); const r = this.aluDec(v); B.write(this.hl, r); } break;
+      case 0x36: { const n = this.fetch(); B.write(this.hl, n); } break;
+      case 0x37: this.f = (this.f & 0x80); break;
+      case 0x38: this.jr((this.f & 0x10) !== 0); break;
+      case 0x39: this.addHl(this.sp); B.idle(); break;
+      case 0x3a: this.a = B.read(this.hl); this.hl = (this.hl - 1) & 0xffff; break;
+      case 0x3b: B.idle(); this.sp = (this.sp - 1) & 0xffff; break;
+      case 0x3c: this.a = this.aluInc(this.a); break;
+      case 0x3d: this.a = this.aluDec(this.a); break;
+      case 0x3e: this.a = this.fetch(); break;
+      case 0x3f: this.f = (this.f & 0x80) | (((this.f & 0x10) !== 0) ? 0 : 0x10); break;
+      case 0x40: break;
+      case 0x41: this.b = this.c; break;
+      case 0x42: this.b = this.d; break;
+      case 0x43: this.b = this.e; break;
+      case 0x44: this.b = this.h; break;
+      case 0x45: this.b = this.l; break;
+      case 0x46: this.b = B.read(this.hl); break;
+      case 0x47: this.b = this.a; break;
+      case 0x48: this.c = this.b; break;
+      case 0x49: break;
+      case 0x4a: this.c = this.d; break;
+      case 0x4b: this.c = this.e; break;
+      case 0x4c: this.c = this.h; break;
+      case 0x4d: this.c = this.l; break;
+      case 0x4e: this.c = B.read(this.hl); break;
+      case 0x4f: this.c = this.a; break;
+      case 0x50: this.d = this.b; break;
+      case 0x51: this.d = this.c; break;
+      case 0x52: break;
+      case 0x53: this.d = this.e; break;
+      case 0x54: this.d = this.h; break;
+      case 0x55: this.d = this.l; break;
+      case 0x56: this.d = B.read(this.hl); break;
+      case 0x57: this.d = this.a; break;
+      case 0x58: this.e = this.b; break;
+      case 0x59: this.e = this.c; break;
+      case 0x5a: this.e = this.d; break;
+      case 0x5b: break;
+      case 0x5c: this.e = this.h; break;
+      case 0x5d: this.e = this.l; break;
+      case 0x5e: this.e = B.read(this.hl); break;
+      case 0x5f: this.e = this.a; break;
+      case 0x60: this.h = this.b; break;
+      case 0x61: this.h = this.c; break;
+      case 0x62: this.h = this.d; break;
+      case 0x63: this.h = this.e; break;
+      case 0x64: break;
+      case 0x65: this.h = this.l; break;
+      case 0x66: this.h = B.read(this.hl); break;
+      case 0x67: this.h = this.a; break;
+      case 0x68: this.l = this.b; break;
+      case 0x69: this.l = this.c; break;
+      case 0x6a: this.l = this.d; break;
+      case 0x6b: this.l = this.e; break;
+      case 0x6c: this.l = this.h; break;
+      case 0x6d: break;
+      case 0x6e: this.l = B.read(this.hl); break;
+      case 0x6f: this.l = this.a; break;
+      case 0x70: B.write(this.hl, this.b); break;
+      case 0x71: B.write(this.hl, this.c); break;
+      case 0x72: B.write(this.hl, this.d); break;
+      case 0x73: B.write(this.hl, this.e); break;
+      case 0x74: B.write(this.hl, this.h); break;
+      case 0x75: B.write(this.hl, this.l); break;
+      case 0x76: {
+        const p = B.pendingIrqs();
+        if (this.ime) { this.halted = true; B.idle(); }
+        else if (p !== 0) { this.haltBug = true; }
+        else { this.halted = true; B.idle(); }
+        break;
+      }
+      case 0x77: B.write(this.hl, this.a); break;
+      case 0x78: this.a = this.b; break;
+      case 0x79: this.a = this.c; break;
+      case 0x7a: this.a = this.d; break;
+      case 0x7b: this.a = this.e; break;
+      case 0x7c: this.a = this.h; break;
+      case 0x7d: this.a = this.l; break;
+      case 0x7e: this.a = B.read(this.hl); break;
+      case 0x7f: break;
+      case 0x80: this.aluAdd(this.b, 0); break;
+      case 0x81: this.aluAdd(this.c, 0); break;
+      case 0x82: this.aluAdd(this.d, 0); break;
+      case 0x83: this.aluAdd(this.e, 0); break;
+      case 0x84: this.aluAdd(this.h, 0); break;
+      case 0x85: this.aluAdd(this.l, 0); break;
+      case 0x86: this.aluAdd(B.read(this.hl), 0); break;
+      case 0x87: this.aluAdd(this.a, 0); break;
+      case 0x88: this.aluAdd(this.b, (this.f >> 4) & 1); break;
+      case 0x89: this.aluAdd(this.c, (this.f >> 4) & 1); break;
+      case 0x8a: this.aluAdd(this.d, (this.f >> 4) & 1); break;
+      case 0x8b: this.aluAdd(this.e, (this.f >> 4) & 1); break;
+      case 0x8c: this.aluAdd(this.h, (this.f >> 4) & 1); break;
+      case 0x8d: this.aluAdd(this.l, (this.f >> 4) & 1); break;
+      case 0x8e: this.aluAdd(B.read(this.hl), (this.f >> 4) & 1); break;
+      case 0x8f: this.aluAdd(this.a, (this.f >> 4) & 1); break;
+      case 0x90: this.aluSub(this.b, 0); break;
+      case 0x91: this.aluSub(this.c, 0); break;
+      case 0x92: this.aluSub(this.d, 0); break;
+      case 0x93: this.aluSub(this.e, 0); break;
+      case 0x94: this.aluSub(this.h, 0); break;
+      case 0x95: this.aluSub(this.l, 0); break;
+      case 0x96: this.aluSub(B.read(this.hl), 0); break;
+      case 0x97: this.aluSub(this.a, 0); break;
+      case 0x98: this.aluSub(this.b, (this.f >> 4) & 1); break;
+      case 0x99: this.aluSub(this.c, (this.f >> 4) & 1); break;
+      case 0x9a: this.aluSub(this.d, (this.f >> 4) & 1); break;
+      case 0x9b: this.aluSub(this.e, (this.f >> 4) & 1); break;
+      case 0x9c: this.aluSub(this.h, (this.f >> 4) & 1); break;
+      case 0x9d: this.aluSub(this.l, (this.f >> 4) & 1); break;
+      case 0x9e: this.aluSub(B.read(this.hl), (this.f >> 4) & 1); break;
+      case 0x9f: this.aluSub(this.a, (this.f >> 4) & 1); break;
+      case 0xa0: this.aluAnd(this.b); break;
+      case 0xa1: this.aluAnd(this.c); break;
+      case 0xa2: this.aluAnd(this.d); break;
+      case 0xa3: this.aluAnd(this.e); break;
+      case 0xa4: this.aluAnd(this.h); break;
+      case 0xa5: this.aluAnd(this.l); break;
+      case 0xa6: this.aluAnd(B.read(this.hl)); break;
+      case 0xa7: this.aluAnd(this.a); break;
+      case 0xa8: this.aluXor(this.b); break;
+      case 0xa9: this.aluXor(this.c); break;
+      case 0xaa: this.aluXor(this.d); break;
+      case 0xab: this.aluXor(this.e); break;
+      case 0xac: this.aluXor(this.h); break;
+      case 0xad: this.aluXor(this.l); break;
+      case 0xae: this.aluXor(B.read(this.hl)); break;
+      case 0xaf: this.aluXor(this.a); break;
+      case 0xb0: this.aluOr(this.b); break;
+      case 0xb1: this.aluOr(this.c); break;
+      case 0xb2: this.aluOr(this.d); break;
+      case 0xb3: this.aluOr(this.e); break;
+      case 0xb4: this.aluOr(this.h); break;
+      case 0xb5: this.aluOr(this.l); break;
+      case 0xb6: this.aluOr(B.read(this.hl)); break;
+      case 0xb7: this.aluOr(this.a); break;
+      case 0xb8: this.aluCp(this.b); break;
+      case 0xb9: this.aluCp(this.c); break;
+      case 0xba: this.aluCp(this.d); break;
+      case 0xbb: this.aluCp(this.e); break;
+      case 0xbc: this.aluCp(this.h); break;
+      case 0xbd: this.aluCp(this.l); break;
+      case 0xbe: this.aluCp(B.read(this.hl)); break;
+      case 0xbf: this.aluCp(this.a); break;
+      case 0xc0: this.ret((this.f & 0x80) === 0); break;
+      case 0xc1: { const lo = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; const hi = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; this.c = lo; this.b = hi; break; }
+      case 0xc2: this.jp((this.f & 0x80) === 0); break;
+      case 0xc3: this.jp(true); break;
+      case 0xc4: this.call((this.f & 0x80) === 0); break;
+      case 0xc5: B.idle(); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.b); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.c); break;
+      case 0xc6: this.aluAdd(this.fetch(), 0); break;
+      case 0xc7: this.rst(0x00); break;
+      case 0xc8: this.ret((this.f & 0x80) !== 0); break;
+      case 0xc9: { const lo = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; const hi = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; this.bus.idle(); this.pc = (lo | (hi << 8)) & 0xffff; break; }
+      case 0xca: this.jp((this.f & 0x80) !== 0); break;
+      case 0xcb: this.execCb(this.fetch()); break;
+      case 0xcc: this.call((this.f & 0x80) !== 0); break;
+      case 0xcd: this.call(true); break;
+      case 0xce: this.aluAdd(this.fetch(), (this.f >> 4) & 1); break;
+      case 0xcf: this.rst(0x08); break;
+      case 0xd0: this.ret((this.f & 0x10) === 0); break;
+      case 0xd1: { const lo = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; const hi = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; this.e = lo; this.d = hi; break; }
+      case 0xd2: this.jp((this.f & 0x10) === 0); break;
+      case 0xd4: this.call((this.f & 0x10) === 0); break;
+      case 0xd5: B.idle(); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.d); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.e); break;
+      case 0xd6: this.aluSub(this.fetch(), 0); break;
+      case 0xd7: this.rst(0x10); break;
+      case 0xd8: this.ret((this.f & 0x10) !== 0); break;
+      case 0xd9: { const lo = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; const hi = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; this.bus.idle(); this.pc = (lo | (hi << 8)) & 0xffff; this.ime = true; break; }
+      case 0xda: this.jp((this.f & 0x10) !== 0); break;
+      case 0xdc: this.call((this.f & 0x10) !== 0); break;
+      case 0xde: this.aluSub(this.fetch(), (this.f >> 4) & 1); break;
+      case 0xdf: this.rst(0x18); break;
+      case 0xe0: { const o = this.fetch(); B.write(0xff00 | o, this.a); break; }
+      case 0xe1: { const lo = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; const hi = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; this.l = lo; this.h = hi; break; }
+      case 0xe2: B.write(0xff00 | this.c, this.a); break;
+      case 0xe5: B.idle(); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.h); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.l); break;
+      case 0xe6: this.aluAnd(this.fetch()); break;
+      case 0xe7: this.rst(0x20); break;
+      case 0xe8: {
+        const e = this.fetch(); B.idle(); B.idle();
+        const s = ((e ^ 0x80) - 0x80);
+        const r = (this.sp + s) & 0xffff;
+        this.f = ((((this.sp & 0xf) + (s & 0xf)) > 0xf) ? 0x20 : 0) | ((((this.sp & 0xff) + (s & 0xff)) > 0xff) ? 0x10 : 0);
+        this.sp = r; break;
+      }
+      case 0xe9: this.pc = this.hl; break;
+      case 0xea: { const lo = this.fetch(); const hi = this.fetch(); B.write(lo | (hi << 8), this.a); break; }
+      case 0xee: this.aluXor(this.fetch()); break;
+      case 0xef: this.rst(0x28); break;
+      case 0xf0: { const o = this.fetch(); this.a = B.read(0xff00 | o); break; }
+      case 0xf1: { const lo = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; const hi = B.read(this.sp); this.sp = (this.sp + 1) & 0xffff; this.f = lo & 0xf0; this.a = hi; break; }
+      case 0xf2: this.a = B.read(0xff00 | this.c); break;
+      case 0xf3: this.ime = false; this.eiDelay = false; break;
+      case 0xf5: B.idle(); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.a); this.sp = (this.sp - 1) & 0xffff; B.write(this.sp, this.f); break;
+      case 0xf6: this.aluOr(this.fetch()); break;
+      case 0xf7: this.rst(0x30); break;
+      case 0xf8: {
+        const e = this.fetch(); B.idle();
+        const s = ((e ^ 0x80) - 0x80);
+        const r = (this.sp + s) & 0xffff;
+        this.f = ((((this.sp & 0xf) + (s & 0xf)) > 0xf) ? 0x20 : 0) | ((((this.sp & 0xff) + (s & 0xff)) > 0xff) ? 0x10 : 0);
+        this.hl = r; break;
+      }
+      case 0xf9: B.idle(); this.sp = this.hl; break;
+      case 0xfa: { const lo = this.fetch(); const hi = this.fetch(); this.a = B.read(lo | (hi << 8)); break; }
+      case 0xfb: this.eiDelay = true; break;
+      case 0xfe: this.aluCp(this.fetch()); break;
+      case 0xff: this.rst(0x38); break;
+      default: break;
+    }
+  }
+  private execCb(cb: number): void {
+    this.hits["cpu.cb"] = (this.hits["cpu.cb"] || 0) + 1;
+    const B = this.bus;
+    const r = cb & 0x07;
+    const bit = (cb >> 3) & 0x07;
+    let v: number;
+    switch (r) {
+      case 0: v = this.b; break;
+      case 1: v = this.c; break;
+      case 2: v = this.d; break;
+      case 3: v = this.e; break;
+      case 4: v = this.h; break;
+      case 5: v = this.l; break;
+      case 6: v = B.read(this.hl); break;
+      default: v = this.a; break;
+    }
+    let res = v;
+    if (cb < 0x40) {
+      if (cb < 0x08) res = (cb & 1) ? this.rrc(v) : this.rlc(v);
+      else if (cb < 0x10) res = (cb & 1) ? this.rr(v) : this.rl(v);
+      else if (cb < 0x18) res = (cb & 1) ? this.sra(v) : this.sla(v);
+      else if (cb < 0x20) res = (cb & 1) ? this.srl(v) : this.swap(v);
+      switch (r) {
+        case 0: this.b = res; break;
+        case 1: this.c = res; break;
+        case 2: this.d = res; break;
+        case 3: this.e = res; break;
+        case 4: this.h = res; break;
+        case 5: this.l = res; break;
+        case 6: B.write(this.hl, res); break;
+        default: this.a = res; break;
+      }
+    } else if (cb < 0x80) {
+      this.bit(bit, v);
+    } else if (cb < 0xc0) {
+      const nv = (v & ~(1 << bit)) & 0xff;
+      if (r === 6) { B.write(this.hl, nv); }
+      else {
+        switch (r) {
+          case 0: this.b = nv; break;
+          case 1: this.c = nv; break;
+          case 2: this.d = nv; break;
+          case 3: this.e = nv; break;
+          case 4: this.h = nv; break;
+          case 5: this.l = nv; break;
+          default: this.a = nv; break;
+        }
+      }
+    } else {
+      const nv = (v | (1 << bit)) & 0xff;
+      if (r === 6) { B.write(this.hl, nv); }
+      else {
+        switch (r) {
+          case 0: this.b = nv; break;
+          case 1: this.c = nv; break;
+          case 2: this.d = nv; break;
+          case 3: this.e = nv; break;
+          case 4: this.h = nv; break;
+          case 5: this.l = nv; break;
+          default: this.a = nv; break;
+        }
+      }
+    }
+  }
+}
+=== END FILE ===
+=== FILE: core/mbc1.ts ===
+import type { HandlerId } from "../src/schema.ts";
+export class Cart {
+  rom: Uint8Array;
+  ram: Uint8Array;
+  ramOn = false;
+  lo = 1;
+  hi = 0;
+  mode = 0;
+  nRom = 2;
+  nRam = 0;
+  isMbc1 = false;
+  hits: Record<HandlerId, number>;
+  constructor(rom: Uint8Array, hits: Record<HandlerId, number>) {
+    this.rom = rom;
+    this.hits = hits;
+    const t = rom.length > 0x147 ? rom[0x147] : 0;
+    const as = rom.length > 0x149 ? rom[0x149] : 0;
+    this.isMbc1 = t === 0x01 || t === 0x02 || t === 0x03;
+    let nb = rom.length >> 14;
+    if (nb < 2) nb = 2;
+    this.nRom = nb;
+    let nr = 0;
+    if (as === 0x02) nr = 1;
+    else if (as === 0x03) nr = 4;
+    else if (as === 0x04) nr = 16;
+    else if (as === 0x05) nr = 8;
+    else if (as === 0x01) nr = 1;
+    if (!this.isMbc1) {
+      if (nr === 0 && (t === 0x02 || t === 0x03)) nr = 1;
+    }
+    if (nr > 4 && this.isMbc1) nr = 4;
+    if (nr > 16) nr = 16;
+    this.nRam = nr;
+    this.ram = new Uint8Array(nr * 8192);
+  }
+  read(a: number): number {
+    if (a < 0x4000) {
+      if (this.isMbc1 && this.mode === 1) {
+        const b = (this.hi << 5) % this.nRom;
+        const o = b * 0x4000 + a;
+        return o < this.rom.length ? this.rom[o] : 0xff;
+      }
+      return a < this.rom.length ? this.rom[a] : 0xff;
+    }
+    const b = ((this.hi << 5) | this.lo) % this.nRom;
+    const o = b * 0x4000 + (a - 0x4000);
+    return o < this.rom.length ? this.rom[o] : 0xff;
+  }
+  write(a: number, v: number): void {
+    if (!this.isMbc1) return;
+    v &= 0xff;
+    if (a < 0x2000) {
+      this.ramOn = (v & 0x0f) === 0x0a;
+      this.hits["mbc1"] = (this.hits["mbc1"] || 0) + 1;
+    } else if (a < 0x4000) {
+      let l = v & 0x1f;
+      if (l === 0) l = 1;
+      this.lo = l;
+      this.hits["mbc1"] = (this.hits["mbc1"] || 0) + 1;
+    } else if (a < 0x6000) {
+      this.hi = v & 0x03;
+      this.hits["mbc1"] = (this.hits["mbc1"] || 0) + 1;
+    } else if (a < 0x8000) {
+      this.mode = v & 0x01;
+      this.hits["mbc1"] = (this.hits["mbc1"] || 0) + 1;
+    }
+  }
+  readRam(a: number): number {
+    if (this.nRam === 0 || !this.ramOn) return 0xff;
+    let b = this.mode === 1 ? this.hi % this.nRam : 0;
+    if (this.nRam === 1) b = 0;
+    const o = b * 8192 + (a - 0xa000);
+    return o < this.ram.length ? this.ram[o] : 0xff;
+  }
+  writeRam(a: number, v: number): void {
+    if (this.nRam === 0 || !this.ramOn) return;
+    let b = this.mode === 1 ? this.hi % this.nRam : 0;
+    if (this.nRam === 1) b = 0;
+    const o = b * 8192 + (a - 0xa000);
+    if (o < this.ram.length) this.ram[o] = v & 0xff;
+  }
+}
+=== END FILE ===
+=== FILE: core/index.ts ===
+import type { Core, CoreRegs, CreateCore, HandlerId, Handlers, TelemetryTap } from "../src/schema.ts";
+import { Cpu } from "./cpu.ts";
+import type { CpuBus } from "./cpu.ts";
+import { Ppu } from "./ppu.ts";
+import { Cart } from "./mbc1.ts";
+
+export const HANDLERS: Record<HandlerId, string> = {
+  "cpu.op": "core/cpu.ts",
+  "cpu.cb": "core/cpu.ts",
+  "ppu.oam": "core/ppu.ts",
+  "ppu.fetcher": "core/ppu.ts",
+  "ppu.fifo": "core/ppu.ts",
+  "ppu.window": "core/ppu.ts",
+  "ppu.sprites": "core/ppu.ts",
+  "timer": "core/index.ts",
+  "irq": "core/index.ts",
+  "dma": "core/index.ts",
+  "mbc1": "core/mbc1.ts",
+  "bus.io": "core/index.ts",
+};
+
+const HIDS = ["cpu.op","cpu.cb","ppu.oam","ppu.fetcher","ppu.fifo","ppu.window","ppu.sprites","timer","irq","dma","mbc1","bus.io"] as const;
+
+function newHits(): Record<HandlerId, number> {
+  const o: Record<HandlerId, number> = {};
+  for (const k of HIDS) o[k] = 0;
+  return o;
+}
+
+export function createCore(rom: Uint8Array): Core {
+  const hits = newHits();
+  const cart = new Cart(rom, hits);
+  const ppu = new Ppu(hits);
+  const wram = new Uint8Array(0x2000);
+  const hram = new Uint8Array(0x80);
+  const audio = new Uint8Array(0x40);
+  const audInit: Array<[number, number]> = [
+    [0x10,0x80],[0x11,0xbf],[0x12,0xf3],[0x14,0xbf],[0x16,0x3f],[0x17,0x00],
+    [0x19,0xbf],[0x1a,0x7f],[0x1b,0xff],[0x1c,0x9f],[0x1e,0xbf],[0x20,0xff],
+    [0x21,0x00],[0x22,0x00],[0x23,0xbf],[0x24,0x77],[0x25,0xf3],[0x26,0xf1],
+  ];
+  for (const [o,v] of audInit) audio[o & 0x3f] = v;
+
+  let div = 0xab00;
+  let tima = 0, tma = 0, tac = 0xf8;
+  let prevAnd = 0;
+  let reload = 0;
+  let IF = 0xe1, IE = 0x00;
+  let p1 = 0xcf;
+  let joyMask = 0;
+  let sb = 0x00, sc = 0x7e;
+  let serialText = "";
+  let dmaOn = false, dmaBase = 0, dmaPos = 0, dmaT = 0;
+  let cycles = 0;
+  let onRegWrite: TelemetryTap["onRegWrite"] | undefined = undefined;
+  const tapHits = hits;
+
+  const raise = (b: number): void => { IF = (IF | (1 << b)) & 0xff; };
+
+  function timerBit(): number {
+    const s = tac & 0x03;
+    return s === 0 ? 9 : s === 1 ? 3 : s === 2 ? 5 : 7;
+  }
+  function curAnd(): number {
+    return (((div >> timerBit()) & 1) & ((tac >> 2) & 1));
+  }
+  function incTima(): void {
+    hits["timer"] = (hits["timer"] || 0) + 1;
+    if (tima === 0xff) { tima = 0; reload = 4; }
+    else tima = (tima + 1) & 0xff;
+  }
+  function timerStep(): void {
+    if (reload > 0) {
+      reload--;
+      if (reload === 0) { tima = tma & 0xff; IF = (IF | 0x04) & 0xff; }
+    }
+    div = (div + 1) & 0xffff;
+    const c = curAnd();
+    if (prevAnd === 1 && c === 0) {
+      if (reload === 0) incTima();
+    }
+    prevAnd = c;
+  }
+
+  function peek(a: number): number {
+    a &= 0xffff;
+    if (a < 0x8000) return cart.read(a);
+    if (a < 0xa000) {
+      return ppu.vram[a - 0x8000] & 0xff;
+    }
+    if (a < 0xc000) return cart.readRam(a);
+    if (a < 0xe000) return wram[a - 0xc000] & 0xff;
+    if (a < 0xfe00) return wram[a - 0xe000] & 0xff;
+    if (a < 0xfea0) {
+      if (dmaOn) return 0xff;
+      return ppu.oam[a - 0xfe00] & 0xff;
+    }
+    if (a < 0xff00) return 0xff;
+    if (a < 0xff80) return ioRead(a);
+    if (a < 0xffff) return hram[a - 0xff80] & 0xff;
+    return IE & 0xff;
+  }
+
+  function ioRead(a: number): number {
+    switch (a) {
+      case 0xff00: {
+        const sel = p1 & 0x30;
+        const dir = (joyMask & 0x0f);
+        const btn = ((joyMask >> 4) & 0x0f);
+        let v = 0x0f;
+        if ((sel & 0x10) === 0) v &= (~dir) & 0x0f;
+        if ((sel & 0x20) === 0) v &= (~btn) & 0x0f;
+        if ((sel & 0x30) === 0x30) v = 0x0f;
+        return 0xc0 | (sel & 0x30) | (v & 0x0f);
+      }
+      case 0xff01: return sb & 0xff;
+      case 0xff02: return (sc & 0xff) | 0x7c;
+      case 0xff04: return (div >> 8) & 0xff;
+      case 0xff05: return tima & 0xff;
+      case 0xff06: return tma & 0xff;
+      case 0xff07: return 0xf8 | (tac & 0x07);
+      case 0xff0f: return 0xe0 | (IF & 0x1f);
+      case 0xff46: return 0xff;
+      case 0xff40: case 0xff41: case 0xff42: case 0xff43: case 0xff44:
+      case 0xff45: case 0xff47: case 0xff48: case 0xff49: case 0xff4a: case 0xff4b:
+        return ppu.readReg(a);
+      default:
+        if (a >= 0xff10 && a <= 0xff3f) {
+          return audio[a - 0xff00] & 0xff;
+        }
+        return 0xff;
+    }
+  }
+
+  function poke(a: number, v: number): void {
+    v &= 0xff;
+    if (a < 0x8000) { cart.write(a, v); return; }
+    if (a < 0xa000) { ppu.vram[a - 0x8000] = v; return; }
+    if (a < 0xc000) { cart.writeRam(a, v); return; }
+    if (a < 0xe000) { wram[a - 0xc000] = v; return; }
+    if (a < 0xfe00) { wram[a - 0xe000] = v; return; }
+    if (a < 0xfea0) {
+      if (!dmaOn) ppu.oam[a - 0xfe00] = v;
+      return;
+    }
+    if (a < 0xff00) return;
+    if (a < 0xff80) { ioWrite(a, v); return; }
+    if (a < 0xffff) { hram[a - 0xff80] = v; return; }
+    IE = v & 0xff;
+  }
+
+  function ioWrite(a: number, v: number): void {
+    v &= 0xff;
+    switch (a) {
+      case 0xff00: p1 = (0xc0 | (v & 0x30) | 0x0f) & 0xff; break;
+      case 0xff01: sb = v; break;
+      case 0xff02: {
+        sc = v;
+        if ((v & 0x81) === 0x81) {
+          serialText += String.fromCharCode(sb & 0xff);
+          sb = 0xff;
+          raise(3);
+        }
+        break;
+      }
+      case 0xff04: {
+        div = 0;
+        const c = curAnd();
+        if (prevAnd === 1 && c === 0) { if (reload === 0) incTima(); }
+        prevAnd = c;
+        break;
+      }
+      case 0xff05:
+        if (reload > 0) reload = 0;
+        tima = v;
+        break;
+      case 0xff06: tma = v; break;
+      case 0xff07: {
+        tac = (v & 0x07) | 0xf8;
+        const c = curAnd();
+        if (prevAnd === 1 && c === 0) { if (reload === 0) incTima(); }
+        prevAnd = c;
+        break;
+      }
+      case 0xff0f: IF = 0xe0 | (v & 0x1f); break;
+      case 0xff46: {
+        dmaOn = true; dmaBase = (v << 8) & 0xffff; dmaPos = 0; dmaT = 0;
+        break;
+      }
+      case 0xff40: case 0xff41: case 0xff42: case 0xff43: case 0xff45:
+      case 0xff47: case 0xff48: case 0xff49: case 0xff4a: case 0xff4b:
+        ppu.writeReg(a, v, raise);
+        break;
+      case 0xff44: break;
+      default:
+        if (a >= 0xff10 && a <= 0xff3f) audio[a - 0xff00] = v;
+        break;
+    }
+  }
+
+  function dmaStep(): void {
+    if (!dmaOn) return;
+    dmaT++;
+    if (dmaT >= 4) {
+      dmaT = 0;
+      const src = (dmaBase + dmaPos) & 0xffff;
+      let b = 0xff;
+      if (src < 0x8000) b = cart.read(src);
+      else if (src < 0xa000) b = ppu.vram[src - 0x8000];
+      else if (src < 0xc000) b = cart.readRam(src);
+      else if (src < 0xe000) b = wram[src - 0xc000];
+      else if (src < 0xfe00) b = wram[src - 0xe000];
+      else if (src < 0xfea0) b = ppu.oam[src - 0xfe00];
+      else if (src < 0xff00) b = 0xff;
+      else if (src < 0xff80) b = ioRead(src);
+      else if (src < 0xffff) b = hram[src - 0xff80];
+      else b = IE;
+      ppu.oam[dmaPos] = b & 0xff;
+      hits["dma"] = (hits["dma"] || 0) + 1;
+      dmaPos++;
+      if (dmaPos >= 160) { dmaOn = false; }
+    }
+  }
+
+  function tick(n: number): void {
+    for (let i = 0; i < n; i++) {
+      cycles++;
+      timerStep();
+      ppu.tick1(raise);
+      dmaStep();
+    }
+  }
+
+  const cpu = new Cpu(hits);
+  const bus: CpuBus = {
+    read(a: number): number {
+      a &= 0xffff;
+      tick(4);
+      return peek(a);
+    },
+    write(a: number, v: number): void {
+      a &= 0xffff; v &= 0xff;
+      tick(4);
+      if (a === 0xffff || (a >= 0xff00 && a <= 0xff7f)) {
+        hits["bus.io"] = (hits["bus.io"] || 0) + 1;
+        if (onRegWrite) {
+          const pi = ppu.info();
+          onRegWrite({ addr: a, value: v, ly: pi.ly, dot: pi.dot, cycles });
+        }
+      }
+      if (a === 0xffff) { IE = v & 0xff; return; }
+      poke(a, v);
+    },
+    idle(): void { tick(4); },
+    pendingIrqs(): number { return (IF & IE & 0x1f); },
+    ackIrq(bit: number): void { IF = (IF & ~(1 << bit)) & 0xff; },
+  };
+  cpu.attach(bus);
+  prevAnd = curAnd();
+
+  function step(): void { cpu.step(); }
+
+  function runFrame(): void {
+    if (!ppu.on) {
+      const target = cycles + 70224;
+      while (cycles < target) step();
+      return;
+    }
+    if (ppu.ly === 144) {
+      let guard = 0;
+      while (ppu.ly === 144 && guard++ < 1000000) step();
+    }
+    let guard = 0;
+    while (ppu.ly !== 144 && guard++ < 1000000) step();
+  }
+
+  function read(a: number): number { return peek(a & 0xffff); }
+
+  function frame(): Uint8Array { return ppu.fb.slice(); }
+
+  function setButtons(mask: number): void {
+    mask &= 0xff;
+    const newly = (mask & ~joyMask) & 0xff;
+    joyMask = mask;
+    if (newly !== 0) raise(4);
+  }
+
+  function runToCounter(n: number, wramAddr = 0xc0f0): boolean {
+    let last = -1;
+    let stall = 0;
+    for (let f = 0; f < 200000; f++) {
+      runFrame();
+      const v = (read(wramAddr) | (read(wramAddr + 1) << 8)) & 0xffff;
+      if (v === (n & 0xffff)) return true;
+      if (v === last) {
+        stall++;
+        if (stall >= 4) return false;
+      } else { stall = 0; last = v; }
+    }
+    return false;
+  }
+
+  function snapshot(): Uint8Array {
+    const sbytes = new TextEncoder().encode(serialText);
+    const ramLen = cart.ram.length;
+    const total = 4 + 8 + 2 + 2 + 4 + (2+1+1+1+1+1+1+1+1) + (1+1+1+1) + 2 + sbytes.length + (1+1+1+1) + 4 + ramLen + 0x2000 + 0x80 + 0x40 + 0x2000 + 0xa0 + 23040 + 16 + 8;
+    const buf = new Uint8Array(total + 64);
+    const dv = new DataView(buf.buffer);
+    let o = 0;
+    dv.setUint32(o, 0x444d4731); o += 4;
+    buf[o++] = cpu.a; buf[o++] = cpu.b; buf[o++] = cpu.c; buf[o++] = cpu.d;
+    buf[o++] = cpu.e; buf[o++] = cpu.f; buf[o++] = cpu.h; buf[o++] = cpu.l;
+    dv.setUint16(o, cpu.sp, true); o += 2;
+    dv.setUint16(o, cpu.pc, true); o += 2;
+    buf[o++] = cpu.ime ? 1 : 0; buf[o++] = cpu.eiDelay ? 1 : 0;
+    buf[o++] = cpu.halted ? 1 : 0; buf[o++] = cpu.haltBug ? 1 : 0;
+    dv.setUint16(o, div, true); o += 2;
+    buf[o++] = tima; buf[o++] = tma; buf[o++] = tac; buf[o++] = prevAnd; buf[o++] = reload;
+    buf[o++] = IF; buf[o++] = IE;
+    buf[o++] = p1; buf[o++] = joyMask; buf[o++] = sb; buf[o++] = sc;
+    dv.setUint16(o, sbytes.length, true); o += 2;
+    buf.set(sbytes, o); o += sbytes.length;
+    buf[o++] = dmaOn ? 1 : 0; buf[o++] = (dmaBase >> 8) & 0xff; buf[o++] = dmaPos & 0xff; buf[o++] = dmaT & 0xff;
+    dv.setUint32(o, ramLen, true); o += 4;
+    buf.set(cart.ram.subarray(0, ramLen), o); o += ramLen;
+    buf[o++] = cart.ramOn ? 1 : 0; buf[o++] = cart.lo & 0xff; buf[o++] = cart.hi & 0xff; buf[o++] = cart.mode & 0xff;
+    buf.set(wram, o); o += 0x2000;
+    buf.set(hram, o); o += 0x80;
+    buf.set(audio, o); o += 0x40;
+    buf.set(ppu.vram, o); o += 0x2000;
+    buf.set(ppu.oam, o); o += 0xa0;
+    buf.set(ppu.fb, o); o += 23040;
+    buf[o++] = ppu.lcdc; buf[o++] = ppu.stat; buf[o++] = ppu.scy; buf[o++] = ppu.scx;
+    buf[o++] = ppu.ly; buf[o++] = ppu.lyc; buf[o++] = ppu.bgp; buf[o++] = ppu.obp0;
+    buf[o++] = ppu.obp1; buf[o++] = ppu.wy; buf[o++] = ppu.wx; buf[o++] = ppu.mode;
+    dv.setUint16(o, ppu.dot, true); o += 2;
+    buf[o++] = ppu.winLine & 0xff; buf[o++] = ppu.statLine ? 1 : 0;
+    dv.setUint16(o, ppu.m3len, true); o += 2;
+    const cyc = Math.floor(cycles);
+    dv.setUint32(o, cyc >>> 0, true); o += 4;
+    dv.setUint32(o, Math.floor(cyc / 4294967296), true); o += 4;
+    return buf.slice(0, o);
+  }
+
+  function restore(s: Uint8Array): void {
+    const dv = new DataView(s.buffer, s.byteOffset, s.byteLength);
+    let o = 0;
+    o += 4;
+    cpu.a = s[o++]; cpu.b = s[o++]; cpu.c = s[o++]; cpu.d = s[o++];
+    cpu.e = s[o++]; cpu.f = s[o++] & 0xf0; cpu.h = s[o++]; cpu.l = s[o++];
+    cpu.sp = dv.getUint16(o, true); o += 2;
+    cpu.pc = dv.getUint16(o, true); o += 2;
+    cpu.ime = s[o++] !== 0; cpu.eiDelay = s[o++] !== 0;
+    cpu.halted = s[o++] !== 0; cpu.haltBug = s[o++] !== 0;
+    div = dv.getUint16(o, true); o += 2;
+    tima = s[o++]; tma = s[o++]; tac = s[o++]; prevAnd = s[o++]; reload = s[o++];
+    IF = s[o++]; IE = s[o++];
+    p1 = s[o++]; joyMask = s[o++]; sb = s[o++]; sc = s[o++];
+    const slen = dv.getUint16(o, true); o += 2;
+    serialText = new TextDecoder().decode(s.subarray(o, o + slen)); o += slen;
+    dmaOn = s[o++] !== 0; dmaBase = (s[o++] << 8) & 0xffff; dmaPos = s[o++]; dmaT = s[o++];
+    const ramLen = dv.getUint32(o, true); o += 4;
+    cart.ram.set(s.subarray(o, o + ramLen).subarray(0, cart.ram.length)); o += ramLen;
+    cart.ramOn = s[o++] !== 0; cart.lo = s[o++]; cart.hi = s[o++]; cart.mode = s[o++];
+    wram.set(s.subarray(o, o + 0x2000)); o += 0x2000;
+    hram.set(s.subarray(o, o + 0x80)); o += 0x80;
+    audio.set(s.subarray(o, o + 0x40)); o += 0x40;
+    ppu.vram.set(s.subarray(o, o + 0x2000)); o += 0x2000;
+    ppu.oam.set(s.subarray(o, o + 0xa0)); o += 0xa0;
+    ppu.fb.set(s.subarray(o, o + 23040)); o += 23040;
+    ppu.lcdc = s[o++]; ppu.stat = s[o++]; ppu.scy = s[o++]; ppu.scx = s[o++];
+    ppu.ly = s[o++]; ppu.lyc = s[o++]; ppu.bgp = s[o++]; ppu.obp0 = s[o++];
+    ppu.obp1 = s[o++]; ppu.wy = s[o++]; ppu.wx = s[o++]; ppu.mode = (s[o++] as 0 | 1 | 2 | 3);
+    ppu.dot = dv.getUint16(o, true); o += 2;
+    ppu.winLine = s[o++]; ppu.statLine = s[o++] !== 0;
+    ppu.m3len = dv.getUint16(o, true); o += 2;
+    const lo32 = dv.getUint32(o, true); o += 4;
+    const hi32 = dv.getUint32(o, true); o += 4;
+    cycles = hi32 * 4294967296 + lo32;
+  }
+
+  const tap: TelemetryTap = {
+    set onRegWrite(fn) { onRegWrite = fn as typeof onRegWrite; },
+    get onRegWrite() { return onRegWrite as TelemetryTap["onRegWrite"]; },
+    handlerHits(): Record<HandlerId, number> {
+      const out: Record<HandlerId, number> = {};
+      for (const k of HIDS) { out[k] = tapHits[k] || 0; tapHits[k] = 0; }
+      return out;
+    },
+    ppu: () => ppu.info(),
+  };
+
+  const regs: CoreRegs = { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, h: 0, l: 0, sp: 0, pc: 0 };
+  const core = {
+    step,
+    runFrame,
+    runToCounter,
+    get cpu(): CoreRegs {
+      regs.a = cpu.a; regs.b = cpu.b; regs.c = cpu.c; regs.d = cpu.d; regs.e = cpu.e;
+      regs.f = cpu.f; regs.h = cpu.h; regs.l = cpu.l; regs.sp = cpu.sp; regs.pc = cpu.pc;
+      return regs;
+    },
+    read,
+    frame,
+    get serial(): string { return serialText; },
+    get cycles(): number { return cycles; },
+    setButtons,
+    snapshot,
+    restore,
+    tap,
+  };
+  return core as unknown as Core;
+}
+
+export const createCoreFn: CreateCore = createCore;
+void createCoreFn;
+void (null as unknown as Handlers);
+=== END FILE ===
+=== DONE ===

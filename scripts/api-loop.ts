@@ -51,6 +51,9 @@ export function streamChat(key: string, model: string, messages: ChatMessage[], 
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
       timeout: 0,
+      // A fresh connection per call: a reused keep-alive socket that the gateway closed ended calls with
+      // "socket hang up" in rounds 2–4 (evidence/s1-core/rounds.jsonl).
+      agent: false,
     }, (res) => {
       if (res.statusCode !== 200) {
         let err = "";

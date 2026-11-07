@@ -1,0 +1,5 @@
+
+## Reading of the failing ROM output (from the implementer driving this loop)
+- Blargg prints each hex byte as two nibbles. Every byte above prints with both nibbles equal ("BB", "33", "66"), so the nibble-swap path the ROM's hex printer uses is wrong. In core/cpu.ts the CB-prefix decode of 0x00-0x3F tests `cb & 1` and thresholds 0x08/0x10/0x18/0x20. The CB operation is bits 3-5 of the opcode: (cb >> 3) & 7 selects RLC, RRC, RL, RR, SLA, SRA, SWAP, SRL, and bits 0-2 select the register B,C,D,E,H,L,(HL),A. Re-check the whole CB table against that encoding, and the base opcode table against the standard x/y/z decode, including flags for DAA, ADD SP,e8 / LD HL,SP+e8 (H and C from the low byte), and POP AF masking F to 0xF0.
+- mooneye mbc1 rom_8Mb and rom_16Mb hit the cycle cap: check the MBC1 ROM bank number masking for 1 MB and 2 MB ROMs, where the 2-bit upper register supplies bank bits 5-6 in both modes.
+- The previous reply broke the build with an unbalanced parenthesis (core/cpu.ts sub flags). Check every expression balances before sending; a file that fails to parse fails every check.
