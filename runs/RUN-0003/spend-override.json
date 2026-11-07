@@ -1,0 +1,6 @@
+{
+  "usd": 15,
+  "at": "2026-11-07T14:08:41-08:00",
+  "pre_run_usd": 15,
+  "note": "Seeded from RUN-0001 runs/RUN-0001/spend-override.json (owner read about $15 total on the Meta console, 2026-11-07T13:59:04-08:00). One Meta account serves RUN-0001, RUN-0002 and RUN-0003; this run counts only its own priced records after at, scaled by ownerRatio, and its guard reads server/spend.ts combinedMeter over all three runs. Update usd and at here with RUN-0001s file when the owner reads the console."
+}
