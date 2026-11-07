@@ -49,6 +49,13 @@ export function setSha(root: string, dirs: string[]): string {
 /** The S dirs: skills/graduated and policies/graduated under the given skills dir and root. */
 export function sDirs(skills: string, root: string): string[] { return [join(skills, "graduated"), join(root, "policies", "graduated")]; }
 
+/** Every file under `dirs` except a .gitkeep, relative to each dir: the members setSha hashes beyond the placeholder. Empty is S₀ = ∅. */
+export function sMembers(dirs: string[]): string[] {
+  const out: string[] = [];
+  for (const d of dirs) { const files: string[] = []; walk(d, d, files); out.push(...files.filter((f) => !f.endsWith("/.gitkeep")).map((f) => relative(join(d, ".."), f))); }
+  return out.sort();
+}
+
 function jsonl(file: string): Record<string, unknown>[] {
   if (!existsSync(file)) return [];
   const out: Record<string, unknown>[] = [];
@@ -96,7 +103,8 @@ export function runDir(runsDir: string, run: string): string { return join(runsD
 export const manifestPath = (runsDir: string, run: string) => join(runDir(runsDir, run), "manifest.json");
 export const lockPath = (runsDir: string, run: string) => join(runDir(runsDir, run), "vread.lock");
 
-function writeExcl(p: string, body: string): void {
+/** Writes `body` to a file that must not exist (O_CREAT | O_EXCL); throws an EEXIST error when it does. */
+export function writeExcl(p: string, body: string): void {
   mkdirSync(join(p, ".."), { recursive: true });
   const fd = openSync(p, "wx"); // O_CREAT | O_EXCL: throws EEXIST when the file is already there
   try { writeSync(fd, body); } finally { closeSync(fd); }

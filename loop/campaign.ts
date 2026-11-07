@@ -1,5 +1,7 @@
-// The campaign (SPEC §5 S10). `pnpm campaign [--resume] [--minutes M] [--dry]` opens RUN-0001 and runs it:
-//   open      writes runs/RUN-0001/manifest.json (loop/run-records.ts) with O_EXCL; refuses when it exists unless --resume.
+// The campaign (SPEC §5 S10). `pnpm campaign [--resume] [--minutes M] [--dry] [--allow-nonempty-s0]` opens RUN-0001 and runs it:
+//   open      writes runs/RUN-0001/manifest.json (loop/run-records.ts) with O_EXCL; refuses when it exists unless --resume,
+//             and refuses a first open while skills/graduated or policies/graduated holds a member (S₀ must be ∅,
+//             run-records.ts sMembers) unless the owner passes --allow-nonempty-s0.
 //             Every record written after carries run RUN-0001 (RATCHET_RUN is set in this process and its children).
 //   play      explorer segments with rotating seeds (CAMPAIGN_SEED0 + segment index) → lockstep against core-live's
 //             core, spot sampling every CAMPAIGN_SPOT_EVERY-th counter (player/spot.ts), incidents into the ledger;
@@ -7,12 +9,17 @@
 //   narrate   one Gemini sentence per new incident, best-effort;
 //   fast      the open incident whose box covers the parallax lines first (SPEC §7.8), then the largest pixel count;
 //             at most CAMPAIGN_PARALLEL attempts at once, MAX_ATTEMPTS per incident (loop/fast.ts), the gate step
-//             serialised through one mutex because every gate works in the one live clone;
+//             serialised through one mutex because every gate works in the one live clone; an attempt that throws
+//             counts against MAX_ATTEMPTS (its ATT, or an attempt-error record when it threw before minting one),
+//             and at MAX_ATTEMPTS the incident is parked: status records "parked" then status unrepaired
+//             (campaign.test.ts "throws before minting");
 //   slow      one slow-loop generation (loop/slow.ts runGeneration) whenever generationsDue says one is owed (every K);
 //   spend     before every attempt, server/spend.ts's meter: at SPEND_ASK_USD a `pause` record and "owner gate: spend $X",
 //             no new attempt until a steer "resume spend" (pnpm steer "resume spend") written after the pause; at
 //             SPEND_STOP_USD a `stop` record and the campaign ends once in-flight attempts finish.
-// The campaign's own records (open, segment, pause, resume, stop) go to runs/<run>/campaign.jsonl.
+//   freeze    once runs/<run>/manifest.json holds s_star_sha (pnpm freeze), the loop starts nothing more and stops when
+//             in-flight attempts finish (campaign.test.ts "frozen run").
+// The campaign's own records (open, segment, pause, resume, attempt-error, park, stop) go to runs/<run>/campaign.jsonl.
 // --dry runs the same loop on a scratch test bed (loop/fixtures/harness.ts) with the fake runner, a fake SubQ client,
 // fake play that opens DRY_INCIDENTS incidents and no Gemini, and stops when the deadline passes or nothing is left.
 
@@ -23,14 +30,15 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { K, MAX_ATTEMPTS } from "./gate.ts";
-import { all, appendNew, current } from "./ledger.ts";
+import { ruleVersion } from "./gate-repair.ts";
+import { all, appendNew, current, status } from "./ledger.ts";
 import { pathsFromEnv, type LoopPaths } from "./paths.ts";
 import { openIncidents, runFastCycle, type CycleOutput } from "./fast.ts";
 import { generationsDue } from "./slow.ts";
-import { buildManifest, manifestPath, openManifest, readManifest, RUN_ID } from "./run-records.ts";
+import { buildManifest, manifestPath, openManifest, readManifest, RUN_ID, sDirs, sMembers } from "./run-records.ts";
 import { meterLine, spendGate, spendMeter, type SpendMeter } from "../server/spend.ts";
 import { tlog } from "../src/telemetry.ts";
-import type { Incident, Manifest, Steer } from "../src/schema.ts";
+import type { Attempt, Incident, Manifest, Steer } from "../src/schema.ts";
 
 /** Attempts in flight at once. S8 Wiggle allows 3; the gate step is serialised (gateLock), the repairs run in parallel. */
 export const CAMPAIGN_PARALLEL = 3;
@@ -54,6 +62,9 @@ export type CampaignRecord =
   | { t: "segment"; at: string; run: string; seed: number; opened: string[]; error?: string }
   | { t: "pause"; at: string; run: string; usd: number; source: SpendMeter["source"]; priced_usd: number; owner_read_usd: number | null }
   | { t: "resume"; at: string; run: string; steer: string }
+  /** An attempt that threw; `minted` says whether it wrote its ATT before throwing. */
+  | { t: "attempt-error"; at: string; run: string; incident: string; minted: boolean; error: string }
+  | { t: "park"; at: string; run: string; incident: string; early_throws: number; attempts: number }
   | { t: "stop"; at: string; run: string; reason: string; attempts: number };
 
 export interface CampaignDeps {
@@ -133,13 +144,32 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
   let exhausted = false;
   let stopped = "";
 
+  // an attempt that throws counts against MAX_ATTEMPTS: its ATT if it minted one, else its attempt-error record;
+  // at MAX_ATTEMPTS the incident is parked: a "parked" status record, then status unrepaired
+  const attemptFailed = (incident: string, minted: boolean, error: string) => {
+    record(d.runsDir, d.run, { t: "attempt-error", at: new Date(now()).toISOString(), run: d.run, incident, minted, error });
+    const early_throws = readCampaign(d.runsDir, d.run).filter((r) => r.t === "attempt-error" && r.incident === incident && !r.minted).length;
+    const attempts = attemptsOn(incident);
+    if (attempts + early_throws < MAX_ATTEMPTS || current<Incident>("incidents.jsonl", incident, d.paths.ledger)?.status !== "open") return;
+    status("incidents.jsonl", incident, "parked", { at: new Date(now()).toISOString(), early_throws, attempts, error }, d.paths.ledger);
+    status("incidents.jsonl", incident, "status", "unrepaired", d.paths.ledger);
+    record(d.runsDir, d.run, { t: "park", at: new Date(now()).toISOString(), run: d.run, incident, early_throws, attempts });
+    log(`${incident} parked unrepaired: ${attempts} attempts and ${early_throws} early throws reach MAX_ATTEMPTS ${MAX_ATTEMPTS}`);
+  };
+  const attemptsOn = (id: string) => all<Attempt>("attempts.jsonl", d.paths.ledger).filter((a) => a.task.incident === id).length;
   const startAttempt = (inc: Incident) => {
+    const before = attemptsOn(inc.id);
     const p = (async () => {
       try {
         const r = await d.fast(inc.id, gateLock);
         done.push(r);
         log(`${r.attempt.id} on ${inc.id}: ${r.verdict.id} ${r.verdict.decision} (${r.verdict.reason})`);
-      } catch (e) { log(`attempt on ${inc.id} failed: ${(e as Error).message}`); tlog("loop", "campaign.attempt-failed", { incident: inc.id, error: (e as Error).message }); }
+      } catch (e) {
+        const error = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300);
+        log(`attempt on ${inc.id} failed: ${error}`);
+        tlog("loop", "campaign.attempt-failed", { incident: inc.id, error });
+        attemptFailed(inc.id, attemptsOn(inc.id) > before, error);
+      }
       finally { inflight.delete(inc.id); }
     })();
     inflight.set(inc.id, p);
@@ -147,6 +177,9 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
 
   while (!stopped) {
     if (now() >= deadline) { stopped = `deadline: ${d.minutes} min`; break; }
+    // curve freeze ends learning: no attempt and no slow generation starts once the manifest holds s_star_sha
+    const frozen = readManifest(d.runsDir, d.run);
+    if (frozen?.s_star_sha) { stopped = `frozen at ${frozen.frozen_at}: s_star_sha ${frozen.s_star_sha.slice(0, 12)}`; break; }
     let did = false;
 
     // play one segment; route and narrate what it opened
@@ -204,17 +237,32 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
   return { attempts: done, segments, paused, stopped, records: readCampaign(d.runsDir, d.run) };
 }
 
-export interface OpenOptions { runsDir: string; run: string; resume: boolean; build: () => Promise<Manifest> | Manifest }
+export interface OpenOptions {
+  runsDir: string; run: string; resume: boolean; build: () => Promise<Manifest> | Manifest;
+  /** The S dirs (run-records.ts sDirs); a first open refuses when they hold any member (sMembers): the curve starts at S₀ = ∅. */
+  s0Dirs?: string[];
+  /** The owner's --allow-nonempty-s0: opens the run over a non-empty S₀. */
+  allowNonEmptyS0?: boolean;
+  /** This process's gate-repair.ts ruleVersion(); --resume refuses when it differs from the manifest's rule_version. */
+  ruleVersion?: string;
+}
 
-/** Opens the run: writes the manifest, or with --resume reads the existing one. Throws when it exists without --resume. */
+/**
+ * Opens the run: writes the manifest, or with --resume reads the existing one. Throws when it exists without --resume,
+ * and on a first open when s0Dirs hold a graduated skill or policy, unless allowNonEmptyS0 (campaign.test.ts "S0 is not empty").
+ * A --resume with ruleVersion refuses when it is not the manifest's rule_version (campaign.test.ts "rule_version").
+ */
 export async function openRun(o: OpenOptions): Promise<Manifest> {
   const existing = readManifest(o.runsDir, o.run);
   if (existing) {
     if (!o.resume) throw new Error(`${manifestPath(o.runsDir, o.run)} exists: the run is already open (pass --resume to continue it)`);
+    if (o.ruleVersion && existing.rule_version !== o.ruleVersion) throw new Error(`rule_version ${o.ruleVersion} is not the manifest's ${existing.rule_version}: loop/gate.ts's rule constants changed after ${o.run} opened`);
     record(o.runsDir, o.run, { t: "open", at: new Date().toISOString(), run: o.run, manifest: manifestPath(o.runsDir, o.run), resumed: true });
     return existing;
   }
   if (o.resume) throw new Error(`--resume: ${manifestPath(o.runsDir, o.run)} does not exist`);
+  const s0 = o.s0Dirs ? sMembers(o.s0Dirs) : [];
+  if (s0.length && !o.allowNonEmptyS0) throw new Error(`S0 is not empty (${s0.slice(0, 6).join(", ")}${s0.length > 6 ? ", …" : ""}): the curve starts at S0 = ∅; retire them first, or pass --allow-nonempty-s0`);
   const m = await o.build();
   const p = openManifest(o.runsDir, m);
   record(o.runsDir, o.run, { t: "open", at: m.opened_at, run: o.run, manifest: p, resumed: false });
@@ -336,12 +384,12 @@ async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest
 }
 
 async function main(argv: string[]): Promise<number> {
-  const { values: v } = parseArgs({ args: argv, options: { resume: { type: "boolean" }, dry: { type: "boolean" }, minutes: { type: "string" } } });
+  const { values: v } = parseArgs({ args: argv, options: { resume: { type: "boolean" }, dry: { type: "boolean" }, minutes: { type: "string" }, "allow-nonempty-s0": { type: "boolean" } } });
   const minutes = Number(v.minutes ?? (v.dry ? 2 : 75));
   process.env.RATCHET_RUN = RUN_ID; // every record written from here carries the run (loop/ledger.ts runId)
   const { deps, manifest } = v.dry ? await dryDeps(minutes) : await realDeps(minutes);
   if (v.dry) console.log(`dry campaign: scratch ledger ${deps.paths.ledger}, runs ${deps.runsDir}`);
-  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest });
+  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"], ...(v.dry ? {} : { ruleVersion: ruleVersion() }) });
   console.log(`${m.id} open: rule_version ${m.rule_version.slice(0, 12)}, s0 ${m.s0_sha.slice(0, 12)}, ${Object.keys(m.roms).length} ROM hashes, models ${JSON.stringify(m.models)}`);
   console.log(meterLine(spendMeter({ ledger: deps.paths.ledger, runsDir: deps.runsDir, run: deps.run, env: deps.env })));
   console.log(`K ${K}, MAX_ATTEMPTS ${MAX_ATTEMPTS}, CAMPAIGN_PARALLEL ${CAMPAIGN_PARALLEL}, ${minutes} min`);

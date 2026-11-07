@@ -1,13 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dryDeps, openRun, pickIncident, readCampaign, runCampaign, type CampaignDeps } from "./campaign.ts";
-import { makeBed } from "./fixtures/harness.ts";
+import { makeBed, writeSkill, type Bed } from "./fixtures/harness.ts";
+import { openManifest, readManifest, sDirs } from "./run-records.ts";
 import { append, all, current } from "./ledger.ts";
 import { steer } from "./steer.ts";
 import { spendMeter } from "../server/spend.ts";
+import { MAX_ATTEMPTS } from "./gate.ts";
+import { ruleVersion } from "./gate-repair.ts";
 import type { Attempt, Incident, Manifest, Verdict } from "../src/schema.ts";
 
 const M = (id = "RUN-0001"): Manifest => ({ id, opened_at: "2026-11-07T14:30:00.000Z", models: {}, oracle: { core: "fake", build_hash: "h" }, roms: {}, splits_sha: "s", rule_version: "r", s0_sha: "z" });
@@ -19,6 +22,34 @@ test("openRun writes the manifest once, refuses a second open without --resume, 
   const m = await openRun({ runsDir, run: "RUN-0001", resume: true, build: () => { throw new Error("must not rebuild"); } });
   assert.equal(m.rule_version, "r");
   assert.deepEqual(readCampaign(runsDir, "RUN-0001").map((r) => r.t), ["open", "open"]);
+});
+
+test("openRun refuses to open the run when S0 is not empty (a skill or policy already graduated), unless the owner passes allowNonEmptyS0", async () => {
+  const bed = makeBed();
+  const dirs = sDirs(bed.paths.skills, bed.paths.root);
+  writeFileSync(join(bed.paths.skills, "graduated", ".gitkeep"), "");
+  const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+  // a .gitkeep alone is an empty S0
+  await openRun({ runsDir, run: "RUN-0001", resume: false, build: () => M(), s0Dirs: dirs });
+  const graduateSkill = (b: Bed) => writeSkill(b, "SKL-0001");
+  const graduatePolicy = (b: Bed) => { const p = join(b.paths.root, "policies", "graduated", "POL-0001"); mkdirSync(p, { recursive: true }); writeFileSync(join(p, "POLICY.md"), "---\nid: POL-0001\n---\n"); };
+  for (const make of [graduateSkill, graduatePolicy]) {
+    const b2 = makeBed();
+    const d2 = sDirs(b2.paths.skills, b2.paths.root);
+    make(b2);
+    const r2 = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+    await assert.rejects(openRun({ runsDir: r2, run: "RUN-0001", resume: false, build: () => M(), s0Dirs: d2 }), /S0 is not empty/);
+    assert.equal(readManifest(r2, "RUN-0001"), null);
+    await openRun({ runsDir: r2, run: "RUN-0001", resume: false, build: () => M(), s0Dirs: d2, allowNonEmptyS0: true });
+    assert.ok(readManifest(r2, "RUN-0001"));
+  }
+});
+
+test("openRun --resume refuses when the gate's rule constants hash to another rule_version than the manifest's (G4: never changed after the run opens)", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+  await openRun({ runsDir, run: "RUN-0001", resume: false, build: () => ({ ...M(), rule_version: ruleVersion() }), ruleVersion: ruleVersion() });
+  await openRun({ runsDir, run: "RUN-0001", resume: true, build: () => M(), ruleVersion: ruleVersion() });
+  await assert.rejects(openRun({ runsDir, run: "RUN-0001", resume: true, build: () => M(), ruleVersion: "0123456789ab" }), /rule_version/);
 });
 
 test("pickIncident takes a frame incident covering the parallax lines before a larger one that does not, then the most pixels", () => {
@@ -103,4 +134,57 @@ test("the owner-read override is what the guard acts on: $61 priced with a $5 co
   append("attempts.jsonl", { id: "ATT-0002", at: "2026-11-07T14:40:00.000Z", run: "RUN-0001", spent: { usd: 2.5 } }, g.bed.paths.ledger);
   append("spend.jsonl", { at: "2026-11-07T14:41:00.000Z", run: null, role: "narrator", model: "m", tokens_in: 1, tokens_out: 1, usd: 9 }, g.bed.paths.ledger);
   assert.equal(spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" }).owner_read_usd, 2.5);
+});
+
+test("an override whose `at` is later than the file was written is read at the file's write time, with a warning, so the run's priced records after the write still count", () => {
+  const g = guardBed(0);
+  const dir = join(g.runsDir, "RUN-0001");
+  mkdirSync(dir, { recursive: true });
+  const now = Date.now();
+  const f = join(dir, "spend-override.json");
+  writeFileSync(f, JSON.stringify({ usd: 5, at: new Date(now + 3600_000).toISOString(), pre_run_usd: 5 }));
+  utimesSync(f, new Date(now - 3600_000), new Date(now - 3600_000));
+  append("attempts.jsonl", { id: "ATT-0002", at: new Date(now - 1800_000).toISOString(), run: "RUN-0001", spent: { usd: 4 } }, g.bed.paths.ledger);
+  const m = spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" });
+  assert.equal(m.owner_read_usd, 4);
+  assert.match(m.warning ?? "", /later than the file was written/);
+});
+
+test("a frozen run (manifest holds s_star_sha) starts no attempt and no slow generation: the campaign stops learning at curve freeze", async () => {
+  const g = guardBed(0);
+  openManifest(g.runsDir, { ...M(), s_star_sha: "frozen", frozen_at: "2026-11-07T15:45:00.000Z" });
+  let slow = 0;
+  const out = await runCampaign({ ...g.deps, slow: async () => { slow++; } });
+  assert.deepEqual(g.calls, []);
+  assert.equal(slow, 0);
+  assert.match(out.stopped, /^frozen at 2026-11-07T15:45:00.000Z/);
+});
+
+type Parked = Incident &{ parked?: { early_throws: number; attempts: number; error: string } };
+
+test("an attempt that throws before minting its ATT counts against MAX_ATTEMPTS: after MAX_ATTEMPTS such throws the incident is parked unrepaired with a status record, and no further attempt starts", async () => {
+  const g = guardBed(0);
+  await runCampaign(g.deps);
+  assert.equal(g.calls.length, MAX_ATTEMPTS);
+  const inc = current<Parked>("incidents.jsonl", "INC-0001", g.bed.paths.ledger)!;
+  assert.equal(inc.status, "unrepaired");
+  assert.deepEqual(inc.parked && [inc.parked.early_throws, inc.parked.attempts, inc.parked.error], [MAX_ATTEMPTS, 0, "fake attempt"]);
+  const recs = readCampaign(g.runsDir, "RUN-0001");
+  assert.equal(recs.filter((r) => r.t === "attempt-error").length, MAX_ATTEMPTS);
+  assert.equal(recs.filter((r) => r.t === "park").length, 1);
+});
+
+test("an attempt that throws after minting its ATT counts once, and the MAX_ATTEMPTS-th such attempt flips the incident to unrepaired", async () => {
+  const g = guardBed(0);
+  let n = 0;
+  g.deps.fast = async (id) => {
+    g.calls.push(id);
+    append("attempts.jsonl", { id: `ATT-01${String(++n).padStart(2, "0")}`, at: new Date().toISOString(), run: "RUN-0001", task: { kind: "incident", incident: id }, spent: { usd: 0 } }, g.bed.paths.ledger);
+    throw new Error("repairer crashed");
+  };
+  await runCampaign(g.deps);
+  assert.equal(g.calls.length, MAX_ATTEMPTS);
+  const inc = current<Parked>("incidents.jsonl", "INC-0001", g.bed.paths.ledger)!;
+  assert.equal(inc.status, "unrepaired");
+  assert.deepEqual(inc.parked && [inc.parked.early_throws, inc.parked.attempts], [0, MAX_ATTEMPTS]);
 });

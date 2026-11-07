@@ -24,11 +24,11 @@ export const TELEMETRY_FRAME_HZ = 1; // 23,040-byte frames at 1 Hz per source ke
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let seq = 0;
 
-/** The open run's id: RATCHET_RUN if set, else the highest runs/RUN-NNNN with a manifest, else null. */
-export function currentRun(): string | null {
-  if (process.env.RATCHET_RUN) return process.env.RATCHET_RUN;
+/** The open run's id: RATCHET_RUN if set, else the highest runs/RUN-NNNN with a manifest.json, else null (telemetry.test.ts "currentRun"). */
+export function currentRun(runsDir = join(ROOT, "runs"), env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.RATCHET_RUN) return env.RATCHET_RUN;
   try {
-    const runs = readdirSync(join(ROOT, "runs")).filter((d) => /^RUN-\d{4}$/.test(d) && existsSync(join(ROOT, "runs", d, "manifest.json"))).sort();
+    const runs = readdirSync(runsDir).filter((d) => /^RUN-\d{4}$/.test(d) && existsSync(join(runsDir, d, "manifest.json"))).sort();
     return runs.at(-1) ?? null;
   } catch { return null; }
 }
