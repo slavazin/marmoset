@@ -82,7 +82,8 @@ export function collectModels(o: { telemetryFiles: string[]; ledger: string }): 
 
 export interface ManifestInput {
   run: string; root: string; skills: string; ledger: string; roms: string;
-  splitsPath: string; splits: Splits; familyRoms: (family: string) => string[];
+  /** One splits file, or the files a merged loadSplits() reads (suites/splits.ts splitsPaths); splits_sha hashes them concatenated. */
+  splitsPath: string | string[]; splits: Splits; familyRoms: (family: string) => string[];
   oracle: { core: string; build_hash: string };
   telemetryFiles: string[];
   now?: () => Date;
@@ -95,7 +96,7 @@ export function buildManifest(o: ManifestInput): Manifest {
   }
   return {
     id: o.run, opened_at: (o.now?.() ?? new Date()).toISOString(), models: collectModels(o), oracle: o.oracle,
-    roms, splits_sha: sha(readFileSync(o.splitsPath)), rule_version: ruleVersion(), s0_sha: setSha(o.root, sDirs(o.skills, o.root)),
+    roms, splits_sha: sha([o.splitsPath].flat().map((p) => readFileSync(p, "utf8")).join("")), rule_version: ruleVersion(), s0_sha: setSha(o.root, sDirs(o.skills, o.root)),
   };
 }
 

@@ -65,9 +65,12 @@ export function formatOutcome(o: ReplayOutcome): string {
   return `first mismatch: counter ${o.counter} (${what})`;
 }
 
-/** Reruns a suite incident's ROM; clean when it passes. The reading is printed beside the repro for G4 check 1. */
+/**
+ * Reruns a suite incident's ROM on the window's model (absent reads DMG); clean when it passes. The reading is printed
+ * beside the repro for G4 check 1 (lockstep/lockstep.test.ts "CGB suite incident").
+ */
 export function replaySuite(createCore: CreateCore, w: SuiteWindow, root: string, caps?: Caps): { clean: boolean; reading: RomResult; repro: RomResult } {
-  const reading = runRom(createCore, root, w.rom_rel, caps);
+  const reading = runRom(createCore, root, w.rom_rel, caps, undefined, w.model ?? "DMG");
   return { clean: reading.pass, reading, repro: w.repro };
 }
 

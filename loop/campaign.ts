@@ -1,8 +1,15 @@
-// The campaign (SPEC §5 S10). `pnpm campaign [--resume] [--minutes M] [--dry] [--allow-nonempty-s0]` opens RUN-0001 and runs it:
-//   open      writes runs/RUN-0001/manifest.json (loop/run-records.ts) with O_EXCL; refuses when it exists unless --resume,
+// The campaign (SPEC §5 S10). `pnpm campaign [--resume] [--minutes M] [--dry] [--allow-nonempty-s0] [--run RUN-NNNN]
+// [--game <path> (alias --rom; else RATCHET_GAME)] [--source play|cgb-suite] [--s0-commit <sha>] [--rules-as RUN-NNNN]… [--spend-also <ledger>,<runsDir>,<run>[,<jsonl>…]]…`
+// opens a run (--run, else RATCHET_RUN, else RUN_ID "RUN-0001") and runs it:
+//   open      writes runs/<run>/manifest.json (loop/run-records.ts) with O_EXCL; refuses when it exists unless --resume,
 //             and refuses a first open while skills/graduated or policies/graduated holds a member (S₀ must be ∅,
-//             run-records.ts sMembers) unless the owner passes --allow-nonempty-s0.
-//             Every record written after carries run RUN-0001 (RATCHET_RUN is set in this process and its children).
+//             run-records.ts sMembers) unless the owner passes --allow-nonempty-s0. A real open also writes
+//             runs/<run>/conditions.json (loop/run-conditions.ts): it refuses when the live branch head is not
+//             --s0-commit, a per-run directory is another run's, or ruleVersion() is not each --rules-as run's
+//             manifest rule_version, and --resume refuses when a condition differs.
+//             Every record written after carries the run (RATCHET_RUN is set in this process and its children).
+//   source    "play" (the default) plays --game (default game/game.gb); "cgb-suite" opens suite incidents from the
+//             failing ROMs of the CGB T families (cgbSuitePlay; D-draft-concurrent-cgb-run).
 //   play      explorer segments with rotating seeds (CAMPAIGN_SEED0 + segment index) → lockstep against core-live's
 //             core, spot sampling every CAMPAIGN_SPOT_EVERY-th counter (player/spot.ts), incidents into the ledger;
 //   route     SubQ route() on each new incident (S17's hook, called here and not in loop/fast.ts);
@@ -14,7 +21,8 @@
 //             and at MAX_ATTEMPTS the incident is parked: status records "parked" then status unrepaired
 //             (campaign.test.ts "throws before minting");
 //   slow      one slow-loop generation (loop/slow.ts runGeneration) whenever generationsDue says one is owed (every K);
-//   spend     before every attempt, server/spend.ts's meter plus attemptReserve per in-flight attempt (their spend is not
+//   spend     before every attempt, server/spend.ts's meter (combinedMeter over this run and every --spend-also run,
+//             the one Meta account) plus attemptReserve per in-flight attempt (their spend is not
 //             written yet): at SPEND_ASK_USD a `pause` record and "owner gate: spend $X",
 //             no new attempt until a steer "resume spend" (pnpm steer "resume spend") written after the pause; at
 //             SPEND_STOP_USD a `stop` record and the campaign ends once in-flight attempts finish.
@@ -24,7 +32,7 @@
 // --dry runs the same loop on a scratch test bed (loop/fixtures/harness.ts) with the fake runner, a fake SubQ client,
 // fake play that opens DRY_INCIDENTS incidents and no Gemini, and stops when the deadline passes or nothing is left.
 
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,7 +45,8 @@ import { pathsFromEnv, type LoopPaths } from "./paths.ts";
 import { openIncidents, runFastCycle, type CycleOutput } from "./fast.ts";
 import { generationsDue } from "./slow.ts";
 import { buildManifest, manifestPath, openManifest, readManifest, RUN_ID, sDirs, sMembers } from "./run-records.ts";
-import { attemptReserve, meterLine, spendGate, spendMeter, type SpendMeter } from "../server/spend.ts";
+import { attemptReserve, combinedMeter, meterLine, parseMeterPart, spendGate, spendMeter, type MeterPart, type SpendMeter } from "../server/spend.ts";
+import type { IncidentSource } from "./run-conditions.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { Attempt, Incident, Manifest, Steer } from "../src/schema.ts";
 
@@ -57,6 +66,13 @@ export const PARALLAX_LINES: readonly [number, number] = [16, 48];
 export const RESUME_STEER = "resume spend";
 /** Incidents the dry run's fake play opens. */
 export const DRY_INCIDENTS = 3;
+/**
+ * cgbSuitePlay opens a suite incident only while fewer than this many incidents are open, so incidents reach the slow
+ * loop's K-count as attempts free their slots rather than all at once; CAMPAIGN_PARALLEL keeps every slot fed.
+ */
+export const CGB_QUEUE_DEPTH = CAMPAIGN_PARALLEL;
+/** Milliseconds a cgbSuitePlay segment waits when it opens nothing, so idle segments do not spin the loop. */
+export const CGB_IDLE_MS = 30_000;
 
 export type CampaignRecord =
   | { t: "open"; at: string; run: string; manifest: string; resumed: boolean }
@@ -77,6 +93,8 @@ export interface CampaignDeps {
   fast(incidentId: string, gateLock: <T>(fn: () => Promise<T>) => Promise<T>): Promise<CycleOutput>;
   slow(): Promise<unknown>;
   minutes: number;
+  /** The spend guard's meter; default spendMeter over this run alone. */
+  meter?: () => SpendMeter;
   /** Stop once play is exhausted and no incident is open (dry). */
   stopWhenIdle?: boolean;
   env?: NodeJS.ProcessEnv;
@@ -199,7 +217,7 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
 
     // fill the attempt slots, the spend guard first before each
     while (inflight.size < CAMPAIGN_PARALLEL) {
-      const m = spendMeter({ ledger: d.paths.ledger, runsDir: d.runsDir, run: d.run, env: d.env });
+      const m = d.meter ? d.meter() : spendMeter({ ledger: d.paths.ledger, runsDir: d.runsDir, run: d.run, env: d.env });
       // in-flight attempts have not written their spend yet: each holds a reserve (server/spend.ts attemptReserve)
       const reserve_usd = inflight.size * attemptReserve({ ledger: d.paths.ledger, run: d.run, ratio: m.source === "owner-read" ? m.ratio : null });
       const guarded = m.usd + reserve_usd;
@@ -286,12 +304,11 @@ function child(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string)
   });
 }
 
-/** Real play: an explorer trace at `seed`, then player/spot.ts (lockstep plus spot sampling) in a child process against the live clone's core. */
-function realPlay(paths: LoopPaths, env: NodeJS.ProcessEnv): CampaignDeps["play"] {
+/** Real play: an explorer trace at `seed` on `romPath`, then player/spot.ts (lockstep plus spot sampling) in a child process against the live clone's core. */
+function realPlay(paths: LoopPaths, env: NodeJS.ProcessEnv, romPath: string): CampaignDeps["play"] {
   return async (seed) => {
     const { explorerTrace } = await import("../player/explore.ts");
     const { ratchetCache, sha256, traceSha } = await import("../oracle/client.ts");
-    const romPath = join(paths.root, "game", "game.gb");
     const trace = explorerTrace({ rom_sha: sha256(readFileSync(romPath)), frames: SEGMENT_FRAMES, seed });
     const dir = join(ratchetCache(), "traces");
     mkdirSync(dir, { recursive: true });
@@ -303,6 +320,46 @@ function realPlay(paths: LoopPaths, env: NodeJS.ProcessEnv): CampaignDeps["play"
     if (r.code !== 0) r = await child(process.execPath, [join(paths.root, "lockstep", "run.ts"), "--rom", romPath, "--trace", tp, "--core-dir", coreDir, "--ledger", paths.ledger], env, paths.root);
     if (r.code === 2) throw new Error(`lockstep failed: ${r.err.trim().split("\n").pop()}`);
     return { opened: all<Incident>("incidents.jsonl", paths.ledger).filter((i) => !before.has(i.id)) };
+  };
+}
+
+/**
+ * CGB-suite play (D-draft-concurrent-cgb-run): game.gb is a DMG game and lockstep compares DMG shades only, so a CGB run
+ * takes its incidents from the CGB T families. Each segment archives the live branch head's core, and while fewer
+ * than CGB_QUEUE_DEPTH incidents are open it runs lockstep/suite.ts suiteIncident (model CGB, RGB diff) on the next
+ * ROM of `families` (splits order) that has no suite incident in the ledger yet, opening one incident per failing
+ * ROM per run. Exhausted once every ROM has one. A segment that opens nothing waits `idleMs`
+ * (campaign.test.ts "cgb-suite play").
+ */
+export function cgbSuitePlay(paths: LoopPaths, o: { families?: string[]; idleMs?: number; run?: string | null } = {}): CampaignDeps["play"] {
+  return async () => {
+    const { familiesIn, familyModel, familyRoms, loadSplits, romsDir } = await import("../suites/splits.ts");
+    const { suiteIncident } = await import("../lockstep/suite.ts");
+    const { LedgerIncidentSink } = await import("./incident-sink.ts");
+    const { sha256 } = await import("../oracle/client.ts");
+    const { archiveCore } = await import("./gate-repair.ts");
+    const { loadCore } = await import("./replay-seam.ts");
+    const { git, LIVE_BRANCH } = await import("./paths.ts");
+    const splits = loadSplits();
+    const root = paths.roms ?? romsDir();
+    const families = o.families ?? familiesIn(splits, "T").filter((f) => familyModel(splits, f) === "CGB");
+    const seen = new Set(all<Incident>("incidents.jsonl", paths.ledger).filter((i) => i.source === "suite").map((i) => i.rom_sha));
+    const todo = families.flatMap((f) => familyRoms(splits, f, root).map((rom) => ({ f, rom, sha: sha256(readFileSync(join(root, rom))) }))).filter((x) => !seen.has(x.sha));
+    const wait = () => new Promise<void>((r) => setTimeout(r, o.idleMs ?? CGB_IDLE_MS));
+    if (!todo.length) { await wait(); return { opened: [], exhausted: true }; }
+    if (openIncidents(paths).length >= CGB_QUEUE_DEPTH) { await wait(); return { opened: [] }; }
+    const head = git(paths.live, ["rev-parse", LIVE_BRANCH]);
+    const coreDir = archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "play", head.slice(0, 12)));
+    const { createCore } = await loadCore(coreDir);
+    const sink = new LedgerIncidentSink(paths.ledger);
+    const opened: Incident[] = [];
+    for (const x of todo) {
+      const inc = suiteIncident(x.f, x.rom, { createCore, coreCommit: head, sink, splits, root, evidenceRoot: join(paths.evidence, "incidents"), run: o.run ?? process.env.RATCHET_RUN ?? null });
+      if (inc) { opened.push(inc); break; }
+      seen.add(x.sha);
+    }
+    if (!opened.length) await wait();
+    return { opened, exhausted: opened.length === 0 && todo.every((x) => seen.has(x.sha)) };
   };
 }
 
@@ -328,12 +385,15 @@ export function dryPlay(paths: LoopPaths, n = DRY_INCIDENTS): CampaignDeps["play
   };
 }
 
-export async function dryDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest: () => Manifest }> {
+export async function dryDeps(minutes: number, run: string = RUN_ID): Promise<{ deps: CampaignDeps; manifest: () => Manifest }> {
   const { makeBed, setShade, FIX } = await import("./fixtures/harness.ts");
   const { fakeRunner } = await import("./repair.ts");
   const { isolatedReplayer } = await import("./replay-seam.ts");
   const { route } = await import("./route.ts");
   const bed = makeBed();
+  // the bed's clone holds core-live; a run on another branch (RATCHET_LIVE_BRANCH) gets that branch cut from it
+  const { git, LIVE_BRANCH } = await import("./paths.ts");
+  if (LIVE_BRANCH !== "core-live") git(bed.paths.live, ["checkout", "--quiet", "-b", LIVE_BRANCH]);
   const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
   // the fake repairer fixes every incident but INC-0002, which it leaves unedited (a REFUSE at diff-scope); INC-0002 and
   // INC-0003 clone INC-0001, so INC-0001's GRADUATE re-check marks them repaired_by its verdict (gate-repair.ts recheckIncidents)
@@ -341,21 +401,30 @@ export async function dryDeps(minutes: number): Promise<{ deps: CampaignDeps; ma
   const steady = { async score() { return { readings: [], roms: {} }; } };
   const client = async () => ({ status: 200, wall_ms: 1, body: { model: "subq-snap-1.1 (dry)", answers: { subsystem: { type: "choice", probabilities: { ppu_fetcher: 0.7, other: 0.3 } } } as never, usage: { input_tokens: 10, output_tokens: 0 } } });
   const deps: CampaignDeps = {
-    paths: bed.paths, run: RUN_ID, runsDir, minutes, stopWhenIdle: true, sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 50))),
+    paths: bed.paths, run, runsDir, minutes, stopWhenIdle: true, sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 50))),
     play: dryPlay(bed.paths),
     route: (inc) => route(inc, { client, ledger: bed.paths.ledger, root: bed.paths.root, skills: [], observations: [] }),
     narrate: async () => null,
     fast: (id, gateLock) => runFastCycle(id, { paths: bed.paths, runner, replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true, gateLock }),
     slow: async () => null,
   };
-  const manifest = (): Manifest => ({ id: RUN_ID, opened_at: new Date().toISOString(), models: { repairer: "fake-muse (dry)" }, oracle: { core: "dry", build_hash: "dry" }, roms: {}, splits_sha: "dry", rule_version: "dry", s0_sha: "dry" });
+  const manifest = (): Manifest => ({ id: run, opened_at: new Date().toISOString(), models: { repairer: "fake-muse (dry)" }, oracle: { core: "dry", build_hash: "dry" }, roms: {}, splits_sha: "dry", rule_version: "dry", s0_sha: "dry" });
   return { deps, manifest };
 }
 
-async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest: () => Promise<Manifest> }> {
+export interface RunOptions {
+  run: string; rom: string; source: IncidentSource;
+  /** Other runs on the one Meta account (server/spend.ts combinedMeter). */
+  spendAlso: MeterPart[];
+}
+
+async function realDeps(minutes: number, o: RunOptions): Promise<{ deps: CampaignDeps; manifest: () => Promise<Manifest> }> {
+  const RUN_ID = o.run;
   const paths = pathsFromEnv();
   const runsDir = resolve(paths.root, process.env.RATCHET_RUNS ?? "runs");
   const env = { ...process.env, RATCHET_RUN: RUN_ID };
+  const self: MeterPart = { ledger: paths.ledger, runsDir, run: RUN_ID, env };
+  const meter = o.spendAlso.length ? () => combinedMeter([self, ...o.spendAlso]) : undefined;
   const { museCli } = await import("./repair.ts");
   const { defaultReplayer } = await import("./replay-seam.ts");
   const { defaultSuites } = await import("./gate-repair.ts");
@@ -365,8 +434,8 @@ async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest
   const { defaultJudge } = await import("./trial.ts");
   const replayer = defaultReplayer(), suites = defaultSuites(), judge = defaultJudge();
   const deps: CampaignDeps = {
-    paths, run: RUN_ID, runsDir, minutes, env,
-    play: realPlay(paths, env),
+    paths, run: RUN_ID, runsDir, minutes, env, meter,
+    play: o.source === "cgb-suite" ? cgbSuitePlay(paths, { run: RUN_ID }) : realPlay(paths, env, o.rom),
     route: (inc) => route(inc, { ledger: paths.ledger, root: paths.root }),
     narrate: (inc) => narrate({ id: inc.id, dir: resolve(paths.root, inc.files.dir), run: RUN_ID, ledgerDir: paths.ledger }),
     fast: (id, gateLock) => runFastCycle(id, { paths, runner: museCli, replayer, suites, gateLock }),
@@ -374,13 +443,13 @@ async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest
   };
   const manifest = async (): Promise<Manifest> => {
     const { OracleClient } = await import("../oracle/client.ts");
-    const { loadSplits, familyRoms, SPLITS_PATH } = await import("../suites/splits.ts");
+    const { loadSplits, familyRoms, splitsPaths } = await import("../suites/splits.ts");
     const o = OracleClient.spawn();
     let info: { core: string; build_hash: string };
     try { info = await o.info(); } finally { await o.close(); }
     const splits = loadSplits();
     return buildManifest({
-      run: RUN_ID, root: paths.root, skills: paths.skills, ledger: paths.ledger, roms: paths.roms, splitsPath: SPLITS_PATH, splits,
+      run: RUN_ID, root: paths.root, skills: paths.skills, ledger: paths.ledger, roms: paths.roms, splitsPath: splitsPaths(), splits,
       familyRoms: (f) => { try { return familyRoms(splits, f, paths.roms); } catch { return []; } },
       oracle: { core: info.core, build_hash: info.build_hash },
       telemetryFiles: [join(paths.root, "runs", "prerun", "telemetry", "llm.jsonl"), join(runsDir, RUN_ID, "telemetry", "llm.jsonl")],
@@ -389,15 +458,66 @@ async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest
   return { deps, manifest };
 }
 
+/** The run id a campaign process serves: --run, else RATCHET_RUN, else RUN_ID; refuses a name that is not RUN-NNNN. */
+export function campaignRun(flag: string | undefined, env = process.env): string {
+  const run = flag ?? (env.RATCHET_RUN || RUN_ID);
+  if (!/^RUN-\d{4,}$/.test(run)) throw new Error(`run id ${run} is not RUN-NNNN`);
+  return run;
+}
+
 async function main(argv: string[]): Promise<number> {
-  const { values: v } = parseArgs({ args: argv, options: { resume: { type: "boolean" }, dry: { type: "boolean" }, minutes: { type: "string" }, "allow-nonempty-s0": { type: "boolean" } } });
+  const { values: v } = parseArgs({ args: argv, options: {
+    resume: { type: "boolean" }, dry: { type: "boolean" }, minutes: { type: "string" }, "allow-nonempty-s0": { type: "boolean" },
+    run: { type: "string" }, rom: { type: "string" }, game: { type: "string" }, source: { type: "string" }, "s0-commit": { type: "string" }, "spend-also": { type: "string", multiple: true }, "rules-as": { type: "string", multiple: true },
+  } });
   const minutes = Number(v.minutes ?? (v.dry ? 2 : 75));
-  process.env.RATCHET_RUN = RUN_ID; // every record written from here carries the run (loop/ledger.ts runId)
-  const { deps, manifest } = v.dry ? await dryDeps(minutes) : await realDeps(minutes);
-  if (v.dry) console.log(`dry campaign: scratch ledger ${deps.paths.ledger}, runs ${deps.runsDir}`);
-  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"], ...(v.dry ? {} : { ruleVersion: ruleVersion() }) });
+  const run = campaignRun(v.run);
+  const source = (v.source ?? "play") as IncidentSource;
+  if (source !== "play" && source !== "cgb-suite") throw new Error(`--source ${source}: want play or cgb-suite`);
+  process.env.RATCHET_RUN = run; // every record written from here carries the run (loop/ledger.ts runId)
+  // the run's game: --game (or --rom), else RATCHET_GAME, else game/game.gb; children read it from RATCHET_GAME
+  const rom = resolve(v.game ?? v.rom ?? process.env.RATCHET_GAME ?? join(import.meta.dirname, "..", "game", "game.gb"));
+  process.env.RATCHET_GAME = rom;
+  const spendAlso = (v["spend-also"] ?? []).map(parseMeterPart);
+  const { deps, manifest } = v.dry ? await dryDeps(minutes, run) : await realDeps(minutes, { run, rom, source, spendAlso });
+  if (v.dry) {
+    console.log(`dry campaign: scratch ledger ${deps.paths.ledger}, runs ${deps.runsDir}`);
+    // the dry bed's meter joins the --spend-also runs, so a dry run reads the combined guard it would act on
+    if (spendAlso.length) deps.meter = () => combinedMeter([{ ledger: deps.paths.ledger, runsDir: deps.runsDir, run }, ...spendAlso]);
+  }
+  // a first open that fails after writing conditions.json removes it, so the run can be opened again from S0
+  let wroteConditions: string | null = null;
+  if (!v.dry) {
+    // no Muse key means every attempt exits before its first model call and spends an attempt: refuse to open
+    const { apiKey } = await import("./llm.ts");
+    if (!apiKey()) throw new Error("no Muse key: META_API_KEY unset and no muse_code_key in this checkout's or the main checkout's .env");
+    const { runConditions, openConditions, checkConditions, conditionsPath } = await import("./run-conditions.ts");
+    const { LIVE_BRANCH } = await import("./paths.ts");
+    const { splitsPaths } = await import("../suites/splits.ts");
+    const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion() });
+    // --rules-as RUN-NNNN (in this runs dir) or <runs dir>/RUN-NNNN: this run judges under that run's rule_version, or
+    // it does not open (owner requirement 2026-11-07)
+    for (const other of v["rules-as"] ?? []) {
+      const [dir, id] = other.includes("/") ? [resolve(other, ".."), resolve(other).split("/").pop()!] : [deps.runsDir, other];
+      const om = readManifest(dir, id);
+      if (!om) throw new Error(`--rules-as ${other}: ${manifestPath(dir, id)} is missing`);
+      if (om.rule_version !== c.rule_version) throw new Error(`rule_version ${c.rule_version.slice(0, 12)} is not ${other}'s ${om.rule_version.slice(0, 12)}: loop/gate.ts's rule constants differ`);
+    }
+    // every --rules-as run's runs dir also joins the isolation check, so a run in another runs dir is compared too
+    const extraRunsDirs = (v["rules-as"] ?? []).filter((x) => x.includes("/")).map((x) => resolve(x, ".."));
+    if (v.resume) checkConditions(c, { extraRunsDirs });
+    else {
+      if (readManifest(deps.runsDir, run)) throw new Error(`${manifestPath(deps.runsDir, run)} exists: the run is already open (pass --resume to continue it)`);
+      openConditions(c, { s0Commit: v["s0-commit"], extraRunsDirs });
+      wroteConditions = conditionsPath(c.runs_dir, run);
+    }
+    console.log(`${run} conditions: ${c.live_branch} ${c.s0_core_commit.slice(0, 12)} in ${c.live}, rom ${c.rom} (${c.rom_sha.slice(0, 12)}), source ${c.source}, seed0 ${c.seed0}, splits ${c.splits.length} file(s), scratch ${c.scratch}, cache ${c.cache}`);
+  }
+  let m: Manifest;
+  try { m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"], ...(v.dry ? {} : { ruleVersion: ruleVersion() }) }); }
+  catch (e) { if (wroteConditions) rmSync(wroteConditions, { force: true }); throw e; }
   console.log(`${m.id} open: rule_version ${m.rule_version.slice(0, 12)}, s0 ${m.s0_sha.slice(0, 12)}, ${Object.keys(m.roms).length} ROM hashes, models ${JSON.stringify(m.models)}`);
-  console.log(meterLine(spendMeter({ ledger: deps.paths.ledger, runsDir: deps.runsDir, run: deps.run, env: deps.env })));
+  console.log(meterLine(deps.meter ? deps.meter() : spendMeter({ ledger: deps.paths.ledger, runsDir: deps.runsDir, run: deps.run, env: deps.env })));
   console.log(`K ${K}, MAX_ATTEMPTS ${MAX_ATTEMPTS}, CAMPAIGN_PARALLEL ${CAMPAIGN_PARALLEL}, ${minutes} min`);
   const out = await runCampaign(deps);
   console.log(JSON.stringify({ stopped: out.stopped, segments: out.segments, attempts: out.attempts.map((a) => `${a.attempt.id} ${a.attempt.task.incident} ${a.verdict.id} ${a.verdict.decision}`), paused: out.paused }));
@@ -405,9 +525,13 @@ async function main(argv: string[]): Promise<number> {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  // dry: telemetry goes to a temp dir, so a dry RUN-0001 never writes under the repository's runs/
-  if (process.argv.includes("--dry")) process.env.RATCHET_TELEMETRY_DIR ??= mkdtempSync(join(tmpdir(), "ratchet-dry-telemetry-"));
-  else process.env.RATCHET_RUN = RUN_ID;
+  // dry: telemetry goes to a temp dir whatever the environment names, so a dry run never writes under the repository's runs/
+  if (process.argv.includes("--dry")) {
+    process.env.RATCHET_TELEMETRY_DIR = mkdtempSync(join(tmpdir(), "ratchet-dry-telemetry-"));
+    // the dry run's fake SubQ answers must not land in a real run's runs/<run>/subq-cache (loop/subq.ts cacheDir)
+    process.env.RATCHET_SUBQ_CACHE = mkdtempSync(join(tmpdir(), "ratchet-dry-subq-"));
+  }
+  else { const i = process.argv.indexOf("--run"); process.env.RATCHET_RUN = i > 0 ? process.argv[i + 1] : (process.env.RATCHET_RUN || RUN_ID); }
   (await import("../src/telemetry-process.ts")).processStart("campaign");
   try { process.exitCode = await main(process.argv.slice(2)); } catch (e) { console.error(String(e instanceof Error ? e.message : e)); process.exitCode = 1; }
 }
