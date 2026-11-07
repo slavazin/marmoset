@@ -283,8 +283,7 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
     tlog("loop", "gate-check-start", { attempt: attempt.id, name });
     // a check that throws fails: the attempt still gets its REFUSE verdict (its tombstone)
     let r: { pass: boolean; reading: unknown };
-    try { r = await fn(); } catch (e) { r = { pass: false, reading: { error: String((e as Error)?.message ?? e).split("
-")[0].slice(0, 200) } }; }
+    try { r = await fn(); } catch (e) { r = { pass: false, reading: { error: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200) } }; }
     tlog("loop", "gate-check", { attempt: attempt.id, name, ...r });
     checks.push({ name, ...r });
   };
