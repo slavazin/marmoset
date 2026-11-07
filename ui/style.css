@@ -72,3 +72,32 @@ dialog .figs { display: flex; gap: 8px; }
 dialog img { width: 240px; image-rendering: pixelated; border: 1px solid var(--line); }
 pre { white-space: pre-wrap; font-size: 11px; }
 @media (max-width: 1200px) { main { grid-template-columns: 1fr; } #centre { order: -1; } #lcd { width: min(640px, calc(100vw - 100px)); } footer { grid-template-columns: 1fr; } }
+
+/* ---- replay mode (ui/replay.ts) and the telemetry LED (ui/telemetry-led.ts) ---- */
+.replaylabel { background: #ffb020; color: #1a1200; padding: 2px 8px; border-radius: 3px; letter-spacing: .04em; }
+body.replay { padding-bottom: 52px; }
+body.replay .shell { box-shadow: 0 0 0 3px #ffb020 inset; }
+.replaybar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #161d10; border-top: 2px solid #ffb020; }
+.replaybar button, .replaybar select, .inspector select, .inspector button { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; font: inherit; padding: 2px 8px; }
+#rp-track { position: relative; flex: 1; height: 24px; }
+#rp-scrub { width: 100%; margin: 0; position: absolute; top: 4px; accent-color: #ffb020; }
+#rp-marks { position: absolute; inset: 0; pointer-events: none; }
+#rp-marks .mk { position: absolute; top: 0; width: 3px; height: 8px; margin-left: -1px; pointer-events: auto; cursor: pointer; background: var(--dim); }
+#rp-marks .mk.mk-incident { background: #ffb020; }
+#rp-marks .mk.mk-verdict { background: var(--red); top: 16px; }
+#rp-marks .mk.mk-graduation { background: var(--grad); top: 16px; height: 8px; width: 5px; }
+#rp-marks .mk.mk-fire { background: #5ab0ff; }
+.inspector { position: fixed; right: 0; top: 40px; bottom: 50px; width: min(520px, 100vw); z-index: 19; background: var(--panel); border-left: 2px solid #ffb020; display: grid; grid-template-rows: auto 1fr minmax(120px, 40%); padding: 8px; gap: 6px; }
+.inspector .ihead { display: flex; gap: 8px; align-items: center; }
+.inspector .ihead button { margin-left: auto; }
+#in-rows { overflow: auto; }
+.irow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; padding: 1px 2px; }
+.irow:hover { background: var(--line); }
+.irow { color: var(--fg); font-size: 12px; flex-shrink: 0; line-height: 16px; }
+.irow.future { opacity: .55; }
+.irow .s-llm { color: #5ab0ff; } .irow .s-muse { color: #c18cff; } .irow .s-loop { color: #ffb020; } .irow .s-input { color: var(--g2); }
+.inspector .detail { overflow: auto; margin: 0; padding: 6px; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; }
+#tled { cursor: pointer; }
+.tgaps { position: fixed; right: 12px; top: 36px; z-index: 21; max-width: 560px; max-height: 60vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); padding: 8px; }
+.tgaps .fail { color: #ff8a80; margin: 2px 0; }
+.inspector[hidden], .replaybar[hidden], .tgaps[hidden], .replaylabel[hidden] { display: none; }

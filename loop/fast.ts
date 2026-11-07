@@ -12,6 +12,7 @@ import { runRepair, type MuseRunner } from "./repair.ts";
 import { gateAttempt, type GateOutput, type SuitesJudge } from "./gate-repair.ts";
 import { listSkills, selectShown } from "./shown.ts";
 import type { Replayer } from "./replay-seam.ts";
+import { tlog } from "../src/telemetry.ts";
 import { join } from "node:path";
 import { loadSplits, familiesIn, familyRoms } from "../suites/splits.ts";
 import type { Attempt, Fire, Incident, Observation, RepairTask, Verdict } from "../src/schema.ts";
@@ -44,6 +45,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   const prior = all<Attempt>("attempts.jsonl", paths.ledger).filter((a) => a.task.incident === incidentId).length;
   if (prior >= MAX_ATTEMPTS) throw new Error(`${incidentId} has ${prior} attempts; MAX_ATTEMPTS is ${MAX_ATTEMPTS}`);
 
+  tlog("loop", "incident-picked", { incident: incidentId, prior_attempts: prior, kind: inc.kind, counter: inc.counter });
   const base = git(paths.live, ["rev-parse", LIVE_BRANCH]);
   const graduated = listSkills(paths.skills, "graduated");
   const fires = all<Fire>("fires.jsonl", paths.ledger);
@@ -56,6 +58,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
     isolation: { home: "", skills_list: "", observers: "on-identical", web_tools: "on" },
   }), paths.ledger);
   const id = start.id;
+  tlog("loop", "attempt-start", { attempt: id, incident: incidentId, base_commit: base, skills: shownIds });
   const S = (field: string, value: unknown) => status("attempts.jsonl", id, field, value, paths.ledger);
 
   const splits = loadSplits();
@@ -77,6 +80,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   // result last: the UI reads an attempt with a result as phase "end" (server/events.ts toEvent)
   S("result", rep.result ?? { dispositions: {}, off_map: null, beliefs: [], summary: `no packet/RESULT.json (muse exit ${rep.exitCode})` });
 
+  tlog("loop", "attempt-end", { attempt: id, verdict: gate.verdict.id, decision: gate.verdict.decision, model: rep.model, spent: rep.spent, exit: rep.exitCode, summary: rep.result?.summary ?? null });
   if (gate.verdict.decision === "GRADUATE") status("incidents.jsonl", incidentId, "status", "repaired", paths.ledger);
   else if (prior + 1 >= MAX_ATTEMPTS) status("incidents.jsonl", incidentId, "status", "unrepaired", paths.ledger);
 

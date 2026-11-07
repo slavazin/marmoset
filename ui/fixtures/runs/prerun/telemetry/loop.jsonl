@@ -1,0 +1,17 @@
+{"at":"2026-11-07T12:01:00.050Z","seq":795,"pid":4242,"run":null,"stream":"loop","kind":"incident-picked","data":{"incident":"INC-0001","prior_attempts":0,"kind":"frame","counter":300}}
+{"at":"2026-11-07T12:10:00.010Z","seq":796,"pid":4242,"run":null,"stream":"loop","kind":"attempt-start","data":{"attempt":"ATT-0001","incident":"INC-0001","base_commit":"f1x7ure","skills":[]}}
+{"at":"2026-11-07T12:11:10.000Z","seq":803,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0001","name":"diff-scope","pass":true}}
+{"at":"2026-11-07T12:11:19.000Z","seq":804,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0001","name":"repro","pass":true}}
+{"at":"2026-11-07T12:11:28.000Z","seq":805,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0001","name":"admitted-traces","pass":true}}
+{"at":"2026-11-07T12:11:37.000Z","seq":806,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0001","name":"base-suites","pass":true}}
+{"at":"2026-11-07T12:11:46.000Z","seq":807,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0001","name":"H-no-regress","pass":false}}
+{"at":"2026-11-07T12:11:59.995Z","seq":808,"pid":4242,"run":null,"stream":"loop","kind":"attempt-end","data":{"attempt":"ATT-0001","verdict":"VER-0001","decision":"REFUSE","model":"muse-code-1"}}
+{"at":"2026-11-07T12:12:00.000Z","seq":809,"pid":4242,"run":null,"stream":"loop","kind":"verdict","data":{"attempt":"ATT-0001","verdict":"VER-0001","decision":"REFUSE"}}
+{"at":"2026-11-07T12:20:00.010Z","seq":810,"pid":4242,"run":null,"stream":"loop","kind":"attempt-start","data":{"attempt":"ATT-0002","incident":"INC-0001","base_commit":"f1x7ure","skills":["SKL-0002"]}}
+{"at":"2026-11-07T12:28:10.000Z","seq":817,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0002","name":"diff-scope","pass":true}}
+{"at":"2026-11-07T12:28:19.000Z","seq":818,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0002","name":"repro","pass":true}}
+{"at":"2026-11-07T12:28:28.000Z","seq":819,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0002","name":"admitted-traces","pass":true}}
+{"at":"2026-11-07T12:28:37.000Z","seq":820,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0002","name":"base-suites","pass":true}}
+{"at":"2026-11-07T12:28:46.000Z","seq":821,"pid":4242,"run":null,"stream":"loop","kind":"gate-check","data":{"attempt":"ATT-0002","name":"H-no-regress","pass":true}}
+{"at":"2026-11-07T12:28:59.995Z","seq":822,"pid":4242,"run":null,"stream":"loop","kind":"attempt-end","data":{"attempt":"ATT-0002","verdict":"VER-0002","decision":"GRADUATE","model":"muse-code-1"}}
+{"at":"2026-11-07T12:29:00.000Z","seq":823,"pid":4242,"run":null,"stream":"loop","kind":"verdict","data":{"attempt":"ATT-0002","verdict":"VER-0002","decision":"GRADUATE"}}

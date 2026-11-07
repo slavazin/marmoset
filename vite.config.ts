@@ -2,7 +2,7 @@
 import { defineConfig } from "vite";
 
 const server = process.env.RATCHET_SERVER ?? "http://localhost:8787";
-const proxied = ["/events", "/api", "/evidence", "/game"];
+const proxied = ["/events", "/api", "/evidence", "/game", "/dist"];
 
 export default defineConfig({
   root: "ui",

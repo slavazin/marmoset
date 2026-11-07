@@ -56,6 +56,8 @@ test("a session recorded through the live server replays to an SSE client in the
     tlog("muse", "msp", msp); expected.push({ stream: "muse", kind: "msp", data: msp }); await sleep(5);
     append("attempts.jsonl", { id: "ATT-0001", at: new Date().toISOString(), run: null, task: { incident: "INC-0001" } }, paths.ledger);
     live.bus.poll(); await take(1); syncExpected(); await sleep(5);
+    append("incidents.jsonl", { t: "status", id: "INC-0001", field: "status", value: "unrepaired", at: new Date().toISOString(), run: null }, paths.ledger);
+    live.bus.poll(); await take(1); syncExpected(); await sleep(5);
     append("verdicts.jsonl", { id: "VER-0001", at: new Date().toISOString(), run: null, subject: { kind: "attempt", id: "ATT-0001" }, decision: "REFUSE", checks: [], reason: "r", residue: [], rule_version: "x" }, paths.ledger);
     live.bus.poll(); await take(1); syncExpected();
     client.close();

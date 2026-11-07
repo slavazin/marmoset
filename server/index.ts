@@ -216,8 +216,22 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { processStart } = await import("../src/telemetry-process.ts");
+  const { verify, appendReport, VERIFY_EVERY_S } = await import("./verify.ts");
+  const { currentRun } = await import("../src/telemetry.ts");
+  processStart("server");
   const opts = pathsFromEnv();
-  const { server } = createServer(opts);
+  let latest: unknown = null;
+  const { server } = createServer({ ...opts, record: true, verifyReport: () => latest });
+  const runVerify = async () => {
+    try {
+      const r = await verify({ paths: opts, run: currentRun() ?? "prerun", sinceMs: null });
+      latest = r;
+      appendReport(opts.runs, r);
+    } catch (e) { console.error(`telemetry verify: ${(e as Error).message}`); }
+  };
+  setTimeout(runVerify, 5000).unref();
+  setInterval(runVerify, VERIFY_EVERY_S * 1000).unref();
   server.listen(PORT, () => {
     console.log(`ratchet server :${PORT} ledger=${opts.ledger} evidence=${opts.evidence}`);
   });

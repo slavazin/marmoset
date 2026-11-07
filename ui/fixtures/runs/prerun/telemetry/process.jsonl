@@ -1,0 +1,2 @@
+{"at":"2026-11-07T12:00:00.000Z","seq":0,"pid":4242,"run":null,"stream":"process","kind":"start","data":{"name":"server","argv":["server/index.ts"],"head":"f1c7e00","node":"v22.12.0","cwd":"/ratchet","env_names":["GEMINI_API_KEY","META_API_KEY","PATH","RATCHET_RUN"]}}
+{"at":"2026-11-07T12:42:00.000Z","seq":824,"pid":4242,"run":null,"stream":"process","kind":"stop","data":{"name":"server","code":0,"uptime_s":2520}}

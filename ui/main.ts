@@ -12,6 +12,8 @@ import { renderMeta, Heatmap, renderCurve, renderMooneye, mooneyeReadings } from
 import { verdictCard } from "./cards/verdict-card.ts";
 import { incidentCard } from "./cards/incident-card.ts";
 import { esc, fmtReading, evidenceUrl, verdictIncident } from "./format.ts";
+import { detectReplay, startReplay } from "./replay.ts";
+import { mountTelemetryLed } from "./telemetry-led.ts";
 
 /** DMG CPU clock (Hz) and T-cycles per frame; the frame period the live loop paces to is their ratio (~16.74 ms). */
 const CPU_HZ = 4_194_304;
@@ -21,6 +23,8 @@ const FRAME_MS = (FRAME_CYCLES / CPU_HZ) * 1000;
 const MAX_CATCHUP = 3;
 /** Metadata panel refreshes per second; the heatmap takes every frame. */
 const META_HZ = 10;
+/** Core frames and meta snapshots per second the page posts to /api/event so the server records them (TELEMETRY_FRAME_HZ, src/telemetry.ts). */
+const RECORD_HZ = 1;
 /** Keyboard → joypad bit (§6.1 setButtons: bit0 right, 1 left, 2 up, 3 down, 4 A, 5 B, 6 select, 7 start). */
 const KEYMAP: Record<string, number> = {
   ArrowRight: 0, ArrowLeft: 1, ArrowUp: 2, ArrowDown: 3, KeyZ: 4, KeyX: 5, Backspace: 6, ShiftRight: 6, Enter: 7,
@@ -39,6 +43,7 @@ let vread: VRead | null = null;
 let selectedIncident: string | null = null;
 let liveOracle: Uint8Array | null = null;
 
+let replay: ReturnType<typeof startReplay> | null = null;
 let mod: CoreModule;
 let core: Core;
 let rom: Uint8Array = new Uint8Array(0);
@@ -82,7 +87,7 @@ function counter(): number {
 }
 
 function setMask(next: number): void {
-  if (next === mask) return;
+  if (next === mask || replay) return;
   mask = next;
   core.setButtons(mask);
   post("/api/input", { counter: counter(), mask });
@@ -113,7 +118,9 @@ let acc = 0;
 let lastT = 0;
 let lastMeta = 0;
 
+let lastRecord = 0;
 function tick(t: number): void {
+  if (replay) return; // replay draws recorded frames (ui/replay.ts)
   if (lastT) acc += t - lastT;
   lastT = t;
   let n = 0;
@@ -138,10 +145,18 @@ function tick(t: number): void {
     pacing.intervalP99Ms = iv[Math.floor(iv.length * 0.99)] ?? 0;
     $("fps").textContent = `${pacing.fps} fps · runFrame ${pacing.frameCostMs.toFixed(2)} ms`;
     const p = core.tap.ppu();
-    renderMeta($("meta"), {
+    const m = {
       pc: core.cpu.pc, op: disasm((a) => core.read(a), core.cpu.pc).text, ly: p.ly, mode: p.mode, stat: p.stat,
       ie: core.read(0xffff), if_: core.read(0xff0f), hits: lastHits,
-    }, provenance);
+    };
+    renderMeta($("meta"), m, provenance);
+    if (t - lastRecord > 1000 / RECORD_HZ) {
+      lastRecord = t;
+      const fb = core.frame();
+      let bin = ""; for (let i = 0; i < fb.length; i++) bin += String.fromCharCode(fb[i]);
+      post("/api/event", { t: "frame", source: "core", shades_b64: btoa(bin), counter: counter() });
+      post("/api/event", { t: "meta", ...m, provenance: [] });
+    }
   }
   requestAnimationFrame(tick);
 }
@@ -278,8 +293,14 @@ async function onEvent(e: UiEvent): Promise<void> {
     case "verdict": verdicts.set(e.verdict.id, e.verdict); break;
     case "curve": curve[e.generation - 1] = e; break;
     case "vread": vread = e.result; break;
-    case "meta": provenance = e.provenance.length ? e.provenance : provenance; break;
-    case "frame": if (e.source === "oracle") onOracleFrame(decodeShades(e.shades_b64), e.counter); break;
+    case "meta":
+      provenance = e.provenance.length ? e.provenance : provenance;
+      if (replay) { lastHits = e.hits; heatmap.push(e.hits); renderMeta($("meta"), e, provenance); }
+      break;
+    case "frame":
+      if (e.source === "oracle") onOracleFrame(decodeShades(e.shades_b64), e.counter);
+      else if (replay) replay.onCoreFrame(decodeShades(e.shades_b64), e.counter);
+      break;
     case "player": $("player").textContent = `${e.intent} · ${e.mask.toString(2).padStart(8, "0")}`; break;
     case "core": {
       const next = await loadCore(e.bundle_url);
@@ -297,6 +318,15 @@ function connect(): void {
   es.onopen = () => { $("conn").className = "led on"; };
   es.onerror = () => { $("conn").className = "led"; };
   es.onmessage = (m) => { try { onEvent(JSON.parse(m.data) as UiEvent); } catch { /* malformed event enters no view */ } };
+  es.addEventListener("replay", (m) => { try { replay?.onStatus(JSON.parse((m as MessageEvent).data)); } catch { /* ignored */ } });
+  es.addEventListener("telemetry", (m) => { try { replay?.onTelemetry(JSON.parse((m as MessageEvent).data)); } catch { /* ignored */ } });
+}
+
+/** Clears every ledger-derived view; a replay seek rebuilds them from the events that follow. */
+function resetViews(): void {
+  incidents.clear(); attempts.clear(); verdicts.clear(); curve.length = 0; vread = null; selectedIncident = null; liveOracle = null;
+  $("side").hidden = true;
+  queueRender();
 }
 
 async function refreshProvenance(): Promise<void> {
@@ -309,6 +339,15 @@ async function refreshProvenance(): Promise<void> {
   mod = loaded.mod;
   $("corelabel").textContent = loaded.label;
   heatmap = new Heatmap($("heat"), $("heatlabels"), Object.keys(mod.HANDLERS));
+  mountTelemetryLed($("tled"), $("tgaps"));
+  const rs = await detectReplay();
+  if (rs) {
+    replay = startReplay(rs, { reset: resetViews, draw: (s) => lcd.draw(s), note: (s) => { $("fps").textContent = s; } });
+    $("romlabel").textContent = "inputs disabled in replay";
+    await refreshProvenance();
+    connect();
+    return;
+  }
   await loadRomUrl(params.get("rom") ?? "/game/game.gb");
   await refreshProvenance();
   connect();

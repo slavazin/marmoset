@@ -12,6 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSyn
 import { join } from "node:path";
 import { git } from "./paths.ts";
 import type { Packet } from "./projection.ts";
+import { tlog } from "../src/telemetry.ts";
 import type { Attempt, RepairResult, RepairTask } from "../src/schema.ts";
 
 // ---- Muse Code invocation (D-0001, measured on Muse Code 1.4.14 (1.4.14-R7309.1), 2026-11-07) ----
@@ -175,6 +176,7 @@ export async function runRepair(task: RepairTask, packet: Packet, o: RepairOptio
   const eventsFile = join(home, "events.jsonl");
   writeFileSync(eventsFile, "");
   const out = await o.runner.run({ cwd: packet.dir, env, sessionId: randomUUID(), maxSteps: task.budget.max_steps, wallS: task.budget.wall_s, eventsFile });
+  for (const l of readFileSync(eventsFile, "utf8").split("\n")) if (l.trim()) { let r: unknown; try { r = JSON.parse(l); } catch { r = { unparsed: l.slice(0, 4096) }; } tlog("muse", "msp", { attempt: o.attempt, record: r }); }
   let result: RepairResult | null = null;
   const rp = join(packet.dir, "packet", "RESULT.json");
   if (existsSync(rp)) { try { result = JSON.parse(readFileSync(rp, "utf8")); } catch { result = null; } }

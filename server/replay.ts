@@ -68,7 +68,8 @@ export function ledgerItems(ledgerDir: string, run: string): Item[] {
       if (!id || !inRun(r, run)) continue;
       const at = typeof r.at === "string" && !Number.isNaN(Date.parse(r.at)) ? Date.parse(r.at) : lastAt;
       lastAt = at;
-      out.push({ at, kind: "ui", origin: "ledger", event: toEvent(f, fold.get(id)!) });
+      // a copy: later status records mutate the folded object, and this event shows the record as of `at` (as live did)
+      out.push({ at, kind: "ui", origin: "ledger", event: toEvent(f, structuredClone(fold.get(id)!)) });
       if (f === "verdicts.jsonl") {
         const v = fold.get(id) as unknown as Verdict;
         const curve = curveEvents(fold.all());
@@ -115,7 +116,9 @@ export function loadTimeline(paths: Paths, run: string, distDir = join(ROOT, "di
   }
   const t0 = items[0]?.at ?? 0;
   const t1 = items.at(-1)?.at ?? t0;
-  const markers = items.flatMap((x) => (x.kind === "ui" && x.origin === "ledger" ? markerOf(x.event, x.at) : []));
+  const seen = new Set<string>(); // one marker per id, at its first record; status flips re-emit the id without a marker
+  const markers = items.flatMap((x) => (x.kind === "ui" && x.origin === "ledger" ? markerOf(x.event, x.at) : []))
+    .filter((m) => !seen.has(`${m.kind}:${m.id}`) && seen.add(`${m.kind}:${m.id}`));
   const coreEv = items.find((x) => x.kind === "ui" && x.event.t === "core");
   const start = recs.find((r) => r.stream === "process" && r.kind === "start" && typeof (r.data as { head?: unknown }).head === "string");
   const commit = coreEv && coreEv.kind === "ui" && coreEv.event.t === "core" ? coreEv.event.commit : start ? (start.data as { head: string }).head : null;
