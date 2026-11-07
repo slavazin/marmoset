@@ -1,0 +1,16 @@
+{
+  "measured": "2026-11-07",
+  "core": "core/ at 81d2fe4 (the S0 core RUN-0001 opened on)",
+  "oracle": "SameBoy libretro, commit ea667ad, oracle/frontend.py",
+  "readings": [
+    { "rom": "mario-yoshi-eu", "start": "level-1 start (games.json other_starts level-1, frame 200 of the prefix), key b8bb033ae64bdfcf", "trace": "puzzleTrace seed 1", "frames": 1800, "compared": 1800, "opened": [], "fps": 389 },
+    { "rom": "mario-yoshi-eu", "start": "level-1 start, key b8bb033ae64bdfcf", "trace": "puzzleTrace seed 2", "frames": 5400, "compared": 5400, "opened": [], "fps": 371 },
+    { "rom": "mario-yoshi-eu", "start": "level-1 start, key b8bb033ae64bdfcf", "trace": "puzzleTrace seed 3", "frames": 5400, "compared": 5400, "opened": [], "fps": 420 },
+    { "rom": "mario-yoshi-eu", "start": "title start (games.json start, frame 104, no input; RUN-0004's start), key a15dc530b4d8feaa", "trace": "Start at frames 20-25 and 90-95", "frames": 300, "compared": 28,
+      "opened": [
+        { "kind": "frame", "counter": 23, "pixels": 4854, "signature": { "scene": 48, "band": 0, "bbox": [16, 0, 144, 136] } },
+        { "kind": "logic", "counter": 28, "pixels": 4854, "signature": { "scene": 56, "band": 0, "bbox": [16, 0, 144, 136] }, "note": "oracle mode 0x38 (menu), core mode 0x30 (title)" }
+      ], "stopped_at": 28 },
+    { "rom": "game.gb", "start": "power-on (registry: no start, seeded RAM, align counter)", "trace": "no input", "frames": 200, "compared": 200, "opened_count": 19, "opened_bands": [0, 2, 4, 9, 10, 16], "first_counter": 1 }
+  ]
+}

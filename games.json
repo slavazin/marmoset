@@ -1,0 +1,53 @@
+{
+  "games": [
+    {
+      "id": "game",
+      "title": "Ratchet's own bug-surface game (SPEC §5 S4)",
+      "rom": { "repo_path": "game/game.gb", "sha256": "c8444ff9a470e23e3b17de184d992e15c2f80b6f46004714d37b9ea39d2408f3" },
+      "contract": "s6.17",
+      "align": "counter",
+      "ram_init": "seeded",
+      "map": null,
+      "start": null
+    },
+    {
+      "id": "mario-yoshi-eu",
+      "title": "Mario & Yoshi (Europe), owner-supplied; never committed",
+      "rom": { "env": "RATCHET_ROM_MARIO_YOSHI_EU", "cache_path": "games/mario-yoshi-eu.gb", "sha256": "062c243e167e819bcbea29c63158d1c616d185fd400ce94cbbef6f35cfd990b4" },
+      "contract": "map",
+      "align": "frame",
+      "ram_init": "zero",
+      "map": {
+        "counter": null,
+        "scene": { "addr": 49193, "names": { "48": "title", "56": "menu", "52": "play", "0": "game over" } },
+        "logic": [
+          { "name": "mode", "addr": 49193, "len": 1 },
+          { "name": "score", "addr": 50717, "len": 3 },
+          { "name": "board", "addr": 50736, "len": 48 },
+          { "name": "level", "addr": 50867, "len": 1 }
+        ],
+        "evidence": "evidence/s22/ram-map.md"
+      },
+      "start": {
+        "at": "title",
+        "frames": 104,
+        "prefix": [
+          { "from_counter": 0, "mask": 0 }
+        ]
+      },
+      "other_starts": {
+        "level-1": {
+          "at": "play",
+          "frames": 200,
+          "prefix": [
+            { "from_counter": 0, "mask": 0 },
+            { "from_counter": 104, "mask": 128 },
+            { "from_counter": 110, "mask": 0 },
+            { "from_counter": 170, "mask": 128 },
+            { "from_counter": 176, "mask": 0 }
+          ]
+        }
+      }
+    }
+  ]
+}

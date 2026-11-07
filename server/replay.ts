@@ -31,7 +31,15 @@ export type Item =
   | { at: number; kind: "ui"; event: UiEvent; origin: "ledger" | "producer" }
   | { at: number; kind: "telemetry"; rec: TelemetryRecord & { i: number } };
 
-export interface Marker { at: number; kind: "incident" | "verdict" | "fire" | "graduation"; id: string; label: string }
+/**
+ * A timeline marker. `decision` and `check` (the first failing check of a REFUSE) colour verdict markers; "attempt" marks
+ * an attempt's first ledger record; "pause", "resume", "stop" and "open" come from runs/<run>/campaign.jsonl; "freeze"
+ * is the `start` record of runs/<run>/vread-progress.jsonl and "vread" the V read (server/replay.test.ts "markers").
+ */
+export interface Marker {
+  at: number; kind: "incident" | "verdict" | "fire" | "graduation" | "attempt" | "pause" | "resume" | "stop" | "open" | "freeze" | "vread";
+  id: string; label: string; decision?: "GRADUATE" | "REFUSE"; check?: string;
+}
 export interface Timeline {
   run: string; t0: number; t1: number; items: Item[]; markers: Marker[]; records: (TelemetryRecord & { i: number })[];
   commit: string | null; regen: { commit: string; bundle_url: string } | null;
@@ -83,11 +91,30 @@ export function ledgerItems(ledgerDir: string, run: string): Item[] {
 function markerOf(e: UiEvent, at: number): Marker[] {
   if (e.t === "incident") return [{ at, kind: "incident", id: e.incident.id, label: `${e.incident.id} ${e.incident.kind}` }];
   if (e.t === "fire") return [{ at, kind: "fire", id: e.fire.id, label: `${e.fire.id} ${e.fire.skill}` }];
+  if (e.t === "attempt") return [{ at, kind: "attempt", id: e.attempt.id, label: `${e.attempt.id} start` }];
+  if (e.t === "vread") return [{ at, kind: "vread", id: "vread", label: "V read" }];
   if (e.t === "verdict") {
-    const m: Marker = { at, kind: "verdict", id: e.verdict.id, label: `${e.verdict.id} ${e.verdict.decision} ${e.verdict.subject.id}` };
+    const check = e.verdict.decision === "REFUSE" ? (e.verdict.checks ?? []).find((c) => !c.pass)?.name : undefined;
+    const m: Marker = { at, kind: "verdict", id: e.verdict.id, label: `${e.verdict.id} ${e.verdict.decision}${check ? ` (${check})` : ""} ${e.verdict.subject.id}`, decision: e.verdict.decision, ...(check ? { check } : {}) };
     return e.verdict.decision === "GRADUATE" ? [m, { ...m, kind: "graduation" }] : [m];
   }
   return [];
+}
+
+/** Campaign control markers (runs/<run>/campaign.jsonl open/pause/resume/stop) and the freeze (vread-progress.jsonl start). */
+export function campaignMarkers(runsDir: string, run: string): Marker[] {
+  const out: Marker[] = [];
+  const rows = (f: string) => existsSync(f) ? parseJsonl(readFileSync(f, "utf8") + "\n").records as Record<string, unknown>[] : [];
+  let n = 0;
+  for (const r of rows(join(runsDir, run, "campaign.jsonl"))) {
+    const t = String(r.t ?? ""), at = Date.parse(String(r.at ?? ""));
+    if (!["open", "pause", "resume", "stop"].includes(t) || Number.isNaN(at)) continue;
+    out.push({ at, kind: t as Marker["kind"], id: `${t}-${n++}`, label: `${t}${r.reason ? `: ${String(r.reason)}` : r.steer ? ` (${String(r.steer)})` : ""}` });
+  }
+  const start = rows(join(runsDir, run, "vread-progress.jsonl")).find((r) => r.t === "start");
+  const fat = start ? Date.parse(String(start.at ?? "")) : NaN;
+  if (!Number.isNaN(fat)) out.push({ at: fat, kind: "freeze", id: "freeze", label: `freeze; V read starts on core ${String(start!.core_commit ?? "").slice(0, 7)}` });
+  return out;
 }
 
 /** Builds the replay timeline of `run` from `paths.ledger` and `paths.runs/<run>/telemetry` (see the file header). */
@@ -118,7 +145,9 @@ export function loadTimeline(paths: Paths, run: string, distDir = join(ROOT, "di
   const t1 = items.at(-1)?.at ?? t0;
   const seen = new Set<string>(); // one marker per id, at its first record; status flips re-emit the id without a marker
   const markers = items.flatMap((x) => (x.kind === "ui" && x.origin === "ledger" ? markerOf(x.event, x.at) : []))
-    .filter((m) => !seen.has(`${m.kind}:${m.id}`) && seen.add(`${m.kind}:${m.id}`));
+    .filter((m) => !seen.has(`${m.kind}:${m.id}`) && seen.add(`${m.kind}:${m.id}`))
+    .concat(campaignMarkers(paths.runs, run))
+    .sort((a, b) => a.at - b.at);
   const coreEv = items.find((x) => x.kind === "ui" && x.event.t === "core");
   const start = recs.find((r) => r.stream === "process" && r.kind === "start" && typeof (r.data as { head?: unknown }).head === "string");
   const commit = coreEv && coreEv.kind === "ui" && coreEv.event.t === "core" ? coreEv.event.commit : start ? (start.data as { head: string }).head : null;

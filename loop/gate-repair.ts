@@ -25,7 +25,7 @@ import { RULE_CONSTANTS, LITERAL_LIMIT, H_TOLERANCE, SUITE_MIN_GAIN } from "./ga
 import { all, appendNew, current, nextId, runId, status } from "./ledger.ts";
 import { tlog } from "../src/telemetry.ts";
 import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
-import { romBySha } from "./roms.ts";
+import { romBySha, romDirs as searchDirs } from "./roms.ts";
 import { loadCore, type Replayer } from "./replay-seam.ts";
 import type { Attempt, CheckName, Incident, ProvenanceEntry, SuiteReading, Trace, Verdict } from "../src/schema.ts";
 
@@ -176,13 +176,17 @@ export function workingTrace(paths: LoopPaths, inc: Incident): (Pick<Trace, "ali
   return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
 }
 
-function cachedFrames(paths: LoopPaths, inc: Incident): Uint8Array[] {
-  const d = join(paths.cache, "oracle", inc.rom_sha, inc.trace_sha);
+/** The incident's cached oracle frames; a window run from a start state keeps them under trace_sha@start-<key> (lockstep/start-state.ts). */
+export function cachedFrames(paths: LoopPaths, inc: Incident): Uint8Array[] {
+  const w = join(evidenceDir(paths, inc), "window.json");
+  const key = existsSync(w) ? (JSON.parse(readFileSync(w, "utf8")).start?.key as string | undefined) : undefined;
+  const d = join(paths.cache, "oracle", inc.rom_sha, inc.trace_sha + (key ? `@start-${key}` : ""));
   if (!existsSync(d)) return [];
   return readdirSync(d).filter((f) => f.endsWith(".bin")).map((f) => new Uint8Array(readFileSync(join(d, f))));
 }
 
-function archiveCore(live: string, rev: string, dir: string): string {
+/** `rev`'s core/ from the clone at `live`, extracted by git archive under `dir`; returns `<dir>/core`. */
+export function archiveCore(live: string, rev: string, dir: string): string {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const tar = execFileSync("git", ["archive", "--format=tar", rev, "core"], { cwd: live, maxBuffer: 256 << 20 });
@@ -264,7 +268,7 @@ export async function recheckIncidents(g: GateInput, verdictId: string): Promise
   const todo = all<Incident>("incidents.jsonl", paths.ledger).filter((i) => i.id !== g.incident.id && i.source !== "sabotage" && (i.status === "open" || i.status === "unrepaired"));
   if (!todo.length) return [];
   const coreDir = archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "gate", `${g.attempt.id}.recheck`));
-  const romDirs = [paths.roms, join(paths.root, "game")];
+  const romDirs = searchDirs(paths);
   const flipped: string[] = [];
   for (const i of todo) {
     let r: { clean: boolean };
@@ -352,7 +356,7 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   };
   const coreDir = join(wt, "core");
   const baseDir = (): string => archiveCore(paths.live, judgedBase, join(paths.cache, "gate", `${attempt.id}.base`));
-  const romDirs = [paths.roms, join(paths.root, "game")];
+  const romDirs = searchDirs(paths);
 
   await run("repro", async () => {
     const rom = romBySha(inc.rom_sha, romDirs);

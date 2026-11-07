@@ -1,5 +1,5 @@
 // The presentation tabs (S14), mounted by one import in ui/main.ts. Adds a tab bar to the header: Game (the
-// default, S6's screen untouched), Premise, Approach, History, the Pre-event evidence tab and Play (ui/play/play.ts,
+// default, S6's screen untouched), Premise, Approach, History and Play (ui/play/play.ts,
 // a visitor's game outside the experiment, which hides the live LCD while open). A non-game tab shows
 // its panel beside the LCD and hides the metadata panel and footer; the LCD keeps playing. The page opens on the
 // tab named by `#tab=<id>`. A second EventSource on /events drives the Approach diagram's highlight
@@ -11,10 +11,9 @@ import type { UiEvent } from "../../src/schema.ts";
 import type { History } from "../../server/history.ts";
 import { renderCurve } from "../panels.ts";
 import { StageTracker, diagramSvg } from "./diagram.ts";
-import { premiseTab, approachTab, preEventTab } from "./tabs.ts";
+import { premiseTab, approachTab } from "./tabs.ts";
 import { historyTab } from "./history.ts";
 import { openEvidence } from "./evidence.ts";
-import { PRE_EVENT_LABEL } from "./pre-event-evidence.ts";
 import { HISTORY_REFETCH_MS } from "./layout.ts";
 import { esc } from "../format.ts";
 import { createPlayTab } from "../play/play.ts";
@@ -24,7 +23,6 @@ export const TABS = [
   { id: "premise", label: "Premise" },
   { id: "approach", label: "Approach" },
   { id: "history", label: "History" },
-  { id: "pre-event", label: PRE_EVENT_LABEL },
   { id: "play", label: "Play" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -41,7 +39,7 @@ let refetchTimer: ReturnType<typeof setTimeout> | null = null;
 const nav = document.createElement("nav");
 nav.className = "ptabs";
 nav.setAttribute("role", "tablist");
-nav.innerHTML = TABS.map((t) => `<button role="tab" data-tab="${t.id}" class="${t.id === "pre-event" ? "pre" : ""}">${esc(t.label)}</button>`).join("");
+nav.innerHTML = TABS.map((t) => `<button role="tab" data-tab="${t.id}">${esc(t.label)}</button>`).join("");
 document.querySelector("header")?.appendChild(nav);
 
 const panel = document.createElement("section");
@@ -78,7 +76,6 @@ function render(): void {
   nav.querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
   if (tab === "premise") panel.innerHTML = premiseTab();
   if (tab === "approach") panel.innerHTML = approachTab(diagramSvg(tracker.lit), `last event: ${tracker.lit.label}`);
-  if (tab === "pre-event") panel.innerHTML = preEventTab();
   if (tab === "history") { renderHistory(); fetchHistory(); }
   if (tab === "play") { panel.replaceChildren(play.el); play.show(); } else play.hide();
 }

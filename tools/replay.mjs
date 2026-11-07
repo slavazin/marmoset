@@ -2154,8 +2154,8 @@ var require_png = __commonJS({
 
 // tools/replay.ts
 init_define_RATCHET_V_GLOBS();
-import { existsSync as existsSync5, readFileSync as readFileSync5 } from "node:fs";
-import { join as join7, resolve as resolve5 } from "node:path";
+import { existsSync as existsSync6, readFileSync as readFileSync6 } from "node:fs";
+import { join as join8, resolve as resolve6 } from "node:path";
 import { parseArgs } from "node:util";
 
 // suites/splits.ts
@@ -2170,8 +2170,28 @@ function romsDir() {
   const v = process.env.RATCHET_ROMS;
   return v ? v.replace(/^~(?=\/|$)/, homedir()) : join(homedir(), ".cache", "ratchet", "roms");
 }
-function loadSplits(path = SPLITS_PATH) {
-  return JSON.parse(readFileSync(path, "utf8"));
+function splitsPaths(env = process.env) {
+  const v = env.RATCHET_SPLITS?.trim();
+  if (!v) return [SPLITS_PATH];
+  return v.split(",").map((s) => s.trim()).filter(Boolean).map((s) => resolve(import.meta.dirname, "..", s));
+}
+function mergeSplits(all) {
+  const out = { version: all.map((s) => s.version).join("+"), families: {}, dmg_suffixes: [], excluded: [] };
+  for (const s of all) {
+    for (const [f, fam] of Object.entries(s.families)) {
+      if (out.families[f]) throw new Error(`mergeSplits: family ${f} is in two splits files`);
+      out.families[f] = fam;
+    }
+    for (const x of s.dmg_suffixes ?? []) if (!out.dmg_suffixes.includes(x)) out.dmg_suffixes.push(x);
+    out.excluded.push(...s.excluded ?? []);
+  }
+  return out;
+}
+function loadSplits(path) {
+  if (path !== void 0) return JSON.parse(readFileSync(path, "utf8"));
+  const ps = splitsPaths();
+  if (ps.length === 1) return JSON.parse(readFileSync(ps[0], "utf8"));
+  return mergeSplits(ps.map((p) => JSON.parse(readFileSync(p, "utf8"))));
 }
 function passRule(rom) {
   if (rom.startsWith("blargg/")) return "serial";
@@ -2265,6 +2285,7 @@ init_define_RATCHET_V_GLOBS();
 var WIDTH = 160;
 var HEIGHT = 144;
 var GAME_RAM = { addr: 49392, len: 7 };
+var SCENE_OFFSET = 2;
 function frameDiff(core, oracle) {
   let pixels = 0, firstLine = -1, x0 = WIDTH, y0 = HEIGHT, x1 = 0, y1 = 0;
   for (let y = 0; y < HEIGHT; y++) {
@@ -2280,11 +2301,6 @@ function frameDiff(core, oracle) {
     }
   }
   return { pixels, firstLine, box: pixels ? [x0, y0, x1, y1] : [0, 0, 0, 0] };
-}
-function coreGameRam(read) {
-  const out = new Uint8Array(GAME_RAM.len);
-  for (let i = 0; i < GAME_RAM.len; i++) out[i] = read(GAME_RAM.addr + i) & 255;
-  return out;
 }
 function bytesEqual(a, b) {
   if (a.length !== b.length) return false;
@@ -2308,8 +2324,8 @@ function readWindow(dir) {
 
 // lockstep/replay.ts
 init_define_RATCHET_V_GLOBS();
-import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
-import { join as join6 } from "node:path";
+import { existsSync as existsSync5, readFileSync as readFileSync5 } from "node:fs";
+import { join as join7 } from "node:path";
 
 // suites/score.ts
 init_define_RATCHET_V_GLOBS();
@@ -2521,19 +2537,178 @@ function counterStepper(core, addr = GAME_RAM.addr) {
   };
 }
 
+// lockstep/games.ts
+init_define_RATCHET_V_GLOBS();
+import { join as join6, resolve as resolve5 } from "node:path";
+var REGISTRY = resolve5(import.meta.dirname, "..", "games.json");
+var CONTRACT_MAP = { counter: GAME_RAM.addr, scene: { addr: GAME_RAM.addr + SCENE_OFFSET }, logic: [{ addr: GAME_RAM.addr, len: GAME_RAM.len }] };
+function mappedRam(map, read) {
+  const out = new Uint8Array(map.logic.reduce((s, r) => s + r.len, 0));
+  let o = 0;
+  for (const r of map.logic) for (let i = 0; i < r.len; i++) out[o++] = read(r.addr + i) & 255;
+  return out;
+}
+
+// lockstep/start-state.ts
+init_define_RATCHET_V_GLOBS();
+import { existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync4, renameSync, writeFileSync as writeFileSync2 } from "node:fs";
+var BOUNDARY_LY = 144;
+function startKey(spec) {
+  return sha256(JSON.stringify({ rom_sha: spec.rom_sha, prefix: spec.prefix, frames: spec.frames, ram_init: spec.ram_init })).slice(0, 16);
+}
+function readStartState(file, rom_sha) {
+  const st = JSON.parse(readFileSync4(file, "utf8"));
+  if (st.spec.rom_sha !== rom_sha) throw new Error(`start state ${file} is for ROM ${st.spec.rom_sha.slice(0, 12)}, not ${rom_sha.slice(0, 12)}`);
+  if (startKey(st.spec) !== st.key) throw new Error(`start state ${file} key does not match its spec`);
+  return st;
+}
+var b64 = (s) => new Uint8Array(Buffer.from(s, "base64"));
+var CORE_MAGIC = 1145915185;
+function coreSnapshotOf(m) {
+  const io = b64(m.io_b64), wram = b64(m.wram_b64), vram = b64(m.vram_b64), oam = b64(m.oam_b64), hram = b64(m.hram_b64), cram = b64(m.cart_ram_b64);
+  if (io[68] !== BOUNDARY_LY) throw new Error(`start machine LY is ${io[68]}, not ${BOUNDARY_LY}: not at a frame boundary`);
+  if (wram.length !== 8192 || vram.length < 8192 || oam.length < 160 || hram.length < 127) throw new Error("start machine RAM sizes are not DMG sizes");
+  const mbc = { ramOn: 0, lo: 1, hi: 0, mode: 0 };
+  for (const [addr, v] of m.mbc) {
+    if (addr < 8192) mbc.ramOn = (v & 15) === 10 ? 1 : 0;
+    else if (addr < 16384) mbc.lo = v & 31 || 1;
+    else if (addr < 24576) mbc.hi = v & 3;
+    else if (addr < 32768) mbc.mode = v & 1;
+  }
+  const lyc = io[69], lcdc = io[64];
+  const stat = io[65] & 120 | (BOUNDARY_LY === lyc ? 4 : 0) | 1;
+  const statLine = (lcdc & 128) !== 0 && (stat & 64 && stat & 4 || stat & 16) ? 1 : 0;
+  const tac = io[7] & 7 | 248;
+  const div = io[4] << 8;
+  const bit = [9, 3, 5, 7][tac & 3];
+  const prevAnd = div >> bit & 1 & (tac >> 2 & 1);
+  const out = [];
+  const u8 = (v) => out.push(v & 255);
+  const u16 = (v) => {
+    u8(v);
+    u8(v >> 8);
+  };
+  const u32 = (v) => {
+    u16(v);
+    u16(v >>> 16);
+  };
+  const bytes = (b) => {
+    for (const x of b) out.push(x);
+  };
+  out.push(68, 77, 71, 49);
+  u8(m.af >> 8);
+  u8(m.bc >> 8);
+  u8(m.bc);
+  u8(m.de >> 8);
+  u8(m.de);
+  u8(m.af & 240);
+  u8(m.hl >> 8);
+  u8(m.hl);
+  u16(m.sp);
+  u16(m.pc);
+  u8(m.ime ? 1 : 0);
+  u8(0);
+  u8(m.exec === 1 ? 1 : 0);
+  u8(0);
+  u16(div);
+  u8(io[5]);
+  u8(io[6]);
+  u8(tac);
+  u8(prevAnd);
+  u8(0);
+  u8(224 | io[15] & 31);
+  u8(m.ie);
+  u8(192 | io[0] & 48 | 15);
+  u8(0);
+  u8(io[1]);
+  u8(io[2]);
+  u16(0);
+  u8(0);
+  u8(0);
+  u8(0);
+  u8(0);
+  u32(cram.length);
+  bytes(cram);
+  u8(mbc.ramOn);
+  u8(mbc.lo);
+  u8(mbc.hi);
+  u8(mbc.mode);
+  bytes(wram);
+  const h = new Uint8Array(128);
+  h.set(hram.subarray(0, 127));
+  bytes(h);
+  const audio = new Uint8Array(64);
+  audio.set(io.subarray(16, 64), 16);
+  bytes(audio);
+  bytes(vram.subarray(0, 8192));
+  bytes(oam.subarray(0, 160));
+  bytes(new Uint8Array(160 * 144));
+  u8(lcdc);
+  u8(stat);
+  u8(io[66]);
+  u8(io[67]);
+  u8(BOUNDARY_LY);
+  u8(lyc);
+  u8(io[71]);
+  u8(io[72]);
+  u8(io[73]);
+  u8(io[74]);
+  u8(io[75]);
+  u8(1);
+  u16(0);
+  u8(0);
+  u8(statLine);
+  u16(172);
+  u32(0);
+  u32(0);
+  const snap = new Uint8Array(out);
+  if (new DataView(snap.buffer).getUint32(0) !== CORE_MAGIC) throw new Error("snapshot magic");
+  return snap;
+}
+function loadIntoCore(core, m) {
+  core.restore(coreSnapshotOf(m));
+  const io = b64(m.io_b64), wram = b64(m.wram_b64), vram = b64(m.vram_b64), oam = b64(m.oam_b64), hram = b64(m.hram_b64);
+  const r = core.cpu;
+  const want = { a: m.af >> 8, f: m.af & 240, b: m.bc >> 8, c: m.bc & 255, d: m.de >> 8, e: m.de & 255, h: m.hl >> 8, l: m.hl & 255, sp: m.sp, pc: m.pc };
+  for (const [k, v] of Object.entries(want)) if (r[k] !== v) throw new Error(`start state: core register ${k} reads ${r[k]}, machine ${v}`);
+  const check = (base, data, len, what) => {
+    for (let i = 0; i < len; i++) if ((core.read(base + i) & 255) !== data[i]) throw new Error(`start state: core ${what} at 0x${(base + i).toString(16)} differs`);
+  };
+  check(49152, wram, 8192, "WRAM");
+  check(32768, vram, 8192, "VRAM");
+  check(65024, oam, 160, "OAM");
+  check(65408, hram, 127, "HRAM");
+  for (const a of [64, 66, 67, 69, 71, 72, 73, 74, 75, 5, 6]) check(65280 + a, io.subarray(a), 1, "IO");
+  if ((core.read(65348) & 255) !== BOUNDARY_LY) throw new Error("start state: core LY is not at the boundary");
+  if ((core.read(65535) & 255) !== m.ie) throw new Error("start state: core IE differs");
+}
+function withStart(createCore, st) {
+  return (rom) => {
+    if (sha256(rom) !== st.spec.rom_sha) throw new Error("start state is for another ROM");
+    const core = createCore(rom);
+    loadIntoCore(core, st.machine);
+    return core;
+  };
+}
+function startDirSuffix(st) {
+  return st ? `@start-${st.key}` : "";
+}
+
 // lockstep/replay.ts
 function defaultOracleDir(rom, align, inputs) {
   const rom_sha = sha256(rom);
-  return join6(ratchetCache(), "oracle", rom_sha, traceSha({ rom_sha, align, inputs }));
+  return join7(ratchetCache(), "oracle", rom_sha, traceSha({ rom_sha, align, inputs }));
 }
 function replayFrames(createCore, r) {
   const dir = r.oracleDir ?? defaultOracleDir(r.rom, r.align, r.inputs);
   const [from, to] = r.window;
   for (let n = from; n <= to; n++) {
-    if (!existsSync4(join6(dir, `${n}.bin`))) throw new Error(`oracle frame ${n} not cached in ${dir}`);
+    if (!existsSync5(join7(dir, `${n}.bin`))) throw new Error(`oracle frame ${n} not cached in ${dir}`);
   }
-  const core = createCore(r.rom);
+  const core = (r.start ? withStart(createCore, r.start) : createCore)(r.rom);
   const stepper = counterStepper(core, GAME_RAM.addr);
+  const logic = r.logic ?? [{ addr: GAME_RAM.addr, len: GAME_RAM.len }];
+  const coreRam = () => mappedRam({ counter: null, scene: { addr: logic[0].addr }, logic }, (a) => core.read(a));
   let compared = 0;
   for (let n = 1; n <= to; n++) {
     core.setButtons(maskAt(r.inputs, n - 1));
@@ -2542,10 +2717,10 @@ function replayFrames(createCore, r) {
     if (n < from) continue;
     compared++;
     const ram = r.oracleRam?.[n];
-    if (ram !== void 0 && !bytesEqual(coreGameRam((a) => core.read(a)), new Uint8Array(Buffer.from(ram, "hex")))) {
+    if (ram !== void 0 && !bytesEqual(coreRam(), new Uint8Array(Buffer.from(ram, "hex")))) {
       return { clean: false, counter: n, reason: "logic", pixels: 0 };
     }
-    const d = frameDiff(cf, new Uint8Array(readFileSync4(join6(dir, `${n}.bin`))));
+    const d = frameDiff(cf, new Uint8Array(readFileSync5(join7(dir, `${n}.bin`))));
     if (d.pixels) return { clean: false, counter: n, reason: "frame", pixels: d.pixels };
   }
   return { clean: true, compared };
@@ -2556,7 +2731,7 @@ function formatOutcome(o) {
   return `first mismatch: counter ${o.counter} (${what})`;
 }
 function replaySuite(createCore, w, root, caps) {
-  const reading = runRom(createCore, root, w.rom_rel, caps);
+  const reading = runRom(createCore, root, w.rom_rel, caps, void 0, w.model ?? "DMG");
   return { clean: reading.pass, reading, repro: w.repro };
 }
 function scoreRomList(createCore, split, family, roms, root, caps, onRom) {
@@ -2577,7 +2752,7 @@ function scoreRomList(createCore, split, family, roms, root, caps, onRom) {
 }
 
 // tools/replay.ts
-var REPO = resolve5(import.meta.dirname, "..");
+var REPO = resolve6(import.meta.dirname, "..");
 async function main() {
   const { values: v } = parseArgs({
     options: {
@@ -2598,24 +2773,27 @@ async function main() {
   }
   const createCore = await loadCreateCore(v["core-dir"]);
   if (v.incident) {
-    const w = readWindow(v["evidence-dir"] ?? join7(EVIDENCE_ROOT, v.incident));
+    const w = readWindow(v["evidence-dir"] ?? join8(EVIDENCE_ROOT, v.incident));
     if (w.kind === "suite") {
-      const romPath = join7(romsDir(), w.rom_rel);
-      if (sha256(readFileSync5(romPath)) !== w.incident.rom_sha) throw new Error(`${romPath} is not the incident's ROM (sha ${w.incident.rom_sha})`);
+      const romPath = join8(romsDir(), w.rom_rel);
+      if (sha256(readFileSync6(romPath)) !== w.incident.rom_sha) throw new Error(`${romPath} is not the incident's ROM (sha ${w.incident.rom_sha})`);
       const r = replaySuite(createCore, w, romsDir());
-      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)})`);
+      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)}) on ${w.model ?? "DMG"}: ${r.reading.detail}`.slice(0, 400));
       return r.clean ? 0 : 1;
     }
-    const rom = new Uint8Array(readFileSync5(v.rom ?? w.rom.path));
+    const rom = new Uint8Array(readFileSync6(v.rom ?? w.rom.path));
     if (sha256(rom) !== w.incident.rom_sha) throw new Error(`${v.rom ?? w.rom.path} is not the incident's ROM (sha ${w.incident.rom_sha})`);
-    const computed = defaultOracleDir(rom, w.trace.align, w.trace.inputs);
+    const computed = defaultOracleDir(rom, w.trace.align, w.trace.inputs) + startDirSuffix(w.start);
+    if (w.start && (!existsSync6(w.start.file) || sha256(readFileSync6(w.start.file)) !== w.start.sha)) throw new Error(`start state ${w.start.file} is missing or not sha ${w.start.sha.slice(0, 12)}`);
     const out = replayFrames(createCore, {
       rom,
       align: w.trace.align,
       inputs: w.trace.inputs,
       window: w.incident.window,
-      oracleDir: existsSync5(computed) ? computed : w.oracle_dir,
-      oracleRam: w.oracle_ram
+      oracleDir: existsSync6(computed) ? computed : w.oracle_dir,
+      oracleRam: w.oracle_ram,
+      ...w.map ? { logic: w.map.logic } : {},
+      ...w.start ? { start: readStartState(w.start.file, w.incident.rom_sha) } : {}
     });
     console.log(formatOutcome(out));
     return out.clean ? 0 : 1;
@@ -2625,9 +2803,9 @@ async function main() {
       console.error("--trace needs --rom");
       return 2;
     }
-    const trace = JSON.parse(readFileSync5(join7(v["traces-dir"] ?? join7(REPO, "traces"), `${v.trace}.json`), "utf8"));
+    const trace = JSON.parse(readFileSync6(join8(v["traces-dir"] ?? join8(REPO, "traces"), `${v.trace}.json`), "utf8"));
     const first = Math.min(...trace.inputs.map((i) => i.from_counter), trace.counter_end);
-    const rom = new Uint8Array(readFileSync5(v.rom));
+    const rom = new Uint8Array(readFileSync6(v.rom));
     if (sha256(rom) !== trace.rom_sha) throw new Error(`${v.rom} is not the trace's ROM (sha ${trace.rom_sha})`);
     const out = replayFrames(createCore, {
       rom,
@@ -2642,7 +2820,7 @@ async function main() {
     console.error("--family needs --roms");
     return 2;
   }
-  const list = JSON.parse(readFileSync5(v.roms, "utf8"));
+  const list = JSON.parse(readFileSync6(v.roms, "utf8"));
   const roms = Array.isArray(list) ? list : list.families?.[v.family] ?? list.roms;
   if (!roms) {
     console.error(`${v.roms}: no ROM list for ${v.family}`);

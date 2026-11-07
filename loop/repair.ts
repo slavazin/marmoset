@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { git } from "./paths.ts";
 import type { Packet } from "./projection.ts";
 import { tlog } from "../src/telemetry.ts";
-import { priceUsd } from "./llm.ts";
+import { apiKey, priceUsd } from "./llm.ts";
 import { confineOn, confinedCommand, sandboxFlag, type Confine, type ConfinedIsolation } from "./confine.ts";
 import type { Attempt, RepairResult, RepairTask } from "../src/schema.ts";
 
@@ -208,7 +208,8 @@ export async function runRepair(task: RepairTask, packet: Packet, o: RepairOptio
   mkdirSync(join(xdg, "muse"), { recursive: true });
   copyFileSync(MUSE_SETTINGS_FILE, join(xdg, "muse", "settings.json"));
   const dot = readDotEnv(o.dotEnv ?? join(import.meta.dirname, "..", ".env"));
-  const key = process.env[MUSE_KEY_VAR] ?? dot[MUSE_KEY_VAR] ?? dot.muse_code_key;
+  // a worktree checkout holds no .env: without an explicit dotEnv, llm.ts apiKey reads the main checkout's (git common dir)
+  const key = process.env[MUSE_KEY_VAR] ?? dot[MUSE_KEY_VAR] ?? dot.muse_code_key ?? (o.dotEnv ? undefined : apiKey());
   const env = repairEnv(home, xdg, key, o.attempt, o.server, packet.env);
   const skillsDir = join(packet.dir, ".agents", "skills");
   if (existsSync(skillsDir)) execFileSync("chmod", ["-R", "a-w", skillsDir]);

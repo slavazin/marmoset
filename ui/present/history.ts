@@ -42,6 +42,25 @@ ${h.figures.map((f) => `<tr><td>${esc(f.run)}</td><td>${esc(f.incidents)}</td><t
 <div class="dim">Counted from ledger/*.jsonl per run; sabotage incidents, their attempts and verdicts, and run-null records are left out.</div>`;
 }
 
+/** The Runs overview (S24): one row per run in the registry, from GET /api/history's `runs` (server/runs.ts runOverview). */
+export function runsOverview(h: Pick<History, "runs">, selected?: string): string {
+  const rows = h.runs ?? [];
+  if (!rows.length) return empty("No run registry: runs/ holds no RUN-NNNN/manifest.json.");
+  const checks = (r: NonNullable<History["runs"]>[number]) => Object.entries(r.refused_by_check).map(([c, n]) => `${esc(c)} ${esc(n)}`).join(" · ") || "—";
+  return `<table class="map runs"><thead><tr><th>run</th><th>name</th><th>incidents</th><th>attempts</th><th>graduated</th><th>refused (by first failing check)</th><th>spend</th><th>V read</th><th>ended</th></tr></thead><tbody>
+${rows.map((r) => `<tr data-run="${esc(r.id)}"${r.id === selected ? ` class="sel"` : ""} title="${esc(r.description)}"><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.incidents)}</td><td>${esc(r.attempts)}</td><td>${esc(r.graduated)}</td><td>${esc(r.refused)} <span class="dim">${checks(r)}</span></td><td>${esc(fmtUsd(r.spend_usd))} <span class="dim">${esc(r.spend_source)}</span></td><td>${esc(r.vread_state)}</td><td class="dim">${esc(r.stop ? `${fmtAt(r.stop.at)} ${r.stop.reason}` : "no stop record")}</td></tr>`).join("")}</tbody></table>
+<div class="dim">Each run's ledger (RUN-0001: ledger/; others: runs/RUN-NNNN/ledger), records whose run is that id, sabotage left out; ended is the last stop record of runs/RUN-NNNN/campaign.jsonl.</div>`;
+}
+
+/** The muse-native readings beside the curve (server/history.ts readNative): they enter no verdict, calibration or V read. */
+function native(h: History): string {
+  const rows = h.native ?? [];
+  if (!rows.length) return empty("No runs/<run>/muse-native.jsonl reading.");
+  return `<table class="map"><thead><tr><th>run</th><th>generation</th><th>family</th><th>mean pixel match</th><th>pass</th><th>base</th></tr></thead><tbody>
+${rows.map((r) => `<tr><td>${esc(r.run)}</td><td>${esc(r.generation)}</td><td>${esc(r.family)}</td><td>${esc(r.pixel_match_text)}</td><td>${esc(r.pass)}/${esc(r.roms)}</td><td>${esc(r.base_short)}</td></tr>`).join("")}</tbody></table>
+<div class="dim">Muse Code with its own memory on, outside the gate: plotted beside the curve, counted in no figure.</div>`;
+}
+
 function skills(h: History): string {
   if (!h.skills.length) return empty("No skill file under skills/shadow, skills/graduated or skills/tombstones.");
   return h.skills.map((s) => `<div class="item ${esc(s.status)}" data-ev="skill:${esc(s.id)}">${tag(s.status, s.status)} <b>${esc(s.id)}</b> ${esc(s.name)}${s.reason ? ` · ${esc(s.reason)}` : ""}${s.verdict ? ` · ${esc(s.verdict)}` : ""}${s.successor ? ` · successor <b>${esc(s.successor)}</b>` : ""} <span class="dim">${esc(s.path)}</span></div>`).join("");
@@ -109,12 +128,14 @@ export function historyTab(h: History | null, error?: string): string {
   return `<section class="hi">
 <div class="hgrid">
 <div class="hcol">
+<h2>Runs</h2>${runsOverview(h, h.selected)}
 <h2>Run figures</h2>${figures(h)}
 <h2>Timeline</h2><div class="timeline">${tl.length ? tl.map((r) => `<div class="item ${r.kind} ${r.cls}" data-ev="${esc(r.kind)}:${esc(r.id)}"><span class="at">${esc(fmtAt(r.at))}</span> ${r.html} ${runTag(r.run)}</div>`).join("") : empty("No incident, attempt, verdict, fire or steer in ledger/.")}</div>
 </div>
 <div class="hcol">
 <h2>Skills</h2>${skills(h)}
 <h2>Generation curve</h2><div id="present-curve"></div>
+<h2>Muse-native arm (D-0013)</h2>${native(h)}
 <h2>V read</h2>${vread(h)}
 <h2>core-live commits</h2><div class="scrollbox">${commits(h)}</div>
 <h2>Gemini sensor</h2>${spots(h)}

@@ -94,12 +94,13 @@ export function curveEvents(verdicts: Rec[]): UiEvent[] {
   return out.sort((a, b) => a.generation - b.generation);
 }
 
-export interface Paths { ledger: string; runs: string; evidence: string }
+/** `run`, when set, narrows readVRead to runs/<run>/vread.json (server/runs.ts runPaths). */
+export interface Paths { ledger: string; runs: string; evidence: string; run?: string }
 
-/** Reads `runs/RUN-*\/vread.json` when one exists; V stays hidden (SPEC §5 S6) until this returns a result. */
-export function readVRead(runsDir: string): VRead | null {
+/** Reads runs/<run>/vread.json for `run`, else the latest `runs/RUN-*\/vread.json` when one exists; V stays hidden (SPEC §5 S6) until this returns a result. */
+export function readVRead(runsDir: string, run?: string): VRead | null {
   if (!existsSync(runsDir)) return null;
-  const runs = readdirSync(runsDir).filter((d) => d.startsWith("RUN-")).sort();
+  const runs = run ? [run] : readdirSync(runsDir).filter((d) => d.startsWith("RUN-")).sort();
   for (const r of runs.reverse()) {
     const p = join(runsDir, r, "vread.json");
     if (existsSync(p)) {
@@ -178,7 +179,7 @@ export class EventBus {
       }
     }
     if (!this.vreadSeen) {
-      const v = readVRead(this.paths.runs);
+      const v = readVRead(this.paths.runs, this.paths.run);
       if (v) { this.vreadSeen = true; this.emit({ t: "vread", result: v }, "ledger"); }
     }
   }
@@ -208,7 +209,7 @@ export class EventBus {
       fires: all("fires.jsonl") as unknown as Fire[],
       provenance: readProvenance(this.paths.ledger),
       curve: curveEvents(verdicts),
-      vread: readVRead(this.paths.runs),
+      vread: readVRead(this.paths.runs, this.paths.run),
     };
   }
 

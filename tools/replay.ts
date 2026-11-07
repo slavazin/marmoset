@@ -19,6 +19,7 @@ import { sha256 } from "../oracle/client.ts";
 import { loadCreateCore } from "../lockstep/core-dir.ts";
 import { EVIDENCE_ROOT, readWindow } from "../lockstep/evidence.ts";
 import { defaultOracleDir, formatOutcome, replayFrames, replaySuite, scoreRomList } from "../lockstep/replay.ts";
+import { readStartState, startDirSuffix } from "../lockstep/start-state.ts";
 
 const REPO = resolve(import.meta.dirname, "..");
 
@@ -42,15 +43,18 @@ async function main(): Promise<number> {
       const romPath = join(romsDir(), w.rom_rel);
       if (sha256(readFileSync(romPath)) !== w.incident.rom_sha) throw new Error(`${romPath} is not the incident's ROM (sha ${w.incident.rom_sha})`);
       const r = replaySuite(createCore, w, romsDir());
-      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)})`);
+      console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)}) on ${w.model ?? "DMG"}: ${r.reading.detail}`.slice(0, 400));
       return r.clean ? 0 : 1;
     }
     const rom = new Uint8Array(readFileSync(v.rom ?? w.rom.path));
     if (sha256(rom) !== w.incident.rom_sha) throw new Error(`${v.rom ?? w.rom.path} is not the incident's ROM (sha ${w.incident.rom_sha})`);
-    const computed = defaultOracleDir(rom, w.trace.align, w.trace.inputs);
+    const computed = defaultOracleDir(rom, w.trace.align, w.trace.inputs) + startDirSuffix(w.start);
+    // a window run from a start state replays from it; a start file missing or not of the window's sha is an error
+    if (w.start && (!existsSync(w.start.file) || sha256(readFileSync(w.start.file)) !== w.start.sha)) throw new Error(`start state ${w.start.file} is missing or not sha ${w.start.sha.slice(0, 12)}`);
     const out = replayFrames(createCore, {
       rom, align: w.trace.align, inputs: w.trace.inputs, window: w.incident.window,
       oracleDir: existsSync(computed) ? computed : w.oracle_dir, oracleRam: w.oracle_ram,
+      ...(w.map ? { logic: w.map.logic } : {}), ...(w.start ? { start: readStartState(w.start.file, w.incident.rom_sha) } : {}),
     });
     console.log(formatOutcome(out));
     return out.clean ? 0 : 1;

@@ -19,9 +19,17 @@ export const RGB_FRAME_BYTES = FRAME_BYTES * 3;
 
 export type Align = "counter" | "frame";
 export type Model = "DMG" | "CGB";
-// Every request is OracleReq as typed, plus `colours`, a frontend debug op:
-// the distinct 0xRRGGBB values of the frame `frame` returns.
-export type OracleRequest = OracleReq | { op: "colours" };
+// Every request is OracleReq as typed, plus `colours`, a frontend debug op (the distinct 0xRRGGBB values of
+// the frame `frame` returns), and the start-state extensions lockstep/start-state.ts uses: `load` with
+// `ram_init`, `restore` with `rebase`, and `machine` (the BESS machine state). src/schema.ts OracleReq does not
+// carry these; the S22 report names it as a schema gap.
+export type RamInit = "seeded" | "zero";
+export type OracleRequest =
+  | OracleReq
+  | { op: "colours" }
+  | { op: "machine" }
+  | { op: "load"; rom_path: string; align?: Align; model?: Model; ram_init?: RamInit }
+  | { op: "restore"; state_b64: string; rebase?: boolean };
 
 export interface OracleInfo { core: "SameBoy"; version: string; model: Model; build_hash: string; frames: number; first_write_frame: number | null }
 
@@ -79,8 +87,13 @@ export class OracleClient {
   }
 
   /** Loads a ROM; `model` "CGB" runs SameBoy as a CPU CGB C (D-0019), and a DMG load sends no model field. */
-  async load(romPath: string, align: Align = "counter", model: Model = "DMG"): Promise<{ rom_sha: string }> {
-    const res = await this.ok(model === "DMG" ? { op: "load", rom_path: romPath, align } : { op: "load", rom_path: romPath, align, model });
+  // A load sends `ram_init` only when it is "zero", so a seeded load's request is byte-equal to one that
+  // predates the field.
+  async load(romPath: string, align: Align = "counter", model: Model = "DMG", ramInit: RamInit = "seeded"): Promise<{ rom_sha: string }> {
+    const req: { op: "load"; rom_path: string; align: Align; model?: Model; ram_init?: RamInit } = { op: "load", rom_path: romPath, align };
+    if (model !== "DMG") req.model = model;
+    if (ramInit !== "seeded") req.ram_init = ramInit;
+    const res = await this.ok(req);
     return { rom_sha: res.rom_sha as string };
   }
 
@@ -109,8 +122,15 @@ export class OracleClient {
     return (await this.ok({ op: "save" })).state_b64 as string;
   }
 
-  async restore(state_b64: string): Promise<void> {
-    await this.ok({ op: "restore", state_b64 });
+  /** Restores a `save`; with `rebase`, frame-align counters count from the restored state (a start state). */
+  async restore(state_b64: string, rebase = false): Promise<void> {
+    await this.ok(rebase ? { op: "restore", state_b64, rebase } : { op: "restore", state_b64 });
+  }
+
+  /** The machine state as SameBoy's BESS footer states it (oracle/frontend.py parse_bess). */
+  async machine(): Promise<Record<string, unknown>> {
+    const { ok: _ok, ...m } = await this.ok({ op: "machine" });
+    return m;
   }
 
   async info(): Promise<OracleInfo> {

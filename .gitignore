@@ -83,3 +83,17 @@ GCE-DOCTRINE.md
 
 .claude/worktrees/
 runs/prerun/
+
+# --- Game Boy ROMs: only Ratchet's own game and fixtures are tracked (AGENTS.md rule 8; lockstep/games.test.ts) ---
+*.gb
+*.gbc
+*.GB
+*.GBC
+!game/*.gb
+!oracle/fixtures/*.gb
+!game2/*.gb
+
+# --- ROM-derived run files: kept on disk for the UI, never committed (S24; scripts/collect-runs.test.ts) ---
+runs/RUN-0004/evidence/
+runs/RUN-0004/telemetry/
+runs/**/start/

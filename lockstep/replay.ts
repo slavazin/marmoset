@@ -8,9 +8,11 @@ import { join } from "node:path";
 import type { CreateCore, Split, SuiteReading, TraceInput } from "../src/schema.ts";
 import { ratchetCache, sha256, traceSha } from "../oracle/client.ts";
 import { runRom, type Caps, type RomResult } from "../suites/score.ts";
-import { bytesEqual, coreGameRam, frameDiff, GAME_RAM, maskAt } from "./diff.ts";
+import { bytesEqual, frameDiff, GAME_RAM, maskAt } from "./diff.ts";
 import type { SuiteWindow } from "./evidence.ts";
 import { counterStepper } from "./align.ts";
+import { mappedRam } from "./games.ts";
+import { withStart, type StartState } from "./start-state.ts";
 
 export type ReplayOutcome =
   | { clean: true; compared: number }
@@ -25,6 +27,10 @@ export interface FramesReplay {
   oracleDir?: string;
   /** Oracle game-state RAM per counter, hex; compared where present. */
   oracleRam?: Record<string, string>;
+  /** The ranges oracleRam concatenates (window.json `map`); absent, GAME_RAM (SPEC §6.17). */
+  logic?: { addr: number; len: number }[];
+  /** The start state lockstep ran both sides from (window.json `start`); absent, power-on. */
+  start?: StartState;
 }
 
 export function defaultOracleDir(rom: Uint8Array, align: "counter" | "frame", inputs: TraceInput[]): string {
@@ -38,8 +44,10 @@ export function replayFrames(createCore: CreateCore, r: FramesReplay): ReplayOut
   for (let n = from; n <= to; n++) {
     if (!existsSync(join(dir, `${n}.bin`))) throw new Error(`oracle frame ${n} not cached in ${dir}`);
   }
-  const core = createCore(r.rom);
+  const core = (r.start ? withStart(createCore, r.start) : createCore)(r.rom);
   const stepper = counterStepper(core, GAME_RAM.addr);
+  const logic = r.logic ?? [{ addr: GAME_RAM.addr, len: GAME_RAM.len }];
+  const coreRam = () => mappedRam({ counter: null, scene: { addr: logic[0].addr }, logic }, (a) => core.read(a));
   let compared = 0;
   for (let n = 1; n <= to; n++) {
     core.setButtons(maskAt(r.inputs, n - 1));
@@ -50,7 +58,7 @@ export function replayFrames(createCore: CreateCore, r: FramesReplay): ReplayOut
     if (n < from) continue;
     compared++;
     const ram = r.oracleRam?.[n];
-    if (ram !== undefined && !bytesEqual(coreGameRam((a) => core.read(a)), new Uint8Array(Buffer.from(ram, "hex")))) {
+    if (ram !== undefined && !bytesEqual(coreRam(), new Uint8Array(Buffer.from(ram, "hex")))) {
       return { clean: false, counter: n, reason: "logic", pixels: 0 };
     }
     const d = frameDiff(cf, new Uint8Array(readFileSync(join(dir, `${n}.bin`))));
@@ -65,9 +73,12 @@ export function formatOutcome(o: ReplayOutcome): string {
   return `first mismatch: counter ${o.counter} (${what})`;
 }
 
-/** Reruns a suite incident's ROM; clean when it passes. The reading is printed beside the repro for G4 check 1. */
+/**
+ * Reruns a suite incident's ROM on the window's model (absent reads DMG); clean when it passes. The reading is printed
+ * beside the repro for G4 check 1 (lockstep/lockstep.test.ts "CGB suite incident").
+ */
 export function replaySuite(createCore: CreateCore, w: SuiteWindow, root: string, caps?: Caps): { clean: boolean; reading: RomResult; repro: RomResult } {
-  const reading = runRom(createCore, root, w.rom_rel, caps);
+  const reading = runRom(createCore, root, w.rom_rel, caps, undefined, w.model ?? "DMG");
   return { clean: reading.pass, reading, repro: w.repro };
 }
 

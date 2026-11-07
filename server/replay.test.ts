@@ -77,7 +77,9 @@ test("a session recorded through the live server replays to an SSE client in the
     assert.equal(frames.length, 1, "three frames inside one second thin to one at TELEMETRY_FRAME_HZ = 1");
     assert.deepEqual(frames[0].data, { t: "frame", source: "core", shades_b64: shades(0), counter: 10 });
     const st = await (await fetch(rep.base + "/api/replay")).json();
-    assert.deepEqual(st.markers.map((m: { kind: string; id: string }) => `${m.kind}:${m.id}`), ["incident:INC-0001", "verdict:VER-0001"]);
+    assert.deepEqual(st.markers.map((m: { kind: string; id: string }) => `${m.kind}:${m.id}`), ["incident:INC-0001", "attempt:ATT-0001", "verdict:VER-0001"]);
+    const vm = st.markers.find((m: { kind: string }) => m.kind === "verdict");
+    assert.ok(["REFUSE", "GRADUATE"].includes(vm.decision), "a verdict marker carries its decision");
     assert.equal((await post(rep.base, "/api/input", { counter: 1, mask: 1 })).status, 409);
     const muse = await (await fetch(rep.base + "/api/replay/muse?attempt=ATT-0001")).json();
     assert.deepEqual(muse.map((r: { data: unknown }) => r.data), [msp]);

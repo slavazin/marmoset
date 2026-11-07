@@ -12,6 +12,7 @@
     "suites": "node suites/run.ts",
     "oracle:smoke": "node oracle/smoke.ts",
     "game:build": "sh game/build.sh",
+    "game2:build": "sh game2/build.sh",
     "lockstep": "node lockstep/run.ts",
     "replay": "node tools/replay.mjs",
     "dev": "node ui/dev.ts",
