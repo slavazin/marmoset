@@ -12,8 +12,8 @@
     "suites": "node suites/run.ts",
     "oracle:smoke": "node oracle/smoke.ts",
     "game:build": "sh game/build.sh",
-    "lockstep": "node -e \"console.error('not built: S5');process.exit(1)\"",
-    "replay": "node -e \"console.error('not built: S5');process.exit(1)\"",
+    "lockstep": "node lockstep/run.ts",
+    "replay": "node tools/replay.mjs",
     "dev": "node ui/dev.ts",
     "dev:fixtures": "node ui/dev.ts --fixtures",
     "ui:fixtures": "node ui/fixtures/make.ts",
@@ -27,7 +27,8 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
-    "vite": "^6.4.5"
+    "vite": "^6.4.5",
+    "esbuild": "0.24.2"
   },
   "dependencies": {
     "pngjs": "7.0.0"
