@@ -1,6 +1,7 @@
 // GET /api/history (S14): the presentation UI's History tab, read entirely from files at request time (SPEC G9).
 // `readHistory(opts)` returns the folded ledger (incidents, attempts, verdicts, fires, steers, observations count),
-// the skills under skills/{shadow,graduated} and skills/tombstones, the generation curve, the decisions under
+// the skills under skills/{shadow,graduated} and skills/tombstones, the policies (D-0020) the same way under policies/,
+// the generation curve, the decisions under
 // <registers>/decisions, the rows of <registers>/findings.md, the `core-live` commit log of the live clone with its
 // `Attempt:` and `Skills:` trailers, spend, S13's spot summary when player/spot-score.ts exists, and the V read only
 // once runs/RUN-*/vread.json exists. It writes nothing (AGENTS.md rule 2); server/history.test.ts asserts the reads.
@@ -19,6 +20,8 @@ export interface HistoryOptions {
   ledger: string;
   runs: string;
   skills: string;
+  /** policies/{shadow,graduated,tombstones} (loop/policies.ts policiesDir); defaults to policies/ beside `skills`. */
+  policies?: string;
   /** The live clone (D-0006); its `core-live` log is read with git. */
   live: string;
   /** Directory holding decisions/ and findings.md: the repository's registers, which a fixture ledger does not carry. */
@@ -36,6 +39,7 @@ export function historyPathsFromEnv(env = process.env): HistoryOptions {
     ledger: resolve(ROOT, env.RATCHET_LEDGER ?? "ledger"),
     runs: resolve(ROOT, env.RATCHET_RUNS ?? "runs"),
     skills: resolve(ROOT, env.RATCHET_SKILLS ?? "skills"),
+    policies: resolve(ROOT, env.RATCHET_POLICIES ?? "policies"),
     live: resolve(ROOT, expandHome(env.RATCHET_LIVE ?? "../ratchet-live")),
     registers: resolve(ROOT, env.RATCHET_REGISTERS ?? "ledger"),
     root: ROOT,
@@ -50,7 +54,7 @@ export interface DecisionItem { id: string; title: string; status: string; super
 export interface FindingItem { id: string; slice: string; claim: string; reading: string; disposition: string }
 export interface CommitItem { sha: string; at: string; subject: string; attempts: string[]; skills: string[] }
 export interface SpendSummary { attempts_usd: number; attempts_n: number; by_role: Record<string, { usd: number; n: number }>; total_usd: number }
-export interface RunFigures { run: string; incidents: number; attempts: number; graduated: number; refused: number; skills_graduated: number; skills_refused: number; fires: number }
+export interface RunFigures { run: string; incidents: number; attempts: number; graduated: number; refused: number; skills_graduated: number; skills_refused: number; policies_graduated: number; policies_refused: number; fires: number }
 
 export interface History {
   incidents: (Incident & { sabotage: boolean })[];
@@ -60,6 +64,7 @@ export interface History {
   steers: Steer[];
   observations: number;
   skills: SkillItem[];
+  policies: SkillItem[];                   // POL ids under policies/, read as skills are
   curve: UiEvent[];
   decisions: DecisionItem[];
   findings: FindingItem[];
@@ -101,13 +106,14 @@ export function frontmatter(md: string): { fm: Record<string, string>; body: str
 
 const nul = (v: string | undefined) => (!v || v === "null" || v === "—" ? null : v);
 
-function readSkills(skillsDir: string, root: string): SkillItem[] {
+/** SKILL.md (or, for policies/, POLICY.md) under <dir>/{shadow,graduated}, then <dir>/tombstones. */
+function readSkills(skillsDir: string, root: string, file = "SKILL.md"): SkillItem[] {
   const out: SkillItem[] = [];
   for (const sub of ["shadow", "graduated"]) {
     const d = join(skillsDir, sub);
     if (!existsSync(d)) continue;
     for (const id of readdirSync(d).sort()) {
-      const p = join(d, id, "SKILL.md");
+      const p = join(d, id, file);
       if (!existsSync(p)) continue;
       const { fm } = frontmatter(readFileSync(p, "utf8"));
       out.push({ id: fm.id ?? id, name: fm.name ?? "", status: fm.status ?? sub, path: relative(root, p), successor: nul(fm.successor) });
@@ -186,6 +192,7 @@ export async function readHistory(o: HistoryOptions): Promise<History> {
   const observations = fold<{ id: string }>(o.ledger, "observations.jsonl").length;
   const spendRecs = rawLines<SpendRecord>(o.ledger, "spend.jsonl").filter((r) => typeof r?.usd === "number");
   const skills = readSkills(o.skills, o.root);
+  const policies = readSkills(o.policies ?? join(o.skills, "..", "policies"), o.root, "POLICY.md");
 
   const V = verdicts.map((v) => ({ ...v, sabotage: v.subject?.kind === "attempt" && sabotageAtt.has(v.subject.id) }));
   const A = attempts.map((a) => ({ ...a, sabotage: sabotageAtt.has(a.id) }));
@@ -210,13 +217,15 @@ export async function readHistory(o: HistoryOptions): Promise<History> {
       refused: vs.filter((v) => v.subject.kind === "attempt" && v.decision === "REFUSE").length,
       skills_graduated: vs.filter((v) => v.subject.kind === "skill" && v.decision === "GRADUATE").length,
       skills_refused: vs.filter((v) => v.subject.kind === "skill" && v.decision === "REFUSE").length,
+      policies_graduated: vs.filter((v) => v.subject.kind === "policy" && v.decision === "GRADUATE").length,
+      policies_refused: vs.filter((v) => v.subject.kind === "policy" && v.decision === "REFUSE").length,
       fires: fires.filter((f) => f.run === run && !sabotageAtt.has(f.attempt)).length,
     };
   });
 
   const commits = readCommits(o.live);
   return {
-    incidents: I, attempts: A, verdicts: V, fires, steers, observations, skills,
+    incidents: I, attempts: A, verdicts: V, fires, steers, observations, skills, policies,
     curve: curveEvents(verdicts as unknown as (Record<string, unknown> & { id: string })[]),
     decisions: readDecisions(join(o.registers, "decisions"), o.root),
     findings: existsSync(join(o.registers, "findings.md")) ? parseFindings(readFileSync(join(o.registers, "findings.md"), "utf8")) : [],

@@ -68,7 +68,7 @@ test("pre-event figures appear only in the pre-event tab: no other tab's HTML ho
   assert.deepEqual(importers, ["tabs.ts"], "only the tab template reads the pre-event figures");
 });
 
-const verdict = (decision: "GRADUATE" | "REFUSE", kind: "attempt" | "skill" = "attempt"): Verdict => ({
+const verdict = (decision: "GRADUATE" | "REFUSE", kind: Verdict["subject"]["kind"] = "attempt"): Verdict => ({
   id: "VER-0001", at: "t", run: null, subject: { kind, id: "ATT-0001" }, decision,
   checks: [{ name: "diff-scope", pass: true, reading: "" }, { name: "H-no-regress", pass: decision === "GRADUATE", reading: "x" }],
   reason: "r", residue: [], rule_version: "x",
@@ -83,6 +83,12 @@ test("stageFor maps a verdict to graduate or refuse with its deciding check, an 
   assert.equal(stageFor({ t: "attempt", attempt: att, phase: "end" })!.stage, "gate");
   assert.equal(stageFor({ t: "fire", fire: { id: "FIR-0001", skill: "SKL-0002", attempt: "ATT-0001" } } as UiEvent)!.stage, "hook");
   for (const s of STAGES) assert.ok(diagramSvg({ stage: s.id, label: "" }).includes(`class="stage ${s.id} on"`), `${s.id} can be lit`);
+});
+
+test("stageFor maps a policy verdict to the slow loop's graduated or tombstone stage, never the attempt gate's", () => {
+  const g = stageFor({ t: "verdict", verdict: verdict("GRADUATE", "policy") })!, r = stageFor({ t: "verdict", verdict: verdict("REFUSE", "policy") })!;
+  assert.deepEqual([g.stage, r.stage], ["skill", "tombstone"]);
+  assert.match(g.label, /policy/);
 });
 
 test("StageTracker holds a verdict's stage against frame events for STAGE_HOLD_MS, then frames take the highlight back", () => {

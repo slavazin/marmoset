@@ -15,11 +15,11 @@ export type DisplaySource =
 /** A module that writes a source: `file` (repo-relative) contains a match for the regex `pattern`. */
 export interface Producer { file: string; pattern: string }
 
-/** What makes a displayable due: play started, a ledger record exists (optionally with field = value), a runs file exists, a telemetry record exists. */
+/** What makes a displayable due: play started, a ledger record exists (optionally with field = value, or field one of `in`), a runs file exists, a telemetry record exists. */
 export type Trigger =
   | { always: true }
   | { play: true }
-  | { ledger: { file: string; field?: string; equals?: unknown } }
+  | { ledger: { file: string; field?: string; equals?: unknown; in?: unknown[] } }
   | { runs: { file: string } }
   | { telemetry: { stream: TelemetryStream; kind?: string } };
 
@@ -49,7 +49,7 @@ export const DISPLAYABLES: readonly Displayable[] = [
   { id: "verdict-stack", shows: "the ratchet stack of verdict cards", where: "panel", trigger: { ledger: { file: "verdicts.jsonl" } },
     sources: [{ ledger: { file: "verdicts.jsonl", field: "checks" } }, { telemetry: { stream: "loop", kind: "verdict" } }],
     producers: [{ file: "loop/gate-repair.ts", pattern: String.raw`appendNew<Verdict>\("verdicts\.jsonl"` }, { file: "loop/gate-repair.ts", pattern: String.raw`tlog\("loop", "verdict"` }] },
-  { id: "generation-curve", shows: "the generation curve of trial arms", where: "panel", trigger: { ledger: { file: "verdicts.jsonl", field: "subject.kind", equals: "skill" } },
+  { id: "generation-curve", shows: "the generation curve of trial arms", where: "panel", trigger: { ledger: { file: "verdicts.jsonl", field: "subject.kind", in: ["skill", "policy"] } },
     sources: [{ ledger: { file: "verdicts.jsonl", field: "arms" } }], producers: [{ file: "loop/trial.ts", pattern: String.raw`arms` }] },
   { id: "mooneye-leds", shows: "Mooneye LEDs for T and H", where: "panel", trigger: { ledger: { file: "verdicts.jsonl" } },
     sources: [{ ledger: { file: "verdicts.jsonl", field: "checks" } }], producers: [{ file: "loop/gate-repair.ts", pattern: String.raw`"H-no-regress"` }] },
@@ -72,7 +72,7 @@ export const DISPLAYABLES: readonly Displayable[] = [
     sources: [{ ledger: { file: "verdicts.jsonl", field: "reason" } }], producers: [{ file: "loop/gate-repair.ts", pattern: String.raw`decision, checks, reason` }] },
   { id: "beat-graduated-card", shows: "a GRADUATED card", where: "beat", trigger: { ledger: { file: "verdicts.jsonl", field: "decision", equals: "GRADUATE" } },
     sources: [verdictRec], producers: [{ file: "loop/gate-repair.ts", pattern: String.raw`"GRADUATE"` }] },
-  { id: "beat-tombstones", shows: "skill tombstones with deciding reading and placebo arm (G10)", where: "beat", trigger: { ledger: { file: "verdicts.jsonl", field: "subject.kind", equals: "skill" } },
+  { id: "beat-tombstones", shows: "skill and policy tombstones with deciding reading and placebo arm (G10)", where: "beat", trigger: { ledger: { file: "verdicts.jsonl", field: "subject.kind", in: ["skill", "policy"] } },
     sources: [{ ledger: { file: "verdicts.jsonl", field: "arms" } }], producers: [{ file: "loop/placebo.ts", pattern: String.raw`placebo` }] },
   { id: "beat-curve", shows: "the generation curve beat", where: "beat", trigger: { ledger: { file: "verdicts.jsonl", field: "subject.kind", equals: "skill" } },
     sources: [{ ledger: { file: "verdicts.jsonl", field: "arms" } }], producers: [{ file: "loop/trial.ts", pattern: String.raw`arms` }] },

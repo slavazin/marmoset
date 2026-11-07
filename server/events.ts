@@ -77,15 +77,16 @@ export function toEvent(file: StreamedFile, rec: Rec): UiEvent {
 }
 
 /**
- * The generation curve: skill verdicts carrying trial arms, grouped by the verdict's `generation`, so a generation's
- * trials share its point; a verdict without one takes the generation after the last seen (the ledger order, as
- * before Verdict.generation). Sorted by generation, ledger order within one.
+ * The generation curve: skill and policy (D-0020) verdicts carrying trial arms, grouped by the verdict's `generation`,
+ * so a generation's trials share its point; a verdict without one takes the generation after the last seen (the
+ * ledger order, as before Verdict.generation). Sorted by generation, ledger order within one.
  */
+export const TRIAL_SUBJECTS: ReadonlySet<string> = new Set(["skill", "policy"]);
 export function curveEvents(verdicts: Rec[]): UiEvent[] {
   const out: { t: "curve"; generation: number; arms: NonNullable<Verdict["arms"]> }[] = [];
   let last = 0;
   for (const v of verdicts as unknown as Verdict[]) {
-    if (v.subject?.kind !== "skill" || !v.arms) continue;
+    if (!TRIAL_SUBJECTS.has(v.subject?.kind) || !v.arms) continue;
     const generation = typeof v.generation === "number" && Number.isFinite(v.generation) ? v.generation : last + 1;
     last = Math.max(last, generation);
     out.push({ t: "curve", generation, arms: v.arms });
@@ -172,7 +173,7 @@ export class EventBus {
         if (f === "verdicts.jsonl") {
           const curve = curveEvents(fold.all());
           const v = fold.get(id) as unknown as Verdict;
-          if (v.subject?.kind === "skill" && v.arms) { const last = curve.at(-1); if (last) this.emit(last, "ledger"); }
+          if (TRIAL_SUBJECTS.has(v.subject?.kind) && v.arms) { const last = curve.at(-1); if (last) this.emit(last, "ledger"); }
         }
       }
     }
