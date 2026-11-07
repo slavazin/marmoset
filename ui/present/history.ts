@@ -75,7 +75,7 @@ function meter(h: History): string {
   const m = h.meter;
   if (!m) return "";
   const owner = m.owner_read_usd === null ? "no spend-override.json" : fmtUsd(m.owner_read_usd);
-  return `<div>owner-read (Meta console) <b>${esc(owner)}</b> · priced (list rates, held by review) ${esc(fmtUsd(m.priced_usd))} · the guard reads ${esc(m.source)} ${esc(fmtUsd(m.usd))}: ask at ${esc(fmtUsd(m.ask_usd))}, stop at ${esc(fmtUsd(m.stop_usd))}</div>`;
+  return `<div>owner-read (Meta console) <b>${esc(owner)}</b> · priced (list rates, held by review) ${esc(fmtUsd(m.priced_usd))} · the guard reads ${esc(m.source)} ${esc(fmtUsd(m.usd))}: ask at ${esc(fmtUsd(m.ask_usd))}, stop at ${esc(fmtUsd(m.stop_usd))}</div>${m.warning ? `<div class="dim">warning: ${esc(m.warning)}</div>` : ""}`;
 }
 
 function spend(h: History): string {

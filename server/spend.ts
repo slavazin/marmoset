@@ -5,11 +5,12 @@
 //                                    before the run opened, run null>}, filled by the owner from the Meta console;
 //   RATCHET_SPEND_OFFSET_USD         a signed dollar offset on the priced figure, read only when no override exists.
 // The owner-read figure is the run's spend: console total minus pre_run_usd, plus the priced dollars of records that
-// carry this run and were written after `at` (list rates until the owner's next reading). The guard acts on owner-read
+// carry this run and were written after `at`, or after the file's write time when `at` is later, with a warning
+// (readOverride; list rates until the owner's next reading). The guard acts on owner-read
 // when the override file exists, else on priced + offset. Owner reading 2026-11-07 ~12:50: about $5 in total against
 // over $90 by PRICES (ATT-0001 alone $66.35), so PRICES read roughly 18x high; both figures stay on the meter.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Attempt, SpendRecord } from "../src/schema.ts";
 
@@ -37,6 +38,8 @@ export interface SpendMeter {
   usd: number;
   source: "owner-read" | "priced" | "priced+offset";
   ask_usd: number; stop_usd: number;
+  /** Set when the override's `at` is later than the file's write time (readOverride). */
+  warning?: string;
 }
 
 type Att = Pick<Attempt, "id" | "at" | "spent" | "run"> & { spent_at?: string };
@@ -58,14 +61,19 @@ function attempts(ledger: string): Att[] {
   return [...by.values()] as unknown as Att[];
 }
 
-export function readOverride(runsDir: string, run: string | null): SpendOverride | null {
+/**
+ * The override file, or null. `written_ms` is the file's mtime: a console reading cannot postdate the file holding it,
+ * so spendMeter reads min(at, written_ms) and warns when `at` is later (a future `at` drops the run's priced records
+ * written between the file's write and `at`; campaign.test.ts "later than the file was written").
+ */
+export function readOverride(runsDir: string, run: string | null): (SpendOverride & { written_ms: number }) | null {
   if (!run) return null;
   const p = join(runsDir, run, SPEND_OVERRIDE_FILE);
   if (!existsSync(p)) return null;
   try {
     const o = JSON.parse(readFileSync(p, "utf8")) as Partial<SpendOverride>;
     if (typeof o.usd !== "number" || !Number.isFinite(o.usd) || typeof o.at !== "string" || !Number.isFinite(Date.parse(o.at))) return null;
-    return { ...o, usd: o.usd, at: o.at, pre_run_usd: typeof o.pre_run_usd === "number" && Number.isFinite(o.pre_run_usd) ? o.pre_run_usd : 0 };
+    return { ...o, usd: o.usd, at: o.at, pre_run_usd: typeof o.pre_run_usd === "number" && Number.isFinite(o.pre_run_usd) ? o.pre_run_usd : 0, written_ms: statSync(p).mtimeMs };
   } catch { return null; }
 }
 
@@ -83,8 +91,13 @@ export function spendMeter(o: MeterOptions): SpendMeter {
   const offset_usd = Number.isFinite(off) ? off : 0;
   const override = readOverride(o.runsDir, o.run);
   let owner_read_usd: number | null = null;
+  let warning: string | undefined;
   if (override) {
-    const t = Date.parse(override.at);
+    let t = Date.parse(override.at);
+    if (t > override.written_ms) {
+      t = override.written_ms;
+      warning = `${SPEND_OVERRIDE_FILE} at ${override.at} is later than the file was written (${new Date(t).toISOString()}); read at the write time`;
+    }
     const after = atts.filter((a) => a.run === o.run && Date.parse(a.spent_at ?? a.at) > t).reduce((s, a) => s + (a.spent?.usd ?? 0), 0)
       + calls.filter((r) => r.run === o.run && Date.parse(r.at) > t).reduce((s, r) => s + r.usd, 0);
     owner_read_usd = override.usd - override.pre_run_usd + after;
@@ -93,6 +106,7 @@ export function spendMeter(o: MeterOptions): SpendMeter {
   return {
     priced_usd, attempts_usd, attempts_n: atts.length, calls_usd, calls_n: calls.length, offset_usd, owner_read_usd, override, usd,
     source: owner_read_usd !== null ? "owner-read" : offset_usd ? "priced+offset" : "priced", ask_usd: SPEND_ASK_USD, stop_usd: SPEND_STOP_USD,
+    ...(warning ? { warning } : {}),
   };
 }
 
@@ -105,5 +119,5 @@ export function spendGate(usd: number): SpendGate {
 /** One meter line naming both figures (the campaign prints it; the History tab shows the same fields). */
 export function meterLine(m: SpendMeter): string {
   const owner = m.owner_read_usd === null ? "no runs/<run>/spend-override.json" : `$${m.owner_read_usd.toFixed(2)}`;
-  return `spend: ${OWNER_LABEL} ${owner} · ${PRICED_LABEL} $${m.priced_usd.toFixed(2)}${m.offset_usd ? ` (offset ${m.offset_usd})` : ""} · guard reads ${m.source} $${m.usd.toFixed(2)} (ask $${m.ask_usd}, stop $${m.stop_usd})`;
+  return `spend: ${OWNER_LABEL} ${owner} · ${PRICED_LABEL} $${m.priced_usd.toFixed(2)}${m.offset_usd ? ` (offset ${m.offset_usd})` : ""} · guard reads ${m.source} $${m.usd.toFixed(2)} (ask $${m.ask_usd}, stop $${m.stop_usd})${m.warning ? ` · warning: ${m.warning}` : ""}`;
 }

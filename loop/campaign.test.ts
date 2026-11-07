@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dryDeps, openRun, pickIncident, readCampaign, runCampaign, type CampaignDeps } from "./campaign.ts";
@@ -128,7 +128,21 @@ test("the owner-read override is what the guard acts on: $61 priced with a $5 co
   assert.equal(spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" }).owner_read_usd, 2.5);
 });
 
-type Parked = Incident & { parked?: { early_throws: number; attempts: number; error: string } };
+test("an override whose `at` is later than the file was written is read at the file's write time, with a warning, so the run's priced records after the write still count", () => {
+  const g = guardBed(0);
+  const dir = join(g.runsDir, "RUN-0001");
+  mkdirSync(dir, { recursive: true });
+  const now = Date.now();
+  const f = join(dir, "spend-override.json");
+  writeFileSync(f, JSON.stringify({ usd: 5, at: new Date(now + 3600_000).toISOString(), pre_run_usd: 5 }));
+  utimesSync(f, new Date(now - 3600_000), new Date(now - 3600_000));
+  append("attempts.jsonl", { id: "ATT-0002", at: new Date(now - 1800_000).toISOString(), run: "RUN-0001", spent: { usd: 4 } }, g.bed.paths.ledger);
+  const m = spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" });
+  assert.equal(m.owner_read_usd, 4);
+  assert.match(m.warning ?? "", /later than the file was written/);
+});
+
+type Parked =Incident & { parked?: { early_throws: number; attempts: number; error: string } };
 
 test("an attempt that throws before minting its ATT counts against MAX_ATTEMPTS: after MAX_ATTEMPTS such throws the incident is parked unrepaired with a status record, and no further attempt starts", async () => {
   const g = guardBed(0);
