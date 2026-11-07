@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseJsonl, Fold } from "../server/events.ts";
 import { verdictCard } from "./cards/verdict-card.ts";
 import { incidentCard } from "./cards/incident-card.ts";
-import { decidingCheck, fmtReading } from "./format.ts";
+import { decidingCheck, fmtReading, fmtVArmRow } from "./format.ts";
 import { decodeGrey } from "./fixtures/png.ts";
 import type { Verdict, Incident, Attempt } from "../src/schema.ts";
 
@@ -67,4 +67,10 @@ test("an incident's evidence PNGs (core.png, oracle.png) differ in exactly the i
   assert.equal(n, inc.pixels);
   assert.equal(inc.status, "repaired", "a status record flips the incident; the last one written wins");
   assert.match(incidentCard(inc, false), new RegExp(`${inc.pixels} px`));
+});
+
+test("a V-read row names its arm and reading, and says when the arm's diff failed to apply and the base core was scored", () => {
+  const r = { split: "V" as const, family: "mooneye:timer", roms: 4, pass: 1, exact: 0, pixel_match: 0.5 };
+  assert.equal(fmtVArmRow("ratchet", r), `ratchet · ${fmtReading(r)}`);
+  assert.match(fmtVArmRow("ratchet", { ...r, apply_failed: true }), /^ratchet · V\/mooneye:timer: 1\/4 pass.* · apply failed: base core scored$/);
 });

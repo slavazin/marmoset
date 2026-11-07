@@ -6,7 +6,7 @@
 // (ui/present/present.test.ts).
 
 import type { History } from "../../server/history.ts";
-import { esc, fmtReading, decidingCheck, shortSha } from "../format.ts";
+import { esc, fmtReading, fmtVArmRow, decidingCheck, shortSha } from "../format.ts";
 import { fmtUsd, fmtRatio, fmtAt } from "./units.ts";
 
 interface Row { at: string; kind: string; id: string; html: string; cls: string; run?: string | null }
@@ -88,7 +88,7 @@ function spend(h: History): string {
 function vread(h: History): string {
   if (!h.vread) return empty("V is sealed: no runs/<id>/vread.json exists, so nothing from V is shown.");
   const v = h.vread;
-  const arm = (name: "baseline" | "ratchet") => v.arms[name].map((r) => `<div>${esc(name)} · ${esc(fmtReading(r))}</div>`).join("");
+  const arm = (name: "baseline" | "ratchet") => v.arms[name].map((r) => `<div>${esc(fmtVArmRow(name, r))}</div>`).join("");
   return `<div data-ev="vread:${esc(v.run)}" class="item"><b>${esc(v.run)}</b> read once at ${esc(fmtAt(v.at))} on ${esc(shortSha(v.core_commit))} · n ${esc(v.n_family_runs_per_arm)} family-runs per arm${arm("baseline")}${arm("ratchet")}<div class="dim">residue: ${esc(v.residue.join(", "))}</div></div>`;
 }
 
