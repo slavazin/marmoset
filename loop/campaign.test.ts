@@ -10,6 +10,7 @@ import { append, all, current } from "./ledger.ts";
 import { steer } from "./steer.ts";
 import { spendMeter } from "../server/spend.ts";
 import { MAX_ATTEMPTS } from "./gate.ts";
+import { ruleVersion } from "./gate-repair.ts";
 import type { Attempt, Incident, Manifest, Verdict } from "../src/schema.ts";
 
 const M = (id = "RUN-0001"): Manifest => ({ id, opened_at: "2026-11-07T14:30:00.000Z", models: {}, oracle: { core: "fake", build_hash: "h" }, roms: {}, splits_sha: "s", rule_version: "r", s0_sha: "z" });
@@ -42,6 +43,13 @@ test("openRun refuses to open the run when S0 is not empty (a skill or policy al
     await openRun({ runsDir: r2, run: "RUN-0001", resume: false, build: () => M(), s0Dirs: d2, allowNonEmptyS0: true });
     assert.ok(readManifest(r2, "RUN-0001"));
   }
+});
+
+test("openRun --resume refuses when the gate's rule constants hash to another rule_version than the manifest's (G4: never changed after the run opens)", async () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "ratchet-runs-"));
+  await openRun({ runsDir, run: "RUN-0001", resume: false, build: () => ({ ...M(), rule_version: ruleVersion() }), ruleVersion: ruleVersion() });
+  await openRun({ runsDir, run: "RUN-0001", resume: true, build: () => M(), ruleVersion: ruleVersion() });
+  await assert.rejects(openRun({ runsDir, run: "RUN-0001", resume: true, build: () => M(), ruleVersion: "0123456789ab" }), /rule_version/);
 });
 
 test("pickIncident takes a frame incident covering the parallax lines before a larger one that does not, then the most pixels", () => {

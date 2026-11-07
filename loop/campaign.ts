@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { K, MAX_ATTEMPTS } from "./gate.ts";
+import { ruleVersion } from "./gate-repair.ts";
 import { all, appendNew, current, status } from "./ledger.ts";
 import { pathsFromEnv, type LoopPaths } from "./paths.ts";
 import { openIncidents, runFastCycle, type CycleOutput } from "./fast.ts";
@@ -242,16 +243,20 @@ export interface OpenOptions {
   s0Dirs?: string[];
   /** The owner's --allow-nonempty-s0: opens the run over a non-empty S₀. */
   allowNonEmptyS0?: boolean;
+  /** This process's gate-repair.ts ruleVersion(); --resume refuses when it differs from the manifest's rule_version. */
+  ruleVersion?: string;
 }
 
 /**
  * Opens the run: writes the manifest, or with --resume reads the existing one. Throws when it exists without --resume,
  * and on a first open when s0Dirs hold a graduated skill or policy, unless allowNonEmptyS0 (campaign.test.ts "S0 is not empty").
+ * A --resume with ruleVersion refuses when it is not the manifest's rule_version (campaign.test.ts "rule_version").
  */
 export async function openRun(o: OpenOptions): Promise<Manifest> {
   const existing = readManifest(o.runsDir, o.run);
   if (existing) {
     if (!o.resume) throw new Error(`${manifestPath(o.runsDir, o.run)} exists: the run is already open (pass --resume to continue it)`);
+    if (o.ruleVersion && existing.rule_version !== o.ruleVersion) throw new Error(`rule_version ${o.ruleVersion} is not the manifest's ${existing.rule_version}: loop/gate.ts's rule constants changed after ${o.run} opened`);
     record(o.runsDir, o.run, { t: "open", at: new Date().toISOString(), run: o.run, manifest: manifestPath(o.runsDir, o.run), resumed: true });
     return existing;
   }
@@ -384,7 +389,7 @@ async function main(argv: string[]): Promise<number> {
   process.env.RATCHET_RUN = RUN_ID; // every record written from here carries the run (loop/ledger.ts runId)
   const { deps, manifest } = v.dry ? await dryDeps(minutes) : await realDeps(minutes);
   if (v.dry) console.log(`dry campaign: scratch ledger ${deps.paths.ledger}, runs ${deps.runsDir}`);
-  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"] });
+  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"], ...(v.dry ? {} : { ruleVersion: ruleVersion() }) });
   console.log(`${m.id} open: rule_version ${m.rule_version.slice(0, 12)}, s0 ${m.s0_sha.slice(0, 12)}, ${Object.keys(m.roms).length} ROM hashes, models ${JSON.stringify(m.models)}`);
   console.log(meterLine(spendMeter({ ledger: deps.paths.ledger, runsDir: deps.runsDir, run: deps.run, env: deps.env })));
   console.log(`K ${K}, MAX_ATTEMPTS ${MAX_ATTEMPTS}, CAMPAIGN_PARALLEL ${CAMPAIGN_PARALLEL}, ${minutes} min`);
