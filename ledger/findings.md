@@ -83,4 +83,4 @@ Cold-read findings, one line each: id, claim or property, reading, disposition (
 | S17b-F10 | S17b | the decoy's SKL label | weak tell; cache keys can collide with a later real skill | accept-residue (D-0027) |
 | S17b-F11 | S17b | a failed family route | null on both arms, symmetric; not in the ledger | accept-residue |
 | S17b-F12 | S17b | INC-0003 twin disagreement | measured against the old twin | accept-residue: dated reading |
-| R1-F1 | RUN-0001 | a resume steer lifts only the pause it answers | STR-0001 (14:59 UTC-8 13:59) lifted a later pause at 14:43 and ATT-0021 started past the owner's budget; the orchestrator killed ATT-0021 and the muse-native watcher | fix: open — resumeSteer must take steers after the latest pause, and askLifted must reset on a new pause |
+| R1-F1 | RUN-0001 | a resume steer lifts only the pause it answers | STR-0001 (written 13:59 PST) lifted a later pause at 14:43 and ATT-0021 started past the owner's budget; the orchestrator killed ATT-0021 and the muse-native watcher | fix: open — resumeSteer must take steers after the latest pause, and askLifted must reset on a new pause |
