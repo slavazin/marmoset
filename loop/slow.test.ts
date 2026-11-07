@@ -108,6 +108,37 @@ test("one generation on fixtures writes 2 nominations, their twins, one calibrat
   } finally { server.close(); }
 });
 
+test("a trial's candidate and placebo arms get the same packet/task.json apart from attempt and skill id, and every skill verdict carries its generation", async () => {
+  const bed = makeBed();
+  seedObservations(bed);
+  const runsDir = join(bed.paths.root, "runs");
+  const tasks: Record<string, unknown>[] = [];
+  const runner = markingRunner((r) => tasks.push(JSON.parse(readFileSync(join(r.cwd, "packet", "task.json"), "utf8"))));
+  await runGeneration({ paths: bed.paths, runner, judge: markJudge("SKL-0001"), run: RUN, runsDir, llm: fakeLlm(), familyRoms: () => [], tReader: async () => [] });
+  assert.ok(!tasks.some((t) => t.arm === "placebo"), "a packet names the placebo arm");
+  const shownArms = new Set(tasks.filter((t) => (t.skills as string[]).length).map((t) => JSON.stringify({ ...t, attempt: 0, skills: 0 })));
+  assert.equal(shownArms.size, TRIAL_FAMILIES.length, [...shownArms].join("\n"));
+  const placeboAtts = all<Attempt>("attempts.jsonl", bed.paths.ledger).filter((a) => a.task.arm === "placebo");
+  assert.equal(placeboAtts.length, 2 * TRIAL_FAMILIES.length); // the ledger keeps the true arm
+  assert.deepEqual(all<Verdict>("verdicts.jsonl", bed.paths.ledger).map((v) => v.generation), [1, 1]);
+});
+
+test("a trial arm whose core cannot be scored reads as a regression and the skill is refused, not left in shadow", async () => {
+  const bed = makeBed();
+  seedObservations(bed);
+  const runsDir = join(bed.paths.root, "runs");
+  const inner = markJudge("SKL-0001");
+  const judge = { async score(coreDir: string, split: "base" | "H", family?: string) {
+    const mark = existsSync(join(coreDir, "arm.txt")) ? readFileSync(join(coreDir, "arm.txt"), "utf8") : "";
+    if (mark.startsWith("candidate SKL-0001")) throw new Error("core/index.ts: SyntaxError");
+    return inner.score(coreDir, split, family);
+  } };
+  const g = await runGeneration({ paths: bed.paths, runner: markingRunner(), judge, run: RUN, runsDir, llm: fakeLlm(), familyRoms: () => [], tReader: async () => [] });
+  assert.deepEqual(g.trials.map((t) => [t.verdict.subject.id, t.verdict.decision]), [["SKL-0001", "REFUSE"], ["SKL-0002", "REFUSE"]]);
+  assert.match(g.trials[0].verdict.reason, /^base-suites: the candidate arm drops blargg from 15 to no reading/);
+  assert.deepEqual(readdirSync(join(bed.paths.skills, "shadow")), []);
+});
+
 test("ensureCalibration reads an existing run's records and never re-runs or rewrites them", async () => {
   const bed = makeBed();
   const runsDir = join(bed.paths.root, "runs");

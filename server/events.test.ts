@@ -77,3 +77,15 @@ test("curveEvents numbers skill verdicts with arms as generations and skips atte
   ]);
   assert.deepEqual(c.map((e) => e.t === "curve" && e.generation), [1, 2]);
 });
+
+test("curveEvents plots a skill verdict at its generation, so a generation's trials share one point, and numbers verdicts without one in order after the last", () => {
+  const arms = { candidate: [], baseline: [], placebo: [], margin: {}, n_family_runs_per_arm: 1 };
+  const c = curveEvents([
+    { id: "VER-0001", subject: { kind: "skill", id: "SKL-0001" }, arms, generation: 1 },
+    { id: "VER-0002", subject: { kind: "skill", id: "SKL-0002" }, arms, generation: 1 },
+    { id: "VER-0003", subject: { kind: "attempt", id: "ATT-0001" } },
+    { id: "VER-0004", subject: { kind: "skill", id: "SKL-0005" }, arms, generation: 2 },
+    { id: "VER-0005", subject: { kind: "skill", id: "SKL-0007" }, arms },
+  ]);
+  assert.deepEqual(c.map((e) => e.t === "curve" && e.generation), [1, 1, 2, 3]);
+});

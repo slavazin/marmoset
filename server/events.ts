@@ -76,14 +76,21 @@ export function toEvent(file: StreamedFile, rec: Rec): UiEvent {
   }
 }
 
-/** The generation curve: skill verdicts carrying trial arms, in ledger order; generation is the 1-based order. */
+/**
+ * The generation curve: skill verdicts carrying trial arms, grouped by the verdict's `generation`, so a generation's
+ * trials share its point; a verdict without one takes the generation after the last seen (the ledger order, as
+ * before Verdict.generation). Sorted by generation, ledger order within one.
+ */
 export function curveEvents(verdicts: Rec[]): UiEvent[] {
-  const out: UiEvent[] = [];
+  const out: { t: "curve"; generation: number; arms: NonNullable<Verdict["arms"]> }[] = [];
+  let last = 0;
   for (const v of verdicts as unknown as Verdict[]) {
     if (v.subject?.kind !== "skill" || !v.arms) continue;
-    out.push({ t: "curve", generation: out.length + 1, arms: v.arms });
+    const generation = typeof v.generation === "number" && Number.isFinite(v.generation) ? v.generation : last + 1;
+    last = Math.max(last, generation);
+    out.push({ t: "curve", generation, arms: v.arms });
   }
-  return out;
+  return out.sort((a, b) => a.generation - b.generation);
 }
 
 export interface Paths { ledger: string; runs: string; evidence: string }

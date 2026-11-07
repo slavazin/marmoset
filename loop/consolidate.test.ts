@@ -40,6 +40,16 @@ test("consolidatorView carries no H or V family name, no verdict, no non-fast at
   assert.equal(view.off_map.length, 1);
 });
 
+test("consolidatorView does not say which gate check refused a fast attempt, so a refusal at H-no-regress does not reach the consolidator", () => {
+  const bed = makeBed();
+  seedObservations(bed, { text: "A frame divergence in scene 1, line band 1, was refused at H-no-regress after a repair that shifted tiles." });
+  const view = consolidatorView(bed.paths, []);
+  const s = JSON.stringify(view);
+  assert.ok(!s.includes("H-no-regress"), "view names the H check");
+  assert.ok(!/refused at /.test(s), "view names a refusing check");
+  assert.match(view.observations[0].text, /was refused after a repair that shifted tiles/);
+});
+
 test("parseReply keeps at most MAX_NOMINATIONS, each with a complete pentad and >= 2 reducible anchors of its shape", () => {
   const bed = makeBed();
   seedObservations(bed);
