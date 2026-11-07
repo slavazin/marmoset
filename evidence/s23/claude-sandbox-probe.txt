@@ -1,0 +1,17 @@
+model run: exit 0 model claude-sonnet-5 steps 6 confine seatbelt
+inside-write (model): ok
+result-json (model): written
+worktree: closed
+cache: closed
+home-cache: closed
+sibling-of-repo: closed
+main-checkout: closed
+main-oracle-dir: closed
+live-clone: closed
+claude-projects: closed
+claude-history: closed
+roms: closed
+worktree-write: blocked
+claude-settings-write: OPEN
+https-out: 200 (port 443 is open by D-0024)
+events: /var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/ratchet-claude-probe/ATT-PROBE.home/events.jsonl

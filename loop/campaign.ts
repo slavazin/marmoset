@@ -459,7 +459,8 @@ async function realDeps(minutes: number, o: RunOptions): Promise<{ deps: Campaig
   const env = { ...process.env, RATCHET_RUN: RUN_ID };
   const self: MeterPart = { ledger: paths.ledger, runsDir, run: RUN_ID, env };
   const meter = o.spendAlso.length ? () => combinedMeter([self, ...o.spendAlso]) : undefined;
-  const { museCli } = await import("./repair.ts");
+  // one runner for every spawn site of the run (S23): RATCHET_REPAIRER picks Muse or Claude
+  const museCli = (await import("./claude.ts")).selectedRunner();
   const { defaultReplayer } = await import("./replay-seam.ts");
   const { defaultSuites } = await import("./gate-repair.ts");
   const { route } = await import("./route.ts");
@@ -532,12 +533,14 @@ async function main(argv: string[]): Promise<number> {
   if (!v.dry) {
     // no Muse key means every attempt exits before its first model call and spends an attempt: refuse to open
     const { apiKey } = await import("./llm.ts");
-    if (!apiKey()) throw new Error("no Muse key: META_API_KEY unset and no muse_code_key in this checkout's or the main checkout's .env");
+    const { repairerChoice, CLAUDE_BIN } = await import("./claude.ts");
+    if (repairerChoice().runner === "claude") { if (!existsSync(CLAUDE_BIN)) throw new Error(`RATCHET_REPAIRER=claude: ${CLAUDE_BIN} is missing`); }
+    else if (!apiKey()) throw new Error("no Muse key: META_API_KEY unset and no muse_code_key in this checkout's or the main checkout's .env");
     const { runConditions, openConditions, checkConditions, conditionsPath } = await import("./run-conditions.ts");
     const { LIVE_BRANCH } = await import("./paths.ts");
     const { splitsPaths } = await import("../suites/splits.ts");
     const start = source === "play" ? await startConditions(rom) : undefined;
-    const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion(), start });
+    const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion(), start, repairer: repairerChoice() });
     // --rules-as RUN-NNNN (in this runs dir) or <runs dir>/RUN-NNNN: this run judges under that run's rule_version, or
     // it does not open (owner requirement 2026-11-07)
     for (const other of v["rules-as"] ?? []) {

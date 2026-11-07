@@ -178,8 +178,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const paths = pathsFromEnv();
   const runsDir = resolve(paths.root, process.env.RATCHET_RUNS ?? "runs");
   try {
-    const { museCli } = await import("./repair.ts");
-    const v = await runVRead({ paths, runsDir, run: process.env.RATCHET_RUN, runner: museCli, judge: defaultVJudge, resume: process.argv.includes("--resume") });
+    const { selectedRunner, repairerChoice } = await import("./claude.ts");
+    const { readConditions } = await import("./run-conditions.ts");
+    // the V read's arms use the run's own runner: a run is all-Muse or all-Claude (S23)
+    const declared = readConditions(runsDir, process.env.RATCHET_RUN)?.repairer ?? { runner: "muse", model: (await import("./repair.ts")).MUSE_MODEL };
+    if (JSON.stringify(declared) !== JSON.stringify(repairerChoice())) throw new Error(`V read runner ${JSON.stringify(repairerChoice())} is not ${process.env.RATCHET_RUN}'s declared ${JSON.stringify(declared)}`);
+    const v = await runVRead({ paths, runsDir, run: process.env.RATCHET_RUN, runner: selectedRunner(), judge: defaultVJudge, resume: process.argv.includes("--resume") });
     console.log(`${vreadFile(runsDir, v.run)}: n ${v.n_family_runs_per_arm} family-run per arm; baseline ${JSON.stringify(v.arms.baseline)}; ratchet ${JSON.stringify(v.arms.ratchet)}`);
   } catch (e) { console.error(String(e instanceof Error ? e.message : e)); process.exitCode = 1; }
 }

@@ -36,8 +36,12 @@ export const PRICES: Record<string, { in: number; out: number }> = {
   "muse-spark-1.3": { in: 1.3 / 64_000, out: 1.3 / 64_000 },
 };
 
+/** Claude models run on the owner's subscription (S23): priced at 0 and recorded with billing "subscription", outside the Meta guard. */
+export const isSubscriptionModel = (model: string) => /^claude-/.test(model.replace(/ \(not echoed\)$/, ""));
+
 /** USD for a call's tokens under PRICES; a model with no price reads the muse-wonder-1.0 rate (held by review). */
 export function priceUsd(model: string, tokensIn: number, tokensOut: number): number {
+  if (isSubscriptionModel(model)) return 0;
   const p = PRICES[model] ?? PRICES[CONSOLIDATOR_MODEL];
   return tokensIn * p.in + tokensOut * p.out;
 }
@@ -127,7 +131,8 @@ export async function chat(req: ChatRequest, o: { endpoint?: string; key?: strin
 /** Appends a call's spend to ledger/spend.jsonl (SPEC §6.7) and returns the record. */
 export function recordSpend(role: SpendRecord["role"], call: LlmCall, requested: string, ledger?: string): SpendRecord {
   const model = call.model_echoed || `${requested} (not echoed)`;
-  const rec: SpendRecord = { at: new Date().toISOString(), run: runId(), role, model, tokens_in: call.usage.prompt, tokens_out: call.usage.completion, usd: priceUsd(call.model_echoed || requested, call.usage.prompt, call.usage.completion) };
+  const rec: SpendRecord & { billing?: "subscription" } = { at: new Date().toISOString(), run: runId(), role, model, tokens_in: call.usage.prompt, tokens_out: call.usage.completion, usd: priceUsd(call.model_echoed || requested, call.usage.prompt, call.usage.completion) };
+  if (isSubscriptionModel(call.model_echoed || requested)) rec.billing = "subscription"; // a status field: SpendRecord has no billing field yet
   append("spend.jsonl", rec, ledger);
   return rec;
 }
