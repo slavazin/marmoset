@@ -34,7 +34,8 @@ const rate = (label: string, s: { n: number; hits: number; rate: number | null }
 export function routerBlock(h: History): string {
   const r = h.router;
   if (!r) return empty("No SubQ route or forecast in ledger/: no incident carries a route and no attempt a forecast.");
-  const sub = r.subsystem.n ? ` · subsystem n <b>${esc(r.subsystem.n)}</b>, wrong <b>${esc(r.subsystem.wrong)}</b>, AUROC of uncertainty <b>${esc(fmtRatio(r.subsystem.auroc_uncertainty))}</b>, of p(other) <b>${esc(fmtRatio(r.subsystem.auroc_other))}</b>` : "";
+  const steered = r.subsystem.steered ? ` · <b>${esc(r.subsystem.steered)}</b> route(s) unscored: repaired under a policy` : "";
+  const sub = (r.subsystem.n ? ` · subsystem n <b>${esc(r.subsystem.n)}</b>, wrong <b>${esc(r.subsystem.wrong)}</b>, accuracy <b>${esc(fmtRatio(r.subsystem.accuracy))}</b> against a uniform pick's <b>${esc(fmtRatio(r.subsystem.chance))}</b> (truth is per core file), AUROC of uncertainty <b>${esc(fmtRatio(r.subsystem.auroc_uncertainty))}</b>, of p(other) <b>${esc(fmtRatio(r.subsystem.auroc_other))}</b>` : "") + steered;
   const app = r.applies.n ? ` · applies: n <b>${esc(r.applies.n)}</b>, Brier <b>${esc(fmtRatio(r.applies.brier))}</b>` : "";
   const fp = r.forecast_pass.n ? ` · pass forecast n <b>${esc(r.forecast_pass.n)}</b>, Brier <b>${esc(fmtRatio(r.forecast_pass.brier))}</b>, AUROC <b>${esc(fmtRatio(r.forecast_pass.auroc))}</b>` : "";
   const twin = r.twin.n ? `${rate("twin agrees", r.twin)}, mean |Δp| <b>${esc(fmtRatio(r.twin.mean_dp))}</b>` : "";

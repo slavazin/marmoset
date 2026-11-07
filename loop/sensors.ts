@@ -2,9 +2,11 @@
 // a forecast, and loop/sensors.test.ts asserts a forecast leaves every gate check unchanged. Offers:
 //   senseAttempt(o)  called once where the attempt starts (loop/fast.ts): asks PASS_QUESTION ("will this repair pass
 //                    the gate?") in the background from the incident state and the task; returns { after } ;
-//   after(o)         called once where the attempt ends: waits for the pass forecast, then, when the attempt has a
-//                    diff, asks MECHANISM_QUESTION ("does this diff fix the mechanism or only mask the symptom?") from
-//                    the diff, the incident evidence and the regwrites.
+//   after(o)         called once when the repair returns its diff, before the gate: when the diff is not empty it
+//                    asks MECHANISM_QUESTION ("does this diff fix the mechanism or only mask the symptom?") from the
+//                    diff, the incident evidence and the regwrites; the promise it returns settles when both
+//                    forecasts have, and loop/fast.ts awaits it after the gate (loop/sensors.test.ts reads that the
+//                    request leaves before any verdict is written).
 // Each answer becomes a status record on ledger/attempts.jsonl (fields FORECAST_FIELDS, loop/subq.ts), a `loop`
 // record (forecast.pass, forecast.mechanism), an `llm` record and a router spend record (loop/route.ts askSubq).
 // Neither function throws into the loop path; with no client (loop/subq.ts subqClient(): no key, or a test process
@@ -57,12 +59,13 @@ export function senseAttempt(o: SenseOpts): AttemptSensing {
   const task = { arm: o.task.arm, skills: o.task.skills, policies: o.task.policies ?? [], budget: o.task.budget };
   const pass = quiet((async () => ask(c, FORECAST_FIELDS.pass, PASS_KEY, PASS_QUESTION, { ...base(), task }, o, true))(), o.attempt, FORECAST_FIELDS.pass);
   return {
-    async after({ diff }) {
-      await pass;
-      if (!diff?.trim()) return;
-      const cut = diff.length > MECHANISM_DIFF_CHARS;
-      await quiet((async () => ask(c, FORECAST_FIELDS.mechanism, MECHANISM_KEY, MECHANISM_QUESTION,
-        { ...base(), diff: diff.slice(0, MECHANISM_DIFF_CHARS), ...(cut ? { diff_note: `cut at ${MECHANISM_DIFF_CHARS} of ${diff.length} characters` } : {}) }, o, true))(), o.attempt, FORECAST_FIELDS.mechanism);
+    after({ diff }) {
+      // the mechanism request goes out at once, before the caller runs the gate, and its state holds only the
+      // incident evidence and the diff, so no verdict can reach it
+      const cut = (diff ?? "").length > MECHANISM_DIFF_CHARS;
+      const mech = diff?.trim() ? quiet((async () => ask(c, FORECAST_FIELDS.mechanism, MECHANISM_KEY, MECHANISM_QUESTION,
+        { ...base(), diff: diff.slice(0, MECHANISM_DIFF_CHARS), ...(cut ? { diff_note: `cut at ${MECHANISM_DIFF_CHARS} of ${diff.length} characters` } : {}) }, o, true))(), o.attempt, FORECAST_FIELDS.mechanism) : Promise.resolve();
+      return Promise.all([pass, mech]).then(() => undefined);
     },
   };
 }

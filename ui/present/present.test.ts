@@ -108,6 +108,18 @@ test("StageTracker holds a verdict's stage against frame events for STAGE_HOLD_M
   assert.ok(!/NaN|undefined/.test(svg));
 });
 
+test("StageTracker lights an attempt's end once: a status record written after its result (a SubQ forecast) re-emits phase end and lights nothing", () => {
+  const t = new StageTracker();
+  const att = { id: "ATT-0001", task: { incident: "INC-0001" } } as unknown as Attempt;
+  assert.ok(t.push({ t: "attempt", attempt: att, phase: "end" }, layout.ORIGIN_PX));
+  assert.equal(t.lit.stage, "gate");
+  t.push({ t: "verdict", verdict: verdict("GRADUATE") }, layout.ORIGIN_PX);
+  assert.equal(t.lit.stage, "graduate");
+  assert.equal(t.push({ t: "attempt", attempt: { ...att, forecast_mechanism: { yes: layout.ORIGIN_PX } }, phase: "end" }, layout.STAGE_HOLD_MS + layout.HEAD_PX), false);
+  assert.equal(t.lit.stage, "graduate", "the verdict's stage stays lit");
+  assert.ok(t.push({ t: "attempt", attempt: { ...att, id: "ATT-0002" }, phase: "start" }, layout.STAGE_HOLD_MS + layout.HEAD_PX), "another attempt still lights");
+});
+
 test("History over the fixture ledger lists every fixture verdict with its stamp and deciding reading, opens its evidence, and shows no run figure for run-null records", async () => {
   const h = await readHistory({ ledger: join(root, "ui/fixtures/ledger"), runs: join(root, "ui/fixtures/runs"), skills: join(root, "skills"), live: join(root, "no-live-clone"), registers: join(root, "ledger"), root });
   const html = historyTab(h);
@@ -131,7 +143,7 @@ test("History over an empty ledger shows empty states and prints no zero as a re
 test("the router block draws one reliability point per non-empty bin and an empty state, with no zero printed, when no applies: row has an outcome", () => {
   const bins = reliability([{ p: 0.15, y: 1 }, { p: 0.12, y: 0 }, { p: 0.85, y: 1 }]);
   const none = { n: 0, hits: 0, rate: null };
-  const router = { routed: 2, subsystem: { n: 0, brier: null, accuracy: null, wrong: 0, auroc_uncertainty: null, auroc_other: null },
+  const router = { routed: 2, subsystem: { n: 0, brier: null, accuracy: null, wrong: 0, steered: 0, chance: null, auroc_uncertainty: null, auroc_other: null },
     applies: { n: 3, brier: 0.2, accuracy: 0.6, reliability: bins }, abstention: { n: 2, hits: 1, rate: 0.5 }, decoy: { n: 2, hits: 2, rate: 1 },
     twin: { n: 2, hits: 2, rate: 1, mean_dp: 0.05 }, forecast_pass: { n: 0, brier: null, auroc: null }, forecast_mechanism: none };
   const html = routerBlock({ router } as unknown as Parameters<typeof routerBlock>[0]);
@@ -141,4 +153,7 @@ test("the router block draws one reliability point per non-empty bin and an empt
   const emptyHtml = routerBlock({ router: { ...router, applies: { n: 0, brier: null, accuracy: null, reliability: reliability([]) } } } as unknown as Parameters<typeof routerBlock>[0]);
   assert.match(emptyHtml, /No applies: probability has an outcome yet/);
   assert.match(routerBlock({ router: null } as unknown as Parameters<typeof routerBlock>[0]), /No SubQ route or forecast/);
+  const scored = routerBlock({ router: { ...router, subsystem: { ...router.subsystem, n: 3, wrong: 1, accuracy: 2 / 3, chance: 0.5, steered: 2 } } } as unknown as Parameters<typeof routerBlock>[0]);
+  assert.match(scored, /accuracy <b>0\.67<\/b> against a uniform pick's <b>0\.50<\/b>/, "accuracy beside its chance level");
+  assert.match(scored, /<b>2<\/b> route\(s\) unscored: repaired under a policy/);
 });

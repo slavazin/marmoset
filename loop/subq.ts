@@ -2,7 +2,8 @@
 // cache and the one seam every SubQ caller takes its client from. It imports only ledger.ts and repair.ts (readDotEnv)
 // of the loop, so loop/route.ts, loop/policies.ts and loop/sensors.ts all read it without an import cycle. Offers:
 //   subqKey(env)              SUBQ_API_KEY, else `subquadratic_key` from .env (this checkout's, then the main checkout's);
-//   httpClient(o)             one POST with a bearer key; the key travels only in the Authorization header;
+//   httpClient(o)             one POST with a bearer key, returned as an error after SUBQ_TIMEOUT_MS; the key travels
+//                             only in the Authorization header;
 //   cacheDir(env)             runs/<run|prerun>/subq-cache under the repository root ($RATCHET_SUBQ_CACHE overrides);
 //   requestKey(req)           sha256 of the state (with the images) and sha256 of the question list;
 //   cachedClient(inner, dir)  serves a request from <dir>/<echoed model>/<state16>-<questions16>.json, else asks
@@ -12,7 +13,7 @@
 //                             else null in a test process or without a key, else the cached live client;
 //   ROUTE_SENSOR_KEY, FORECAST_FIELDS  the record keys loop/route.ts and loop/sensors.ts write and loop/policies.ts
 //                             reads.
-// Tests: loop/sensors.test.ts (cache hit, miss, replay-only refusal).
+// Tests: loop/sensors.test.ts (cache hit, miss, replay-only refusal, a stalled server timed out).
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -60,14 +61,22 @@ export function subqKey(env = process.env): string | undefined {
   return undefined;
 }
 
-/** The real client: one POST with a bearer key. The key travels only in the Authorization header. */
-export function httpClient(o: { endpoint?: string; key?: string } = {}): SubqClient {
+/**
+ * Milliseconds one SubQ call may take before it is aborted and returned as an error, so a stalled service cannot
+ * hold the fast loop (loop/fast.ts awaits the forecasts) or a campaign's route. The one live route measured took
+ * 590 ms (evidence/s17b/readout.txt); 30 s is set by the S17b cold read before any run, never tuned during one.
+ */
+export const SUBQ_TIMEOUT_MS = 30_000;
+
+/** The real client: one POST with a bearer key, aborted after `timeoutMs`. The key travels only in the Authorization header. */
+export function httpClient(o: { endpoint?: string; key?: string; timeoutMs?: number } = {}): SubqClient {
   return async (req) => {
     const key = o.key ?? subqKey();
     const t0 = Date.now();
     if (!key) return { status: 0, body: null, error: "no key: SUBQ_API_KEY unset and .env holds no subquadratic_key", wall_ms: 0 };
     try {
-      const r = await fetch(o.endpoint ?? SUBQ_ENDPOINT, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify(req) });
+      const r = await fetch(o.endpoint ?? SUBQ_ENDPOINT, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify(req),
+        signal: AbortSignal.timeout(o.timeoutMs ?? SUBQ_TIMEOUT_MS) });
       const text = await r.text();
       const wall_ms = Date.now() - t0;
       if (!r.ok) return { status: r.status, body: null, error: `HTTP ${r.status}: ${text.slice(0, 300)}`, wall_ms };

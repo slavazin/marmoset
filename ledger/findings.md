@@ -71,3 +71,15 @@ Cold-read findings, one line each: id, claim or property, reading, disposition (
 | S10-F14 | S10 | V-read arm whose diff fails to apply | silently scores the base core | fix: 277ed12, apply_failed in vread.json, progress and both V cards |
 | S10-F15 | S10 | play during a merge | realPlay reads live/core without the gate lock | accept-residue: short window |
 | S10-F16 | S10 | a post-merge re-check that throws | logged to telemetry `recheck-error`, incident left as it was, not on the verdict | accept-residue: the incident stays open and is retried, so nothing is miscounted |
+| S17b-F1 | S17b | shape 1: the decoy is unmarked | every decoy's not-this named the picture; live decoy p 0.005 | fix: 348c490, not-this names a nearby mechanism in its own subsystem |
+| S17b-F2 | S17b | shape 1: decoy position | placed ahead of mid_line and severity | fix: 348c490, inside the run of applies: questions |
+| S17b-F3 | S17b | shape 1: the twin is the subsystem question reworded | twin criteria 2–3× longer, added mechanism | fix: 348c490, matched-length paraphrases (≤ 1.5×) |
+| S17b-F4 | S17b | shape 4: a stalled SubQ call | no timeout; a hang stalls the fast loop | fix: 348c490, SUBQ_TIMEOUT_MS 30000 |
+| S17b-F5 | S17b | shape 4: error vs abstain | partial failure looked like an answer | fix: 348c490, `failed` count on the call meter |
+| S17b-F6 | S17b | the mechanism forecast cannot see the verdict | asked after the verdict and status flip | fix: 348c490, asked before the gate, awaited after |
+| S17b-F7 | S17b | the wrong-route truth-maker | circular under packet focus; per-file truth lets oam_dma score ≈ 1 | fix: 348c490 partial, steered routes excluded, chance shown; accept-residue: truth per file until provenance is per handler |
+| S17b-F8 | S17b | a forecast record re-emits attempt end | diagram went back to gate | fix: 348c490, StageTracker lights each phase once |
+| S17b-F9 | S17b | ppu.fifo, ppu.oam, ppu.sprites in no focus set | mapping them breaks D-0020's size match | accept-residue: D-0020 size match outranks reach; a sprite failure routes to dma |
+| S17b-F10 | S17b | the decoy's SKL label | weak tell; cache keys can collide with a later real skill | accept-residue (D-0027) |
+| S17b-F11 | S17b | a failed family route | null on both arms, symmetric; not in the ledger | accept-residue |
+| S17b-F12 | S17b | INC-0003 twin disagreement | measured against the old twin | accept-residue: dated reading |

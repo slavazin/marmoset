@@ -4,7 +4,8 @@
 // (GRADUATE → repaired; REFUSE on the MAX_ATTEMPTS-th attempt → unrepaired), and writes one Observation for the
 // arm "fast" attempt. It reads skills and policies and never writes them; every graduated policy is named in
 // task.policies (loop/policies.ts policiesInForce) and its routing picks the shown skills (selectShown). The SubQ
-// forecasts (loop/sensors.ts senseAttempt) are asked where the attempt starts and ends; nothing here reads them.
+// forecasts (loop/sensors.ts senseAttempt) are asked where the attempt starts and where the repair returns its diff,
+// before the gate; nothing here reads them.
 
 import { MAX_ATTEMPTS, MAX_SHOWN, MAX_STEPS } from "./gate.ts";
 import { policiesInForce } from "./policies.ts";
@@ -94,6 +95,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
 
   const attempt = { ...current<Attempt>("attempts.jsonl", id, paths.ledger)!, result: rep.result ?? undefined };
   t = lap("repair", t);
+  const sensed = sensing.after({ diff: rep.diff }); // asked before the gate runs, awaited after it
   const runGate = () => gateAttempt({ attempt, diff: rep.diff, incident: inc, paths, replayer: d.replayer, suites: d.suites, quiet: d.quiet });
   const gate = d.gateLock ? await d.gateLock(runGate) : await runGate();
   lap("gate", t);
@@ -108,7 +110,7 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   if (gate.verdict.decision === "GRADUATE") status("incidents.jsonl", incidentId, "status", "repaired", paths.ledger);
   // a parallel graduate's re-check (gate-repair.ts recheckIncidents) may have repaired it meanwhile: only an open one flips
   else if (prior + 1 >= MAX_ATTEMPTS && current<Incident>("incidents.jsonl", incidentId, paths.ledger)?.status === "open") status("incidents.jsonl", incidentId, "status", "unrepaired", paths.ledger);
-  await sensing.after({ diff: rep.diff });
+  await sensed;
 
   const observation = appendNew<Observation>("observations.jsonl", "OBS", (oid) => ({
     id: oid, at: new Date().toISOString(), run: runId(), anchor: { incident: incidentId, attempt: id, counter: inc.counter },
