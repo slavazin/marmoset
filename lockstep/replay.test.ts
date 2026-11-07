@@ -12,13 +12,14 @@ import { replayFrames } from "./replay.ts";
 
 const WHITE = new Uint8Array(160 * 144);
 
-/** A core whose frame is always white and whose counter stops advancing after `last`. */
+/** A core whose frame is always white and whose counter (0xC0F0) stops advancing after `last`. */
 function stallingCore(last: number): Core {
+  let counter = 0;
   return {
     cpu: { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, h: 0, l: 0, sp: 0xfffe, pc: 0x100 }, serial: "", cycles: 0,
-    step() {}, runFrame() {},
+    step() {}, runFrame() { if (counter < last) counter++; },
     runToCounter(n) { return n <= last; },
-    read() { return 0; }, frame() { return WHITE; }, setButtons() {}, snapshot() { return new Uint8Array(0); }, restore() {},
+    read(a) { return a === 0xc0f0 ? counter : 0; }, frame() { return WHITE; }, setButtons() {}, snapshot() { return new Uint8Array(0); }, restore() {},
     tap: { handlerHits() { return {} as Record<HandlerId, number>; }, ppu() { return { ly: 0, mode: 0, dot: 0, stat: 0, lcdc: 0 }; } },
   };
 }

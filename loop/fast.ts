@@ -47,6 +47,9 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   const prior = all<Attempt>("attempts.jsonl", paths.ledger).filter((a) => a.task.incident === incidentId).length;
   if (prior >= MAX_ATTEMPTS) throw new Error(`${incidentId} has ${prior} attempts; MAX_ATTEMPTS is ${MAX_ATTEMPTS}`);
 
+  const t0 = performance.now();
+  const ms: Record<string, number> = {};
+  const lap = (k: string, from: number) => { ms[k] = Math.round(performance.now() - from); return performance.now(); };
   tlog("loop", "incident-picked", { incident: incidentId, prior_attempts: prior, kind: inc.kind, counter: inc.counter });
   const base = git(paths.live, ["rev-parse", LIVE_BRANCH]);
   const graduated = listSkills(paths.skills, "graduated");
@@ -67,8 +70,10 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
 
   const splits = loadSplits();
   const tFamilies = Object.fromEntries(familiesIn(splits, "T").map((f) => [f, familyRoms(splits, f, paths.roms).map((r) => join(paths.roms, r))]));
+  let t = performance.now();
   const packet = repairPacket(task, { attempt: id, paths, incident: inc, shown: graduated.filter((s) => shownIds.includes(s.id)), tFamilies });
   S("scratch_files", packet.files);
+  t = lap("projection", t);
   const rep = await runRepair(task, packet, { attempt: id, server: paths.server, runner: d.runner });
   S("model", rep.model);
   S("spent", rep.spent);
@@ -77,14 +82,17 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   S("fires", attFires);
 
   const attempt = { ...current<Attempt>("attempts.jsonl", id, paths.ledger)!, result: rep.result ?? undefined };
+  t = lap("repair", t);
   const gate = await gateAttempt({ attempt, diff: rep.diff, incident: inc, paths, replayer: d.replayer, suites: d.suites, quiet: d.quiet });
+  lap("gate", t);
+  ms.total = Math.round(performance.now() - t0);
   if (gate.head_commit) S("head_commit", gate.head_commit);
   if (gate.trace) S("admitted_trace", gate.trace);
   S("bundle", gate.bundle);
   // result last: the UI reads an attempt with a result as phase "end" (server/events.ts toEvent)
   S("result", rep.result ?? { dispositions: {}, off_map: null, beliefs: [], summary: `no packet/RESULT.json (muse exit ${rep.exitCode})` });
 
-  tlog("loop", "attempt-end", { attempt: id, verdict: gate.verdict.id, decision: gate.verdict.decision, model: rep.model, spent: rep.spent, exit: rep.exitCode, summary: rep.result?.summary ?? null });
+  tlog("loop", "attempt-end", { attempt: id, verdict: gate.verdict.id, decision: gate.verdict.decision, model: rep.model, spent: rep.spent, exit: rep.exitCode, summary: rep.result?.summary ?? null, ms });
   if (gate.verdict.decision === "GRADUATE") status("incidents.jsonl", incidentId, "status", "repaired", paths.ledger);
   else if (prior + 1 >= MAX_ATTEMPTS) status("incidents.jsonl", incidentId, "status", "unrepaired", paths.ledger);
 

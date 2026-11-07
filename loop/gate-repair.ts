@@ -248,9 +248,10 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   const branch = attempt.branch;
   const checks: Check[] = [];
   const trace = workingTrace(paths, inc);
+  const tScope = performance.now();
   const scope = diffScope(diff, memoNeedles(inc, trace, cachedFrames(paths, inc)));
   checks.push(scope);
-  tlog("loop", "gate-check", { attempt: attempt.id, name: scope.name, pass: scope.pass, reading: scope.reading });
+  tlog("loop", "gate-check", { attempt: attempt.id, name: scope.name, pass: scope.pass, reading: scope.reading, ms: Math.round(performance.now() - tScope) });
 
   // the attempt branch exists in the live clone whatever the verdict (G3)
   const wt = join(paths.cache, "gate", attempt.id);
@@ -289,8 +290,9 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
     tlog("loop", "gate-check-start", { attempt: attempt.id, name });
     // a check that throws fails: the attempt still gets its REFUSE verdict (its tombstone)
     let r: { pass: boolean; reading: unknown };
+    const t0 = performance.now();
     try { r = await fn(); } catch (e) { r = { pass: false, reading: { error: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200) } }; }
-    tlog("loop", "gate-check", { attempt: attempt.id, name, ...r });
+    tlog("loop", "gate-check", { attempt: attempt.id, name, ...r, ms: Math.round(performance.now() - t0) });
     checks.push({ name, ...r });
   };
   const coreDir = join(wt, "core");
