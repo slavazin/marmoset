@@ -2,7 +2,7 @@
 
 // §6.0 Id prefixes: INC incident · ATT attempt · VER verdict · OBS observation · SKL skill · FIR fire ·
 // D decision · BEL belief · TRC admitted trace · RUN run. Format: PREFIX-NNNN.
-export const ID_PREFIXES = ["INC", "ATT", "VER", "OBS", "SKL", "FIR", "D", "BEL", "TRC", "RUN"] as const;
+export const ID_PREFIXES = ["INC", "ATT", "VER", "OBS", "SKL", "FIR", "D", "BEL", "TRC", "RUN", "SPT", "STR"] as const; // SPT spot (S13), STR steer (S8)
 export type IdPrefix = (typeof ID_PREFIXES)[number];
 
 // Status record appended to a ledger file; loop/ledger.ts current(id) reads the last one written (SPEC §6).
@@ -71,6 +71,7 @@ export interface Incident {
   narration?: string; // nominates, never decides
   route?: Record<string, Record<string, number>>; // N7 router probabilities
   status: "open" | "repaired" | "unrepaired"; // status flip only
+  spot?: { spot: string; subsystem: string; bbox: [number, number, number, number] | null; confidence: number }; // S13 sensor hint, status record
 }
 
 // §6.6 Repair task, attempt, result
@@ -113,7 +114,7 @@ export interface Steer {
   latch_should_have_fired?: string; // SKL id
 }
 export interface SpendRecord {
-  at: string; run: string | null; role: "consolidator" | "narrator" | "player" | "router";
+  at: string; run: string | null; role: "consolidator" | "narrator" | "player" | "router" | "spotter";
   model: string; tokens_in: number; tokens_out: number; usd: number;
 } // ledger/spend.jsonl
 
@@ -151,6 +152,15 @@ export interface SkillFrontmatter {
 
 // §6.10 Tombstone frontmatter (skills/tombstones/<id>.md)
 export interface TombstoneFrontmatter { id: string; was: SkillStatus; verdict: string; reason: string; successor: string | null }
+
+// Gemini visual sensor record (ledger/spots.jsonl, S13). It nominates, never decides (D-0004).
+export interface Spot {
+  id: string; at: string; run: string | null; kind: "scored" | "sensor-only" | "failed";
+  counter: number; rom_sha: string; trace_sha: string; sampled_by: string;
+  answer: unknown; truth: { diff: boolean; pixels: number; box: [number, number, number, number] | null };
+  score: { outcome: "tp" | "fp" | "fn" | "tn"; iou: number | null; mislocated?: boolean };
+  incident?: string; model: string; calls: number; tokens_in: number; tokens_out: number; ms: number; failure?: string;
+}
 
 // §6.11 Player action
 export interface PlayerAction { mask: number; frames: number; intent: string }
