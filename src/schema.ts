@@ -103,6 +103,9 @@ export interface Attempt {
   spent: { steps: number; wall_s: number; tokens_in: number; tokens_out: number; usd: number }; // usd priced from tokens by PRICES in loop/llm.ts
   scratch_files: string[]; // the allowlist the projection test asserts
   isolation: { home: string; skills_list: string; observers: "off" | "on-identical"; web_tools: "off" | "on"; confine?: "seatbelt" | "none" /* D-0021 */ };
+  // S17b SubQ forecasts, status records written by loop/sensors.ts; they nominate, never decide (D-0004)
+  forecast_pass?: Record<string, number>; // before the repair: { yes: p(passes the gate), ms, usd }
+  forecast_mechanism?: Record<string, number>; // after a diff: { yes: p(fixes the mechanism, not the symptom), ms, usd }
 }
 
 // §6.7 Observation, steer, spend

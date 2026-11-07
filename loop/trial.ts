@@ -9,6 +9,8 @@
 //                                  family (split H) and the base suites; loop/gate-skill.ts decides; one Verdict with
 //                                  `arms` goes to ledger/verdicts.jsonl; the candidate graduates or is tombstoned, the
 //                                  placebo is tombstoned as retired; runs/<run>/trials.jsonl pairs candidate and twin.
+// An arm whose policies include a route-by-subq-applies policy reads SubQ's route of its family task, asked once per
+// family and shared by both policy arms (familyRouteOnce, loop/route.ts routeFamily; S15-R3).
 // Each arm run is an Attempt in ledger/attempts.jsonl (task.kind "family", task.arm the arm) and writes no observation;
 // the placebo arm's packet/task.json reads arm "candidate", so its repairer cannot tell it from the candidate arm.
 // Each skill verdict carries its `generation` and `arms`; server/events.ts curveEvents plots the arms at that generation.
@@ -24,11 +26,12 @@ import { runRepair, type MuseRunner } from "./repair.ts";
 import { loadCore } from "./replay-seam.ts";
 import { ruleVersion } from "./gate-repair.ts";
 import { listSkills, selectShown, type ShownSkill } from "./shown.ts";
-import { loadPolicies, policiesDir } from "./policies.ts";
+import { loadPolicies, needsSubqRoute, policiesDir } from "./policies.ts";
+import { routableSkills, routeFamily } from "./route.ts";
 import { decideSkill, graduateSkill, marginFor, tombstoneSkill, type TrialArm } from "./gate-skill.ts";
 import { loadSplits, familyRoms } from "../suites/splits.ts";
 import { tlog } from "../src/telemetry.ts";
-import type { Attempt, Calibration, Fire, RepairTask, SuiteReading, Verdict } from "../src/schema.ts";
+import type { Attempt, Calibration, Fire, Incident, RepairTask, SuiteReading, Verdict } from "../src/schema.ts";
 
 /** Wall-clock budget of one trial arm's family-run, in seconds; every arm of a trial gets the same budget. */
 export const TRIAL_WALL_S = 900;
@@ -82,12 +85,31 @@ export function coreAt(paths: LoopPaths, commit: string, dir: string, diff = "")
   return touched;
 }
 
+const familyRoutes = new Map<string, Promise<Incident["route"] | null>>();
+/**
+ * SubQ's route of one family task (loop/route.ts routeFamily), asked once per (ledger, base commit, family, shown
+ * skills) in this process, so a trial's candidate and placebo arms read the same answers and differ only in policy.
+ */
+export function familyRouteOnce(family: string, shown: ShownSkill[], base: string, d: TrialDeps): Promise<Incident["route"] | null> {
+  const key = [d.paths.ledger, base, family, shown.map((s) => s.id).join(",")].join("|");
+  let p = familyRoutes.get(key);
+  if (!p) {
+    const ids = new Set(shown.map((s) => s.id));
+    p = routeFamily(family, routableSkills(d.paths.skills).filter((s) => ids.has(s.id)), { ledger: d.paths.ledger, root: d.paths.root, roms: famRoms(d, family) })
+      .catch((e) => { tlog("loop", "route.family-failed", { family, error: (e as Error).message }); return null; });
+    familyRoutes.set(key, p);
+  }
+  return p;
+}
+
 /** One arm's family-run (see the file header); `homeOverride` is muse-native's persistent runner path. */
 export async function runArm(arm: ArmRun["arm"], family: string, shown: ShownSkill[], base: string, d: TrialDeps, runner: MuseRunner = d.runner, policies: string[] = []): Promise<ArmRun> {
   const taskArm: RepairTask["arm"] = arm === "muse-native" ? "baseline" : arm;
   const draft: RepairTask = { kind: "family", family, base_commit: base, arm: taskArm, skills: [], policies, budget: d.budget ?? { max_steps: MAX_STEPS, wall_s: TRIAL_WALL_S } };
-  // a routing policy picks among the arm's skills by the family's subsystem (loop/policies.ts applyPolicies)
-  const keep = new Set(policies.length ? selectShown(shown.map((s) => s.id), all<Fire>("fires.jsonl", d.paths.ledger), MAX_SHOWN, { task: draft, ctx: { paths: d.paths, skills: shown, site: "shown" } }) : shown.map((s) => s.id));
+  // a routing policy picks among the arm's skills by the family's subsystem, or by SubQ's route of the family task
+  // (S15-R3; loop/policies.ts applyPolicies)
+  const familyRoute = needsSubqRoute(policies, d.paths) ? await familyRouteOnce(family, shown, base, d) : null;
+  const keep = new Set(policies.length ? selectShown(shown.map((s) => s.id), all<Fire>("fires.jsonl", d.paths.ledger), MAX_SHOWN, { task: draft, ctx: { paths: d.paths, skills: shown, site: "shown", ...(familyRoute ? { route: familyRoute } : {}) } }) : shown.map((s) => s.id));
   shown = shown.filter((s) => keep.has(s.id));
   const task: RepairTask = { ...draft, skills: shown.map((s) => s.id) };
   const att = appendNew<Attempt>("attempts.jsonl", "ATT", (id) => ({

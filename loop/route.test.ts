@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 process.env.RATCHET_TELEMETRY_DIR = mkdtempSync(join(tmpdir(), "ratchet-tel-"));
 delete process.env.RATCHET_RUN;
-const { route, routeSkills, routeCalibration, MAX_QUESTIONS, MAX_IMAGES, ROUTE_META_KEY } = await import("./route.ts");
+const { route, routeSkills, routeCalibration, controlsFor, MAX_QUESTIONS, MAX_IMAGES, ROUTE_META_KEY, PLANTED_PER_CALL, TWIN_KEY } = await import("./route.ts");
 const { read, current, append, status } = await import("./ledger.ts");
 import type { Incident } from "../src/schema.ts";
 import type { SubqClient, SubqRequest, RouteSkill } from "./route.ts";
@@ -49,7 +49,10 @@ test("route asks every question in one call carrying at most MAX_QUESTIONS quest
   const r = await route(inc, { client: fakeClient(calls), root, ledger, skills: skills(3), observations: [{ id: "OBS-0001", text: "LCDC bit flips mid-frame", anchor: { attempt: "ATT-0001" } }] });
   assert.equal(calls.length, 1);
   assert.ok(Object.keys(calls[0].questions).length <= MAX_QUESTIONS);
-  assert.deepEqual(Object.keys(calls[0].questions), ["subsystem", "mid_line", "severity", "applies:SKL-0001", "applies:SKL-0002", "applies:SKL-0003", "same_shape_as:OBS-0001"]);
+  const planted = controlsFor(inc.id, skills(3));
+  const sent = Object.keys(calls[0].questions);
+  assert.ok(sent.includes(planted.decoyKey) && sent.includes(TWIN_KEY), "the planted pair rides in the call");
+  assert.deepEqual(sent.filter((k) => k !== planted.decoyKey && k !== TWIN_KEY), ["subsystem", "mid_line", "severity", "applies:SKL-0001", "applies:SKL-0002", "applies:SKL-0003", "same_shape_as:OBS-0001"]);
   assert.equal(calls[0].images?.length, 3);
   assert.ok((calls[0].images?.length ?? 0) <= MAX_IMAGES);
   assert.equal(calls[0].images?.[0].base64, PNG.toString("base64"));
@@ -61,11 +64,12 @@ test("route asks every question in one call carrying at most MAX_QUESTIONS quest
   assert.equal(r.meter.tokens_in, 1000);
 });
 
-test("a 129th question is split into a second call, and both calls' answers land in one route status record with one router spend record per call", async () => {
+test("questions past one call's MAX_QUESTIONS share go into a second call carrying its own planted pair, and both calls' answers land in one route status record with one router spend record per call", async () => {
   const { root, ledger, inc } = fixture();
   const calls: SubqRequest[] = [];
   const r = await route(inc, { client: fakeClient(calls), root, ledger, skills: skills(MAX_QUESTIONS + 1 - 3), observations: [] });
-  assert.deepEqual(calls.map((c) => Object.keys(c.questions).length), [MAX_QUESTIONS, 1]);
+  assert.deepEqual(calls.map((c) => Object.keys(c.questions).length), [MAX_QUESTIONS, MAX_QUESTIONS + 1 - (MAX_QUESTIONS - PLANTED_PER_CALL) + PLANTED_PER_CALL]);
+  for (const c of calls) assert.ok(TWIN_KEY in c.questions, "each call carries the twin");
   const routes = read("incidents.jsonl", ledger).filter((x) => x.t === "status" && x.field === "route");
   assert.equal(routes.length, 1);
   const cur = current<Incident>("incidents.jsonl", inc.id, ledger)!;
@@ -94,9 +98,13 @@ test("routeSkills orders skill ids by applies: probability, unrouted last, and k
   assert.deepEqual(routeSkills({}, ["SKL-0002", "SKL-0001"], 1), ["SKL-0001"]);
 });
 
-test("routeCalibration on an empty ledger reports n = 0 with null brier and accuracy, never 0 accuracy", () => {
+test("routeCalibration on an empty ledger reports n = 0 with every figure null, never 0 accuracy, and ten empty reliability bins", () => {
   const c = routeCalibration(mkdtempSync(join(tmpdir(), "ratchet-cal-")));
-  assert.deepEqual(c, { routed: 0, subsystem: { n: 0, brier: null, accuracy: null }, applies: { n: 0, brier: null, accuracy: null } });
+  const none = { n: 0, hits: 0, rate: null };
+  assert.deepEqual({ ...c, applies: { ...c.applies, reliability: c.applies.reliability.length } }, {
+    routed: 0, subsystem: { n: 0, brier: null, accuracy: null, wrong: 0, auroc_uncertainty: null, auroc_other: null }, applies: { n: 0, brier: null, accuracy: null, reliability: 10 },
+    abstention: none, decoy: none, twin: { ...none, mean_dp: null }, forecast_pass: { n: 0, brier: null, auroc: null }, forecast_mechanism: none });
+  assert.ok(c.applies.reliability.every((b) => b.n === 0 && b.mean_p === null && b.rate === null));
 });
 
 test("routeCalibration scores subsystem against a GRADUATED repair's provenance files and applies: against later fires", () => {

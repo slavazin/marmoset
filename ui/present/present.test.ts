@@ -11,6 +11,8 @@ import { evidenceHtml } from "./evidence.ts";
 import { premiseTab, approachTab, preEventTab } from "./tabs.ts";
 import { PRE_EVENT_LABEL } from "./pre-event-evidence.ts";
 import { readHistory } from "../../server/history.ts";
+import { routerBlock } from "./reliability.ts";
+import { reliability } from "../../loop/sensor-stats.ts";
 import type { UiEvent, Verdict, Attempt } from "../../src/schema.ts";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -124,4 +126,19 @@ test("History over an empty ledger shows empty states and prints no zero as a re
   const html = historyTab(h);
   assert.match(html, /holds no incident, attempt or verdict/);
   assert.ok(!/(?<![\w-])0(?![\w.])/.test(html.replace(/<[^>]+>/g, " ")), "no bare zero is printed");
+});
+
+test("the router block draws one reliability point per non-empty bin and an empty state, with no zero printed, when no applies: row has an outcome", () => {
+  const bins = reliability([{ p: 0.15, y: 1 }, { p: 0.12, y: 0 }, { p: 0.85, y: 1 }]);
+  const none = { n: 0, hits: 0, rate: null };
+  const router = { routed: 2, subsystem: { n: 0, brier: null, accuracy: null, wrong: 0, auroc_uncertainty: null, auroc_other: null },
+    applies: { n: 3, brier: 0.2, accuracy: 0.6, reliability: bins }, abstention: { n: 2, hits: 1, rate: 0.5 }, decoy: { n: 2, hits: 2, rate: 1 },
+    twin: { n: 2, hits: 2, rate: 1, mean_dp: 0.05 }, forecast_pass: { n: 0, brier: null, auroc: null }, forecast_mechanism: none };
+  const html = routerBlock({ router } as unknown as Parameters<typeof routerBlock>[0]);
+  assert.equal((html.match(/<circle /g) ?? []).length, 2);
+  assert.match(html, /abstained <b>1<\/b> of 2/);
+  assert.ok(!/NaN|undefined/.test(html));
+  const emptyHtml = routerBlock({ router: { ...router, applies: { n: 0, brier: null, accuracy: null, reliability: reliability([]) } } } as unknown as Parameters<typeof routerBlock>[0]);
+  assert.match(emptyHtml, /No applies: probability has an outcome yet/);
+  assert.match(routerBlock({ router: null } as unknown as Parameters<typeof routerBlock>[0]), /No SubQ route or forecast/);
 });

@@ -2,32 +2,49 @@
 //   buildQuestions(skills, observations)  the typed questions for one incident: subsystem, mid_line, severity, one
 //                                          applies:<SKL> per graduated or shadow skill, one same_shape_as:<OBS> per
 //                                          recent fast observation;
+//   controlsFor(seed, skills)             the two planted questions every call carries: one applies: question whose
+//                                          criterion comes from DECOY_POOL (a subsystem no frame divergence reaches),
+//                                          and TWIN_KEY, the subsystem question reworded; neither is used for routing;
 //   buildState(incident, root)            the long-context state: the full regwrites.jsonl of the window, the signature,
 //                                          narration and Gemini spot if present, the core file list and HANDLERS;
-//   route(incident, o)                    asks every question at once (split into calls of MAX_QUESTIONS), sends
-//                                          core.png, oracle.png and diff.png, appends one `route` status record to
-//                                          ledger/incidents.jsonl, one spend record per call (role "router"), and logs
-//                                          each call to the telemetry `llm` stream with its latency;
+//   route(incident, o)                    asks every question at once (split into calls of MAX_QUESTIONS, the two
+//                                          planted questions in each), sends core.png, oracle.png and diff.png, appends
+//                                          one `route` status record to ledger/incidents.jsonl carrying the sensor
+//                                          reading under ROUTE_SENSOR_KEY (top-p, p(other), abstain, decoy and twin),
+//                                          one spend record per call (role "router"), logs each call to the telemetry
+//                                          `llm` stream with its latency and the reading to the `loop` stream;
+//   routeSensor(subsystem, controls)      pure: the sensor reading; abstain is 1 when top-p < ROUTE_ABSTAIN_P or
+//                                          `other` wins, and loop/policies.ts subsystemOf then narrows nothing;
+//   routeFamily(family, skills, o)        the same router on a family repair task (S15-R3): subsystem and applies:
+//                                          per skill plus the planted pair, no ledger status record;
 //   routeSkills(incident, skills, k)      pure: the k skill ids with the highest applies: probability;
-//   routeCalibration(ledgerDir)           Brier and accuracy from the ledger only, with n.
-// CLI: `pnpm route INC-NNNN | --all | --calibration`. Tests: loop/route.test.ts (a fake SubQ client).
+//   routeCalibration(ledgerDir)           Brier, accuracy, AUROC, reliability bins, abstention, planted-question and
+//                                          forecast scores from the ledger only, each with n.
+// Every call takes its client from loop/subq.ts subqClient() (record/replay cache) unless one is passed.
+// CLI: `pnpm route INC-NNNN | --all | --calibration`. Tests: loop/route.test.ts, loop/sensors.test.ts (fake clients).
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
-import { execFileSync } from "node:child_process";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, append, ledgerDir, read, runId, status, LINE_LIMIT } from "./ledger.ts";
-import { readDotEnv } from "./repair.ts";
 import { listSkills } from "./shown.ts";
+import { routedSubsystem } from "./policies.ts";
+import { FORECAST_FIELDS, ROUTE_SENSOR_KEY, SUBQ_ENDPOINT, SUBQ_MODEL, subqClient, type SubqAnswer, type SubqClient, type SubqImage, type SubqQuestion, type SubqReply, type SubqRequest } from "./subq.ts";
+import { auroc, brier, reliability, type ReliabilityBin } from "./sensor-stats.ts";
 import { tlog } from "../src/telemetry.ts";
 import { HANDLERS } from "../core/index.ts";
-import type { Attempt, Fire, Incident, Observation, ProvenanceEntry, RouterQuestion, SpendRecord, StatusRecord, Verdict } from "../src/schema.ts";
+import type { Attempt, Fire, Incident, Observation, ProvenanceEntry, SpendRecord, StatusRecord, Verdict } from "../src/schema.ts";
 
-/** The SubQ Decisions endpoint and model (docs.subq.ai, read 2026-11-07). */
-export const SUBQ_ENDPOINT = "https://api.subq.ai/v1/systemone";
-export const SUBQ_MODEL = "subq-snap-1.1";
-/** Questions per request: the docs' cap of 1–128. A 129th question goes into a second call. */
+// The wire lives in loop/subq.ts; these re-exports keep S17's import sites.
+export { SUBQ_ENDPOINT, SUBQ_MODEL, ROUTE_SENSOR_KEY, httpClient, subqKey } from "./subq.ts";
+export { routedSubsystem } from "./policies.ts";
+export type { ScoreQuestion, SubqQuestion, SubqImage, SubqRequest, SubqAnswer, SubqResponse, SubqReply, SubqClient } from "./subq.ts";
+
+/** Questions per request: the docs' cap of 1–128. The questions past one call's share go into a second call. */
 export const MAX_QUESTIONS = 128;
+/** The planted questions every call carries (one decoy applies:, one subsystem twin); they count against MAX_QUESTIONS. */
+export const PLANTED_PER_CALL = 2;
 /** Images per request (docs: ≤ 4), bytes per image (4 MiB) and per request (8 MiB). */
 export const MAX_IMAGES = 4;
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -41,6 +58,14 @@ export const CRITERION_CHARS = 600;
 /** Decimal places a stored probability keeps, so the route status record stays under LINE_LIMIT. */
 export const PROB_DECIMALS = 3;
 /**
+ * Top subsystem probability below which the route abstains: it nominates the fallback (no focus narrowing,
+ * loop/policies.ts subsystemOf) and writes abstain 1 in its sensor reading. 0.35 is set by the S17b brief before
+ * any run and is never tuned during one.
+ */
+export const ROUTE_ABSTAIN_P = 0.35;
+/** A decoy applies: probability below this reads as rejected (the S17b brief). */
+export const DECOY_REJECT_P = 0.5;
+/**
  * The pseudo-question under which the route record carries its call meter (questions, calls, input tokens, usd,
  * latency). Incident.route is Record<question, Record<answer, number>>; SPEC §6.5 names no field for the meter
  * (a finding for the orchestrator), so the meter rides inside route under this key.
@@ -48,20 +73,6 @@ export const PROB_DECIMALS = 3;
 export const ROUTE_META_KEY = "_call";
 /** Bytes fitRoute leaves under LINE_LIMIT for the meter's `dropped` count, written after the fit. */
 export const FIT_SLACK_BYTES = 16;
-
-/** §6.13 RouterQuestion plus the docs' third type, score (ordered levels; criteria an array). Not in schema.ts: a finding. */
-export type ScoreQuestion = { type: "score"; instructions: string; criteria: string[] };
-export type SubqQuestion = RouterQuestion | ScoreQuestion;
-export interface SubqImage { mediaType: "image/png" | "image/jpeg" | "image/webp"; base64: string }
-export interface SubqRequest { model: string; state: unknown; questions: Record<string, SubqQuestion>; images?: SubqImage[] }
-export type SubqAnswer =
-  | { type: "noul"; noul: number }
-  | { type: "choice"; choice: string; probabilities: Record<string, number>; confidence: number }
-  | { type: "score"; score: number; legend: Record<string, string>; probabilities: Record<string, number>; confidence: number };
-export interface SubqResponse { model?: string; answers: Record<string, SubqAnswer>; usage?: { input_tokens: number; output_tokens: number } }
-export interface SubqReply { status: number; body: SubqResponse | null; error?: string; wall_ms: number }
-/** The seam every SubQ call passes through; tests pass a fake. */
-export type SubqClient = (req: SubqRequest) => Promise<SubqReply>;
 
 /** SPEC §6.13's questions, verbatim. */
 export const BASE_QUESTIONS: Record<string, SubqQuestion> = {
@@ -80,7 +91,58 @@ export const HANDLER_SUBSYSTEM: Record<string, string> = {
   dma: "oam_dma", irq: "stat_irq", timer: "timer", "cpu.op": "other", "cpu.cb": "other", mbc1: "other", "bus.io": "other",
 };
 
+// ---- planted questions ----
+
+/** The key of the reworded subsystem question; its options are BASE_QUESTIONS.subsystem's. */
+export const TWIN_KEY = "emulator_part";
+export const TWIN_QUESTION: SubqQuestion = { type: "choice", instructions: "Which part of the emulator is the most probable source of the pixels that differ from the hardware reference?",
+  criteria: { ppu_fetcher: "the tile fetch and pixel pipeline put pixels at the wrong x inside a scanline", stat_irq: "the LCD status interrupt fires on the wrong line, so a mid-frame register change lands early or late",
+    oam_dma: "the object attribute transfer leaves sprites absent or out of date", window: "the window layer starts at the wrong place or its internal line count is off", timer: "a divider or timer count drifts, so time-keyed state is off", other: null } };
+
 export interface RouteSkill { id: string; firesWhen: string; notThis: string; paths: string[] }
+
+/**
+ * Skill-shaped criteria from subsystems no frame divergence reaches (audio, serial link, joypad, cartridge RAM), the
+ * source of the decoy applies: question. A route that gives one of them >= DECOY_REJECT_P fails to reject it.
+ */
+export const DECOY_POOL: readonly Omit<RouteSkill, "id">[] = [
+  { firesWhen: "a write to NR10 (0xFF10) changes the channel 1 frequency sweep and the sweep steps at the wrong rate", notThis: "any picture difference", paths: ["core/index.ts"] },
+  { firesWhen: "a serial transfer started through SC (0xFF02) completes after the wrong number of cycles and link bytes arrive late", notThis: "any picture difference", paths: ["core/index.ts"] },
+  { firesWhen: "P1 (0xFF00) returns the wrong button group for its select bits, so a held button is never seen by the game", notThis: "any picture difference", paths: ["core/index.ts"] },
+  { firesWhen: "cartridge RAM enabled by a 0x0A write to 0x0000-0x1FFF loses its saved bytes across a power cycle", notThis: "any picture difference", paths: ["core/mbc1.ts"] },
+  { firesWhen: "wave RAM (0xFF30-0xFF3F) read while channel 3 plays returns the wrong sample byte", notThis: "any picture difference", paths: ["core/index.ts"] },
+  { firesWhen: "the channel 4 noise generator in 7-bit mode repeats with the wrong period, so the hiss sounds tonal", notThis: "any picture difference", paths: ["core/index.ts"] },
+];
+
+const hash32 = (s: string, salt: string) => createHash("sha256").update(`${salt}:${s}`).digest().readUInt32BE(0);
+
+/** The applies: question for one skill (buildQuestions' form; the decoy uses it too, so the two read alike). */
+function appliesQuestion(s: RouteSkill): SubqQuestion {
+  return { type: "noul", instructions: `Does skill ${s.id} apply to this incident: would a repairer fixing it touch what the skill covers?`,
+    criteria: { true: `fires when: ${s.firesWhen}; paths: ${s.paths.join(", ")}`.slice(0, CRITERION_CHARS), false: `not this: ${s.notThis}`.slice(0, CRITERION_CHARS) } };
+}
+
+export interface Planted { decoyKey: string; decoy: SubqQuestion; twinKey: string; twin: SubqQuestion; seed: string }
+
+/**
+ * The planted pair for `seed` (an incident or family id), chosen deterministically from it: the DECOY_POOL entry, and
+ * an SKL-shaped label one to three past the highest routed skill id, so it collides with none.
+ */
+export function controlsFor(seed: string, skills: Pick<RouteSkill, "id">[]): Planted {
+  const top = Math.max(0, ...skills.map((s) => Number(/^SKL-(\d+)$/.exec(s.id)?.[1] ?? 0)));
+  const id = `SKL-${String(top + 1 + (hash32(seed, "label") % 3)).padStart(4, "0")}`;
+  const d = DECOY_POOL[hash32(seed, "pool") % DECOY_POOL.length];
+  return { decoyKey: `applies:${id}`, decoy: appliesQuestion({ id, ...d }), twinKey: TWIN_KEY, twin: TWIN_QUESTION, seed };
+}
+
+/** One call's questions with the planted pair inserted at positions seeded by `p.seed` and the call index. */
+export function withPlanted(chunk: Record<string, SubqQuestion>, p: Planted, index: number): Record<string, SubqQuestion> {
+  const entries = Object.entries(chunk);
+  const n = entries.length;
+  entries.splice(1 + (hash32(`${p.seed}:${index}`, "twin") % Math.max(1, Math.min(n, 3))), 0, [p.twinKey, p.twin]);
+  entries.splice(1 + (hash32(`${p.seed}:${index}`, "decoy") % Math.max(1, n + 1)), 0, [p.decoyKey, p.decoy]);
+  return Object.fromEntries(entries);
+}
 
 /** Graduated and shadow skills under `skillsDir`, with their fires-when and not-this activation text (SPEC §6.9). */
 export function routableSkills(skillsDir: string): RouteSkill[] {
@@ -98,10 +160,7 @@ export function routableSkills(skillsDir: string): RouteSkill[] {
 /** Every question for one incident, base questions first; callers split them into calls of MAX_QUESTIONS. */
 export function buildQuestions(skills: RouteSkill[], observations: Pick<Observation, "id" | "text">[]): Record<string, SubqQuestion> {
   const q: Record<string, SubqQuestion> = { ...BASE_QUESTIONS };
-  for (const s of skills) {
-    q[`applies:${s.id}`] = { type: "noul", instructions: `Does skill ${s.id} apply to this incident: would a repairer fixing it touch what the skill covers?`,
-      criteria: { true: `fires when: ${s.firesWhen}; paths: ${s.paths.join(", ")}`.slice(0, CRITERION_CHARS), false: `not this: ${s.notThis}`.slice(0, CRITERION_CHARS) } };
-  }
+  for (const s of skills) q[`applies:${s.id}`] = appliesQuestion(s);
   for (const o of observations) {
     q[`same_shape_as:${o.id}`] = { type: "noul", instructions: `Is this incident the same failure shape as observation ${o.id}?`,
       criteria: { true: o.text.slice(0, CRITERION_CHARS), false: "a different failure shape" } };
@@ -154,36 +213,6 @@ export function evidenceImages(inc: Incident, root: string): SubqImage[] {
   return out;
 }
 
-/** The key: SUBQ_API_KEY in the environment, else `subquadratic_key` from .env (this checkout's, then the main checkout's). */
-export function subqKey(env = process.env): string | undefined {
-  if (env.SUBQ_API_KEY) return env.SUBQ_API_KEY;
-  const cands = [resolve(import.meta.dirname, "..", ".env")];
-  try {
-    const common = execFileSync("git", ["rev-parse", "--git-common-dir"], { cwd: import.meta.dirname, encoding: "utf8" }).trim();
-    cands.push(join(dirname(resolve(import.meta.dirname, common)), ".env"));
-  } catch { /* not a git checkout */ }
-  for (const f of cands) { const d = readDotEnv(f); const k = d.SUBQ_API_KEY ?? d.subquadratic_key; if (k) return k; }
-  return undefined;
-}
-
-/** The real client: one POST with a bearer key. The key travels only in the Authorization header. */
-export function httpClient(o: { endpoint?: string; key?: string } = {}): SubqClient {
-  return async (req) => {
-    const key = o.key ?? subqKey();
-    const t0 = Date.now();
-    if (!key) return { status: 0, body: null, error: "no key: SUBQ_API_KEY unset and .env holds no subquadratic_key", wall_ms: 0 };
-    try {
-      const r = await fetch(o.endpoint ?? SUBQ_ENDPOINT, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify(req) });
-      const text = await r.text();
-      const wall_ms = Date.now() - t0;
-      if (!r.ok) return { status: r.status, body: null, error: `HTTP ${r.status}: ${text.slice(0, 300)}`, wall_ms };
-      return { status: r.status, body: JSON.parse(text) as SubqResponse, wall_ms };
-    } catch (e) {
-      return { status: 0, body: null, error: (e as Error).message, wall_ms: Date.now() - t0 };
-    }
-  };
-}
-
 const round = (p: number) => Number(p.toFixed(PROB_DECIMALS));
 
 /** One answer as Record<answer, probability>: noul → {yes}, choice and score → their probabilities (score adds `score`). */
@@ -195,8 +224,35 @@ export function answerProbs(a: SubqAnswer): Record<string, number> {
   return out;
 }
 
-export interface RouteMeter { questions: number; calls: number; images: number; tokens_in: number; usd: number; ms: number; state_bytes: number; dropped: number; failed: number }
-export interface RouteOutcome { incident: string; route: Record<string, Record<string, number>>; meter: RouteMeter; errors: string[] }
+/** The client a route uses when none is passed: loop/subq.ts subqClient(), else one that answers "no client". */
+const NO_CLIENT: SubqClient = async () => ({ status: 0, body: null, error: "no SubQ client: no key, or a test process without setSubqClient", wall_ms: 0 });
+export const defaultClient = (): SubqClient => subqClient() ?? NO_CLIENT;
+
+export interface Asked { reply: SubqReply; n_input: number; usd: number }
+
+/**
+ * One SubQ call with its records: an `llm` request and response record (latency, and whether the cache served it)
+ * and, for a live call, one ledger/spend.jsonl record, role "router". `subject` names what the call is about.
+ */
+export async function askSubq(client: SubqClient, req: SubqRequest, o: { ledger: string; subject: Record<string, string>; purpose: string }): Promise<Asked> {
+  tlog("llm", "request", { role: "router", purpose: o.purpose, model_requested: req.model, endpoint: SUBQ_ENDPOINT, ...o.subject, questions: req.questions, state: req.state,
+    n_images: req.images?.length ?? 0, image_bytes: (req.images ?? []).map((i) => i.base64.length) });
+  const r = await client(req);
+  const nIn = r.body?.usage?.input_tokens ?? 0;
+  // a cached answer spends nothing: the live call that recorded it was priced once
+  const usd = r.cached ? 0 : nIn * SUBQ_USD_PER_INPUT_TOKEN;
+  // usage keys avoid "token" in their names: src/telemetry.ts redact() blanks any field matching /token/
+  tlog("llm", "response", { role: "router", purpose: o.purpose, model_requested: req.model, model_echoed: r.body?.model ?? "", ...o.subject, outcome: r.error ? "failed" : "ok", error: r.error ?? null,
+    http_status: r.status, cached: !!r.cached, n_questions: Object.keys(req.questions).length, n_input: nIn, usd, wall_ms: r.wall_ms, answers: r.body?.answers ?? null });
+  if (!r.cached) {
+    const rec: SpendRecord = { at: new Date().toISOString(), run: runId(), role: "router", model: r.body?.model || `${req.model} (not echoed)`, tokens_in: nIn, tokens_out: 0, usd };
+    append("spend.jsonl", rec, o.ledger);
+  }
+  return { reply: r, n_input: nIn, usd };
+}
+
+export interface RouteMeter { questions: number; calls: number; images: number; tokens_in: number; usd: number; ms: number; state_bytes: number; dropped: number; failed: number; cached: number }
+export interface RouteOutcome { incident: string; route: Record<string, Record<string, number>>; meter: RouteMeter; errors: string[]; sensor: Record<string, number> | null }
 export interface RouteOpts {
   client?: SubqClient; ledger?: string; root?: string; skillsDir?: string;
   /** Observations to ask same_shape_as about; default: the last RECENT_OBSERVATIONS of ledger/observations.jsonl. */
@@ -219,43 +275,110 @@ function fitRoute(id: string, route: Record<string, Record<string, number>>): nu
   return dropped;
 }
 
+export interface PlantedAnswers { decoy?: number; twin?: Record<string, number> }
+
+const argmax = (r: Record<string, number>) => Object.keys(r).reduce((b, k) => (r[k] > r[b] ? k : b), Object.keys(r)[0]);
+
+/**
+ * Pure: the sensor reading of one route. top_p and p_other read the subsystem answer; abstain is 1 when top_p <
+ * ROUTE_ABSTAIN_P or `other` is the top option. decoy_yes and decoy_rejected (decoy_yes < DECOY_REJECT_P) read the
+ * planted applies: answer; twin_agree (same top option) and twin_dp (|Δp| on the subsystem's top option) the twin.
+ * Null without a subsystem answer.
+ */
+export function routeSensor(sub: Record<string, number> | undefined, planted: PlantedAnswers): Record<string, number> | null {
+  if (!sub || !Object.keys(sub).length) return null;
+  const top = argmax(sub);
+  const out: Record<string, number> = { top_p: sub[top], p_other: sub.other ?? 0, abstain: sub[top] < ROUTE_ABSTAIN_P || top === "other" ? 1 : 0 };
+  if (typeof planted.decoy === "number") { out.decoy_yes = planted.decoy; out.decoy_rejected = planted.decoy < DECOY_REJECT_P ? 1 : 0; }
+  const tw = planted.twin;
+  if (tw && Object.keys(tw).length) {
+    out.twin_agree = argmax(tw) === top ? 1 : 0;
+    out.twin_dp = round(Math.abs(sub[top] - (tw[top] ?? 0)));
+  }
+  return out;
+}
+
+interface Asking { questions: Record<string, SubqQuestion>; planted: Planted; state: unknown; images: SubqImage[]; subject: Record<string, string>; purpose: string }
+interface AskedAll { route: Record<string, Record<string, number>>; planted: PlantedAnswers; meter: RouteMeter; errors: string[] }
+
+/** Asks `questions` in calls of MAX_QUESTIONS, the planted pair in each; returns the answers with the pair set apart. */
+async function askAll(client: SubqClient, ledger: string, a: Asking): Promise<AskedAll> {
+  const route: Record<string, Record<string, number>> = {};
+  const planted: PlantedAnswers = {};
+  const meter: RouteMeter = { questions: Object.keys(a.questions).length, calls: 0, images: a.images.length, tokens_in: 0, usd: 0, ms: 0, state_bytes: Buffer.byteLength(JSON.stringify(a.state)), dropped: 0, failed: 0, cached: 0 };
+  const errors: string[] = [];
+  for (const [i, chunk] of chunkQuestions(a.questions, MAX_QUESTIONS - PLANTED_PER_CALL).entries()) {
+    const req: SubqRequest = { model: SUBQ_MODEL, state: a.state, questions: withPlanted(chunk, a.planted, i), ...(a.images.length ? { images: a.images } : {}) };
+    const { reply: r, n_input, usd } = await askSubq(client, req, { ledger, subject: a.subject, purpose: a.purpose });
+    meter.calls++; meter.ms += r.wall_ms; meter.tokens_in += n_input; meter.usd += usd; if (r.cached) meter.cached++;
+    if (r.error || !r.body) { meter.failed++; errors.push(r.error ?? "empty body"); continue; }
+    for (const [k, ans] of Object.entries(r.body.answers ?? {})) {
+      const p = answerProbs(ans);
+      // the planted pair is never routed on: the first call's answers make the reading; later calls' stay in telemetry
+      if (k === a.planted.decoyKey) { planted.decoy ??= p.yes; continue; }
+      if (k === a.planted.twinKey) { planted.twin ??= p; continue; }
+      route[k] = p;
+    }
+  }
+  return { route, planted, meter, errors };
+}
+
 /** Routes one incident (see the file header). */
 export async function route(inc: Incident, o: RouteOpts = {}): Promise<RouteOutcome> {
   const root = o.root ?? resolve(import.meta.dirname, "..");
   const dir = o.ledger ?? ledgerDir();
-  const client = o.client ?? httpClient();
   const skills = o.skills ?? routableSkills(o.skillsDir ?? join(root, "skills"));
   const obs = (o.observations ?? all<Observation>("observations.jsonl", dir)).filter((x) => x.anchor?.incident !== inc.id).slice(-RECENT_OBSERVATIONS);
-  const questions = buildQuestions(skills, obs);
-  const state = buildState(inc, root);
-  const images = evidenceImages(inc, root);
-  const stateBytes = Buffer.byteLength(JSON.stringify(state));
-  const routeRec: Record<string, Record<string, number>> = {};
-  const meter: RouteMeter = { questions: Object.keys(questions).length, calls: 0, images: images.length, tokens_in: 0, usd: 0, ms: 0, state_bytes: stateBytes, dropped: 0, failed: 0 };
-  const errors: string[] = [];
-  for (const chunk of chunkQuestions(questions)) {
-    const req: SubqRequest = { model: SUBQ_MODEL, state, questions: chunk, ...(images.length ? { images } : {}) };
-    tlog("llm", "request", { role: "router", model_requested: SUBQ_MODEL, endpoint: SUBQ_ENDPOINT, incident: inc.id, questions: chunk, state, n_images: images.length, image_bytes: images.map((i) => i.base64.length) });
-    const r = await client(req);
-    meter.calls++;
-    meter.ms += r.wall_ms;
-    const nIn = r.body?.usage?.input_tokens ?? 0;
-    const usd = nIn * SUBQ_USD_PER_INPUT_TOKEN;
-    meter.tokens_in += nIn;
-    meter.usd += usd;
-    // usage keys avoid "token" in their names: src/telemetry.ts redact() blanks any field matching /token/
-    tlog("llm", "response", { role: "router", model_requested: SUBQ_MODEL, model_echoed: r.body?.model ?? "", incident: inc.id, outcome: r.error ? "failed" : "ok", error: r.error ?? null,
-      http_status: r.status, n_questions: Object.keys(chunk).length, n_input: nIn, usd, wall_ms: r.wall_ms, answers: r.body?.answers ?? null });
-    const rec: SpendRecord = { at: new Date().toISOString(), run: runId(), role: "router", model: r.body?.model || `${SUBQ_MODEL} (not echoed)`, tokens_in: nIn, tokens_out: 0, usd };
-    append("spend.jsonl", rec, dir);
-    if (r.error || !r.body) { meter.failed++; errors.push(r.error ?? "empty body"); continue; }
-    for (const [k, a] of Object.entries(r.body.answers ?? {})) routeRec[k] = answerProbs(a);
-  }
+  const { route: routeRec, planted, meter, errors } = await askAll(o.client ?? defaultClient(), dir, { questions: buildQuestions(skills, obs), planted: controlsFor(inc.id, skills),
+    state: buildState(inc, root), images: evidenceImages(inc, root), subject: { incident: inc.id }, purpose: "route" });
   routeRec[ROUTE_META_KEY] = { questions: meter.questions, calls: meter.calls, images: meter.images, n_input: meter.tokens_in, usd: Number(meter.usd.toPrecision(4)), ms: meter.ms, state_bytes: meter.state_bytes, dropped: 0 };
+  const sensor = routeSensor(routeRec.subsystem, planted);
+  if (sensor) routeRec[ROUTE_SENSOR_KEY] = sensor;
   meter.dropped = fitRoute(inc.id, routeRec);
   routeRec[ROUTE_META_KEY].dropped = meter.dropped;
-  if (meter.failed < meter.calls) status("incidents.jsonl", inc.id, "route", routeRec, dir);
-  return { incident: inc.id, route: routeRec, meter, errors };
+  if (meter.failed < meter.calls) {
+    status("incidents.jsonl", inc.id, "route", routeRec, dir);
+    tlog("loop", "route.sensor", { incident: inc.id, subsystem: routeRec.subsystem ?? null, routed: routedSubsystem(routeRec), fallback: !!sensor?.abstain, ...(sensor ?? {}), ms: meter.ms, usd: meter.usd, cached: meter.cached });
+  }
+  return { incident: inc.id, route: routeRec, meter, errors, sensor };
+}
+
+// ---- family repair tasks (S15-R3) ----
+
+export interface FamilyRouteOpts { client?: SubqClient; ledger?: string; root?: string; roms?: string[] }
+
+/** The state of a family repair task: the family, its ROM names, the core file list and HANDLERS; no split reading. */
+export function familyState(family: string, roms: string[], root: string): Record<string, unknown> {
+  const coreDir = join(root, "core");
+  const files = existsSync(coreDir) ? readdirSync(coreDir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts")).sort().map((f) => `core/${f}`) : [];
+  return {
+    task: { kind: "family", family, note: "a repairer edits the emulator core until this family's hardware test ROMs pass; there is no incident frame" },
+    roms: roms.map((r) => r.split("/").slice(-2).join("/")),
+    core: { files, handlers: HANDLERS },
+  };
+}
+
+/** The subsystem question asked of a family's failures instead of a frame divergence; the options are §6.13's. */
+const FAMILY_SUBSYSTEM: SubqQuestion = { ...BASE_QUESTIONS.subsystem, instructions: "Which emulator subsystem do this test family's failures most likely come from?" };
+
+/**
+ * Routes a family repair task: subsystem and one applies: per skill, with the planted pair; returns the route record
+ * with its sensor reading under ROUTE_SENSOR_KEY, or null when every call failed or no client is available (no call
+ * is made then). Writes spend and telemetry only.
+ */
+export async function routeFamily(family: string, skills: RouteSkill[], o: FamilyRouteOpts = {}): Promise<Record<string, Record<string, number>> | null> {
+  const root = o.root ?? resolve(import.meta.dirname, "..");
+  const dir = o.ledger ?? ledgerDir();
+  const client = o.client ?? subqClient();
+  if (!client) return null;
+  const questions = { subsystem: FAMILY_SUBSYSTEM, ...Object.fromEntries(Object.entries(buildQuestions(skills, [])).filter(([k]) => k.startsWith("applies:"))) };
+  const { route: rec, planted, meter } = await askAll(client, dir, { questions, planted: controlsFor(family, skills),
+    state: familyState(family, o.roms ?? [], root), images: [], subject: { family }, purpose: "route.family" });
+  if (meter.failed >= meter.calls) return null;
+  const sensor = routeSensor(rec.subsystem, planted);
+  if (sensor) rec[ROUTE_SENSOR_KEY] = sensor;
+  tlog("loop", "route.family", { family, route: rec, ms: meter.ms, usd: meter.usd, cached: meter.cached });
+  return rec;
 }
 
 /** Pure: the k skill ids with the highest applies:<id> probability; unrouted skills last; ties by id. */
@@ -264,25 +387,48 @@ export function routeSkills(inc: Pick<Incident, "route">, skills: string[], k: n
   return [...skills].sort((a, b) => p(b) - p(a) || a.localeCompare(b)).slice(0, Math.max(0, k));
 }
 
+// ---- calibration ----
+
 export interface CalibrationScore { n: number; brier: number | null; accuracy: number | null }
-export interface RouteCalibration { routed: number; subsystem: CalibrationScore; applies: CalibrationScore }
+export interface SubsystemScore extends CalibrationScore { wrong: number; auroc_uncertainty: number | null; auroc_other: number | null }
+export interface AppliesScore extends CalibrationScore { reliability: ReliabilityBin[] }
+/** `hits` of `n` rows, and their rate (null on n = 0). */
+export interface RateScore { n: number; hits: number; rate: number | null }
+export interface RouteCalibration {
+  routed: number;
+  subsystem: SubsystemScore;
+  applies: AppliesScore;
+  /** hits: routes that abstained, over routes carrying a sensor reading. */
+  abstention: RateScore;
+  /** hits: decoys rejected; twin hits: same top option, mean_dp the mean |Δp|. */
+  decoy: RateScore;
+  twin: RateScore & { mean_dp: number | null };
+  /** Pass forecasts against GRADUATE; mechanism forecasts (yes >= 0.5) agreeing with the H-no-regress check. */
+  forecast_pass: { n: number; brier: number | null; auroc: number | null };
+  forecast_mechanism: RateScore;
+}
 
 function score(rows: { brier: number; hit: boolean }[]): CalibrationScore {
   if (!rows.length) return { n: 0, brier: null, accuracy: null };
   return { n: rows.length, brier: rows.reduce((s, r) => s + r.brier, 0) / rows.length, accuracy: rows.filter((r) => r.hit).length / rows.length };
 }
+const rate = (flags: boolean[]): RateScore => ({ n: flags.length, hits: flags.filter(Boolean).length, rate: flags.length ? flags.filter(Boolean).length / flags.length : null });
 
 /**
- * Calibration from the ledger only (D-0004: never trusted blind).
+ * Calibration from the ledger only (D-0004: never trusted blind); writes nothing (routeCalibration logs it).
  * subsystem: truth is the set of subsystems of the core files a GRADUATED repair of the incident touched, read from
  *   ledger/provenance.json entries naming that attempt, mapped through HANDLERS and HANDLER_SUBSYSTEM. A file holds
  *   several handlers (core/ppu.ts), so truth is a set: a hit is the top choice in the set, and the Brier target
- *   spreads mass 1 evenly over the set.
+ *   spreads mass 1 evenly over the set. A miss is a wrong route: auroc_uncertainty scores 1 − top-p, auroc_other
+ *   scores p(other), each at ranking wrong routes above right ones.
  * applies: truth is whether the skill fired (ledger/fires.jsonl) in an attempt on that incident started after the
- *   route record and showing that skill.
- * n counts scored rows; with none, n = 0 and brier and accuracy are null, never 0.
+ *   route record and showing that skill; reliability bins those rows (loop/sensor-stats.ts).
+ * abstention, decoy, twin: every route record's sensor reading; no truth is needed.
+ * forecast_pass: Attempt.forecast_pass.yes against the attempt's verdict being GRADUATE (Brier, AUROC).
+ * forecast_mechanism: Attempt.forecast_mechanism.yes >= 0.5 agreeing with the verdict's H-no-regress pass.
+ * n counts scored rows; with none, n = 0 and every figure is null, never 0.
  */
-export function routeCalibration(dir = ledgerDir()): RouteCalibration {
+export function routeCalibrationOf(dir = ledgerDir()): RouteCalibration {
   const incidents = all<Incident>("incidents.jsonl", dir).filter((i) => i.route);
   const routeAt = new Map<string, string>();
   for (const r of read("incidents.jsonl", dir) as unknown as StatusRecord[]) if (r.t === "status" && r.field === "route") routeAt.set(r.id, r.at);
@@ -298,9 +444,11 @@ export function routeCalibration(dir = ledgerDir()): RouteCalibration {
     s.add(HANDLER_SUBSYSTEM[h] ?? "other");
     fileSubsystems.set(f, s);
   }
-  const graduated = new Set(verdicts.filter((v) => v.decision === "GRADUATE" && v.subject?.kind === "attempt").map((v) => v.subject.id));
-  const subRows: { brier: number; hit: boolean }[] = [];
-  const appRows: { brier: number; hit: boolean }[] = [];
+  const attemptVerdict = new Map(verdicts.filter((v) => v.subject?.kind === "attempt").map((v) => [v.subject.id, v]));
+  const graduated = new Set([...attemptVerdict.values()].filter((v) => v.decision === "GRADUATE").map((v) => v.subject.id));
+  const subRows: { brier: number; hit: boolean; top_p: number; p_other: number }[] = [];
+  const appRows: { brier: number; hit: boolean; p: number; y: 0 | 1 }[] = [];
+  const sensors = incidents.map((i) => i.route?.[ROUTE_SENSOR_KEY]).filter((s): s is Record<string, number> => !!s);
   for (const inc of incidents) {
     const sub = inc.route?.subsystem;
     if (sub) {
@@ -310,10 +458,9 @@ export function routeCalibration(dir = ledgerDir()): RouteCalibration {
         for (const e of prov) if (e.attempt === a.id) for (const s of fileSubsystems.get(e.file) ?? []) truth.add(s);
       }
       if (truth.size) {
-        const opts = Object.keys(sub);
-        const top = opts.reduce((b, k) => (sub[k] > sub[b] ? k : b), opts[0]);
-        const brier = opts.reduce((s, k) => s + (sub[k] - (truth.has(k) ? 1 / truth.size : 0)) ** 2, 0);
-        subRows.push({ brier, hit: truth.has(top) });
+        const top = argmax(sub);
+        const b = Object.keys(sub).reduce((s, k) => s + (sub[k] - (truth.has(k) ? 1 / truth.size : 0)) ** 2, 0);
+        subRows.push({ brier: b, hit: truth.has(top), top_p: sub[top], p_other: sub.other ?? 0 });
       }
     }
     const at = routeAt.get(inc.id) ?? "";
@@ -325,10 +472,38 @@ export function routeCalibration(dir = ledgerDir()): RouteCalibration {
       if (!shown.length) continue;
       const ids = new Set(shown.map((a) => a.id));
       const y = fires.some((f) => f.skill === skill && ids.has(f.attempt)) ? 1 : 0;
-      appRows.push({ brier: (v.yes - y) ** 2, hit: (v.yes >= 0.5 ? 1 : 0) === y });
+      appRows.push({ brier: (v.yes - y) ** 2, hit: (v.yes >= 0.5 ? 1 : 0) === y, p: v.yes, y });
     }
   }
-  const out: RouteCalibration = { routed: incidents.length, subsystem: score(subRows), applies: score(appRows) };
+  const passRows: { p: number; y: 0 | 1 }[] = [];
+  const mechFlags: boolean[] = [];
+  for (const a of attempts) {
+    const v = attemptVerdict.get(a.id);
+    if (!v) continue;
+    const fp = a[FORECAST_FIELDS.pass]?.yes;
+    if (typeof fp === "number") passRows.push({ p: fp, y: v.decision === "GRADUATE" ? 1 : 0 });
+    const fm = a[FORECAST_FIELDS.mechanism]?.yes;
+    const h = v.checks?.find((c) => c.name === "H-no-regress");
+    if (typeof fm === "number" && h) mechFlags.push((fm >= 0.5) === h.pass);
+  }
+  const twins = sensors.filter((s) => typeof s.twin_agree === "number");
+  return {
+    routed: incidents.length,
+    subsystem: { ...score(subRows), wrong: subRows.filter((r) => !r.hit).length,
+      auroc_uncertainty: auroc(subRows.map((r) => ({ score: 1 - r.top_p, label: r.hit ? 0 : 1 }))),
+      auroc_other: auroc(subRows.map((r) => ({ score: r.p_other, label: r.hit ? 0 : 1 }))) },
+    applies: { ...score(appRows), reliability: reliability(appRows) },
+    abstention: rate(sensors.map((s) => s.abstain === 1)),
+    decoy: rate(sensors.filter((s) => typeof s.decoy_yes === "number").map((s) => s.decoy_rejected === 1)),
+    twin: { ...rate(twins.map((s) => s.twin_agree === 1)), mean_dp: twins.length ? twins.reduce((x, s) => x + s.twin_dp, 0) / twins.length : null },
+    forecast_pass: { n: passRows.length, brier: brier(passRows), auroc: auroc(passRows.map((r) => ({ score: r.p, label: r.y }))) },
+    forecast_mechanism: rate(mechFlags),
+  };
+}
+
+/** routeCalibrationOf, logged to the `loop` stream as router-calibration. */
+export function routeCalibration(dir = ledgerDir()): RouteCalibration {
+  const out = routeCalibrationOf(dir);
   tlog("loop", "router-calibration", out);
   return out;
 }
@@ -342,8 +517,9 @@ async function main(args: string[]): Promise<void> {
   for (const inc of picked) {
     const r = await route(inc, { ledger: dir, root: process.env.RATCHET_ROOT ? resolve(process.env.RATCHET_ROOT) : undefined });
     const m = r.meter;
-    console.log(`${inc.id}: ${m.questions} questions in ${m.calls} call(s), ${m.images} images, ${m.tokens_in} input tokens, $${m.usd.toFixed(6)}, ${m.ms} ms${r.errors.length ? `, errors: ${r.errors.join("; ")}` : ""}`);
+    console.log(`${inc.id}: ${m.questions} questions + ${PLANTED_PER_CALL} planted in ${m.calls} call(s) (${m.cached} served from cache), ${m.images} images, ${m.tokens_in} input tokens, $${m.usd.toFixed(6)}, ${m.ms} ms${r.errors.length ? `, errors: ${r.errors.join("; ")}` : ""}`);
     console.log(`  subsystem ${JSON.stringify(r.route.subsystem ?? null)} mid_line ${JSON.stringify(r.route.mid_line ?? null)} severity ${JSON.stringify(r.route.severity ?? null)}`);
+    console.log(`  sensor ${JSON.stringify(r.sensor)} nominates ${JSON.stringify(routedSubsystem(r.route) ?? "fallback (no focus narrowing)")}`);
   }
 }
 

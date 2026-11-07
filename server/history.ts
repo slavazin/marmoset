@@ -1,7 +1,7 @@
 // GET /api/history (S14): the presentation UI's History tab, read entirely from files at request time (SPEC G9).
 // `readHistory(opts)` returns the folded ledger (incidents, attempts, verdicts, fires, steers, observations count),
 // the skills under skills/{shadow,graduated} and skills/tombstones, the policies (D-0020) the same way under policies/,
-// the generation curve, the decisions under
+// the generation curve, the SubQ router's calibration (loop/route.ts routeCalibrationOf), the decisions under
 // <registers>/decisions, the rows of <registers>/findings.md, the `core-live` commit log of the live clone with its
 // `Attempt:` and `Skills:` trailers, spend, S13's spot summary when player/spot-score.ts exists, and the V read only
 // once runs/RUN-*/vread.json exists. It writes nothing (AGENTS.md rule 2); server/history.test.ts asserts the reads.
@@ -15,6 +15,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { parseJsonl, Fold, curveEvents, readVRead } from "./events.ts";
 import { LIVE_BRANCH } from "../loop/paths.ts";
 import { spendMeter, type SpendMeter } from "./spend.ts";
+import { routeCalibrationOf, type RouteCalibration } from "../loop/route.ts";
 import type { Attempt, Incident, Verdict, Fire, Steer, SpendRecord, UiEvent, VRead, SkillStatus } from "../src/schema.ts";
 
 export interface HistoryOptions {
@@ -75,6 +76,7 @@ export interface History {
   meter: SpendMeter;                       // server/spend.ts: owner-read and priced, for RATCHET_RUN (default RUN-0001)
   spots: unknown | null;                   // S13's spotSummary(ledger), when player/spot-score.ts and ledger/spots.jsonl exist
   figures: RunFigures[];                   // per opened run; sabotage and run-null records excluded
+  router: RouteCalibration | null;         // loop/route.ts routeCalibrationOf(ledger); null when no record carries a route or a forecast
   vread: VRead | null;
 }
 
@@ -183,6 +185,15 @@ async function readSpots(ledger: string, root: string): Promise<unknown | null> 
   } catch { return null; }
 }
 
+/** The router's calibration (S17b), or null when no incident carries a route and no attempt a forecast. */
+function readRouter(ledger: string): RouteCalibration | null {
+  if (!existsSync(join(ledger, "incidents.jsonl"))) return null;
+  try {
+    const c = routeCalibrationOf(ledger);
+    return c.routed || c.forecast_pass.n || c.forecast_mechanism.n ? c : null;
+  } catch { return null; }
+}
+
 export async function readHistory(o: HistoryOptions): Promise<History> {
   const incidents = fold<Incident>(o.ledger, "incidents.jsonl");
   const sabotageInc = new Set(incidents.filter((i) => i.source === "sabotage").map((i) => i.id));
@@ -237,6 +248,7 @@ export async function readHistory(o: HistoryOptions): Promise<History> {
     meter: spendMeter({ ledger: o.ledger, runsDir: o.runs, run: process.env.RATCHET_RUN || "RUN-0001" }),
     spots: await readSpots(o.ledger, o.root),
     figures,
+    router: readRouter(o.ledger),
     vread: existsSync(o.runs) && statSync(o.runs).isDirectory() ? readVRead(o.runs) : null,
   };
 }

@@ -66,3 +66,9 @@ svg.howit .alabel { fill: var(--dim); font: 9px ui-monospace, Menlo, monospace; 
   body.present-on #lcd { width: min(360px, 80vw); }
   .hgrid { grid-template-columns: 1fr; }
 }
+/* S17b router reliability plot (ui/present/reliability.ts) */
+.reliability { display: block; margin: .3em 0; color: var(--fg, currentColor); }
+.reliability .relframe { fill: none; stroke: currentColor; stroke-opacity: .3; }
+.reliability .reldiag { stroke: currentColor; stroke-opacity: .3; stroke-dasharray: 3 3; }
+.reliability .relpt { fill: var(--g2, currentColor); }
+.reliability .rellab { font-size: 9px; fill: currentColor; opacity: .7; }

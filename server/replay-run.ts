@@ -20,6 +20,8 @@ if (args.includes("--fixtures")) {
   process.env.RATCHET_EVIDENCE = "ui/fixtures/evidence";
   process.env.RATCHET_RUNS = "ui/fixtures/runs";
 }
+// a replay never makes a live SubQ call: loop/subq.ts serves every SubQ answer from runs/<run>/subq-cache or throws
+process.env.RATCHET_SUBQ_REPLAY = "1";
 const opts = pathsFromEnv();
 if (!existsSync(telemetryDir(opts.runs, run))) console.error(`replay: no ${telemetryDir(opts.runs, run)}; ledger events only`);
 const verifyFile = join(opts.runs, run, "telemetry-verify.jsonl");
