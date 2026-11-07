@@ -19,7 +19,7 @@ export type TelemetryStream = "ui" | "input" | "llm" | "muse" | "loop" | "spot" 
 export interface TelemetryRecord { at: string; seq: number; pid: number; run: string | null; stream: TelemetryStream; kind: string; data: unknown }
 
 /** Frames per second per source kept in the ui stream; the rest are reproducible from the input stream and the core commit (D-0007). */
-export const TELEMETRY_FRAME_HZ = 5;
+export const TELEMETRY_FRAME_HZ = 1; // 23,040-byte frames at 1 Hz per source keep a 75-minute run near 140 MB before compression
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let seq = 0;
