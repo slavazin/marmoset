@@ -158,7 +158,7 @@ export interface SkillFrontmatter {
 // tools, packet projection or routing, graduated by the same shadow-trial rule as a skill (candidate vs baseline vs placebo).
 export type PolicyKind = "packet" | "tool" | "routing";
 export interface PolicyFrontmatter {
-  id: string; name: string; kind: PolicyKind; status: SkillStatus;
+  id: string; name: string; kind: PolicyKind; status: SkillStatus; template?: string; // template: the POLICY_MENU entry it instantiates
   change: string; // one sentence: what the policy changes in the projection, tool or router
   params: Record<string, unknown>; // the values loop/policies.ts applies
   warrant: { anchors: string[]; "false-if": string };
