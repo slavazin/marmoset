@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { git } from "./paths.ts";
 import type { Packet } from "./projection.ts";
 import { tlog } from "../src/telemetry.ts";
+import { priceUsd } from "./llm.ts";
 import type { Attempt, RepairResult, RepairTask } from "../src/schema.ts";
 
 // ---- Muse Code invocation (D-0001, measured on Muse Code 1.4.14 (1.4.14-R7309.1), 2026-11-07) ----
@@ -182,7 +183,7 @@ export async function runRepair(task: RepairTask, packet: Packet, o: RepairOptio
   if (existsSync(rp)) { try { result = JSON.parse(readFileSync(rp, "utf8")); } catch { result = null; } }
   return {
     result, diff: scratchDiff(packet.dir), model: out.model, eventsFile, exitCode: out.exitCode,
-    spent: { steps: out.steps, wall_s: out.wall_s, tokens_in: out.tokens_in, tokens_out: out.tokens_out, usd: 0 },
+    spent: { steps: out.steps, wall_s: out.wall_s, tokens_in: out.tokens_in, tokens_out: out.tokens_out, usd: priceUsd(out.model, out.tokens_in, out.tokens_out) },
     isolation: { home, skills_list, observers: OBSERVERS, web_tools: WEB_TOOLS },
   };
 }

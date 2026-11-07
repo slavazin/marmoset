@@ -123,3 +123,14 @@ test("museArgs is D-0001's command line and usage reads run_usage payloads", () 
   const env = repairEnv("/h", "/h/.config", "k", "ATT-0001", "http://s", {});
   assert.deepEqual(Object.keys(env).sort(), ["ATTEMPT_ID", "HOME", "META_API_KEY", "MUSE_NO_AUTO_UPDATE", "PATH", "RATCHET_SERVER", "TERM", "XDG_CONFIG_HOME"]);
 });
+
+test("an attempt's spent.usd is its repairer tokens priced by loop/llm.ts PRICES for the echoed model", async () => {
+  const { priceUsd } = await import("./llm.ts");
+  const bed = makeBed();
+  const base = fakeRunner(() => {}, null, "muse-spark-1.3");
+  const runner = { ...base, async run(r: Parameters<typeof base.run>[0]) { const o = await base.run(r); return { ...o, tokens_in: 64_000, tokens_out: 1_000 }; } };
+  const r = await runFastCycle("INC-0001", { paths: bed.paths, runner, replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true });
+  assert.equal(r.attempt.spent.tokens_in, 64_000);
+  assert.ok(r.attempt.spent.usd > 0);
+  assert.equal(r.attempt.spent.usd, priceUsd("muse-spark-1.3", 64_000, 1_000));
+});
