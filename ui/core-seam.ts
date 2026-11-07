@@ -3,7 +3,7 @@
 // A `?core=<url>` page parameter, or a §6.18 `core` event (N3 hot-swap), loads an ESM bundle at runtime instead.
 
 import type { CreateCore, Handlers } from "../src/schema.ts";
-import * as staticCore from "./fixtures/core.ts";
+import * as staticCore from "../core/index.ts";
 
 export interface CoreModule { createCore: CreateCore; HANDLERS: Handlers }
 

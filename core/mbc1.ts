@@ -32,6 +32,7 @@ export class Cart {
     if (nr > 16) nr = 16;
     this.nRam = nr;
     this.ram = new Uint8Array(nr * 8192);
+    this.ram.fill(0xff);
   }
   read(a: number): number {
     if (a < 0x4000) {

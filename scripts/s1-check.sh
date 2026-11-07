@@ -4,7 +4,8 @@
 cd "$(dirname "$0")/.." || exit 1
 fail=0
 echo "== tsc (core/ lines only)"
-node_modules/.bin/tsc --noEmit -p . 2>&1 | grep '^core/' | head -40 && fail=1
+tscout=$(node_modules/.bin/tsc --noEmit -p . 2>&1 | grep '^core/')
+if [ -n "$tscout" ]; then echo "$tscout" | head -40; fail=1; fi
 echo "== contract tests"
 node --test core/contract.test.ts 2>&1 | grep -E '^not ok|^ok|AssertionError|Error|expected|actual|# (pass|fail)' | head -40
 node --test core/contract.test.ts >/dev/null 2>&1 || fail=1

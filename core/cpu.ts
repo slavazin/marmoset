@@ -111,7 +111,7 @@ export class Cpu {
     return r;
   }
   private bit(n: number, v: number): void {
-    this.f = (this.f & 0x10) | 0x20 | (((v >> n) & 1) ? 0 : 0x80);
+    this.f = (this.f & 0x10) | 0x20 | ((((v >> n) & 1) === 0) ? 0x80 : 0);
   }
   step(): void {
     if (this.halted) {
@@ -253,10 +253,10 @@ export class Cpu {
       case 0x31: { const lo = this.fetch(); const hi = this.fetch(); this.sp = (lo | (hi << 8)) & 0xffff; } break;
       case 0x32: B.write(this.hl, this.a); this.hl = (this.hl - 1) & 0xffff; break;
       case 0x33: B.idle(); this.sp = (this.sp + 1) & 0xffff; break;
-      case 0x34: { const v = B.read(this.hl); B.idle(); B.write(this.hl, this.aluInc(v)); } break;
-      case 0x35: { const v = B.read(this.hl); B.idle(); B.write(this.hl, this.aluDec(v)); } break;
+      case 0x34: { const v = B.read(this.hl); B.write(this.hl, this.aluInc(v)); } break;
+      case 0x35: { const v = B.read(this.hl); B.write(this.hl, this.aluDec(v)); } break;
       case 0x36: { const n = this.fetch(); B.write(this.hl, n); } break;
-      case 0x37: this.f = (this.f & 0x80); break;
+      case 0x37: this.f = (this.f & 0x80) | 0x10; break;
       case 0x38: this.jr((this.f & 0x10) !== 0); break;
       case 0x39: this.addHl(this.sp); B.idle(); break;
       case 0x3a: this.a = B.read(this.hl); this.hl = (this.hl - 1) & 0xffff; break;
@@ -513,24 +513,13 @@ export class Cpu {
         case 6: res = this.swap(v); break;
         default: res = this.srl(v); break;
       }
-      if (r === 6 && sub >= 0) { B.idle(); }
       put(res);
     } else if (cb < 0x80) {
       this.bit(sub, v);
     } else if (cb < 0xc0) {
-      if (r === 6) {
-        B.idle();
-        put((v & ~(1 << sub)) & 0xff);
-      } else {
-        put((v & ~(1 << sub)) & 0xff);
-      }
+      put((v & ~(1 << sub)) & 0xff);
     } else {
-      if (r === 6) {
-        B.idle();
-        put((v | (1 << sub)) & 0xff);
-      } else {
-        put((v | (1 << sub)) & 0xff);
-      }
+      put((v | (1 << sub)) & 0xff);
     }
   }
 }
