@@ -22,9 +22,9 @@ import type { Attempt, Fire, Incident, Observation, RepairTask, Verdict } from "
 /**
  * Seconds per Muse model step, measured on ATT-0001 (2026-11-07, as the orchestrator read it): about 13.5 s per call
  * (40 calls inside the 600 s wall). The wall is matched to the step cap so neither binds far before the other
- * (D-draft-attempt-budget).
+ * (D-0025). 15 s is ATT-0001's wall rate (600 s / 40 steps), not its 13.5 s model time, so the wall does not bind first.
  */
-export const SECONDS_PER_STEP = 13.5;
+export const SECONDS_PER_STEP = 15;
 /** Wall-clock budget of one fast-loop attempt, in seconds: MAX_STEPS × SECONDS_PER_STEP, rounded up. */
 export const ATTEMPT_WALL_S = Math.ceil(MAX_STEPS * SECONDS_PER_STEP);
 

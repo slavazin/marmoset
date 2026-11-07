@@ -1,13 +1,13 @@
 ---
-id: D-draft-attempt-budget
+id: D-0025
 title: Each attempt is told its step and wall budget and to edit by half of it, and its wall follows MAX_STEPS
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:** before the run opens:
 - `TASK_TEXT` (`loop/projection.ts`) gains one sentence, filled per task by `taskText(budget)`: the repairer gets its step cap and wall, is told that an empty diff is refused, and is told to make its first `core/` edit by half of each.
-- `ATTEMPT_WALL_S` (`loop/fast.ts`) is `ceil(MAX_STEPS × SECONDS_PER_STEP)`, with `SECONDS_PER_STEP = 13.5`. At today's `MAX_STEPS = 60` that is 810 s.
-- Proposed for the orchestrator, who owns `loop/gate.ts` until the run opens: `MAX_STEPS = 90`, which gives an `ATTEMPT_WALL_S` of 1215 s, with the first edit due by step 45 (607 s).
+- `ATTEMPT_WALL_S` (`loop/fast.ts`) is `ceil(MAX_STEPS × SECONDS_PER_STEP)`, with `SECONDS_PER_STEP = 15`, ATT-0001's wall rate (600 s / 40 steps).
+- `MAX_STEPS = 90` (`loop/gate.ts`, set by the orchestrator before the run opens), so `ATTEMPT_WALL_S` is 1350 s and the first edit is due by step 45 (675 s).
 - `CAMPAIGN_PARALLEL = 3`, the S8 Wiggle maximum. Repairs run in parallel; the gate step runs one at a time.
 
 **Not this:**
@@ -27,5 +27,5 @@ supersedes: null
 **Revisit when:** {when: "the first 3 attempts of RUN-0001 read", then: "if 2 of them refuse with an empty diff, cut the packet (S8 Wiggle); if the wall binds first, re-read SECONDS_PER_STEP from their spent.wall_s / spent.steps"}
 
 **Residue:**
-- 13.5 s per call is a model-time figure. ATT-0001's wall rate was 600 / 40 = 15 s per step, so at 13.5 the wall binds at about 90% of the step cap.
+- Admitted 2026-11-07 by the orchestrator with one change: `SECONDS_PER_STEP` is the wall rate 15, not the model rate 13.5, so the wall does not bind at 90% of the step cap.
 - A repair is judged against its own base commit. Under parallel attempts, a second GRADUATE can merge onto a `core-live` that moved after its base, so its checks did not read the merged head.

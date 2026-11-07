@@ -60,7 +60,7 @@ ROMs and oracle frames are reached through $RATCHET_ROMS and $RATCHET_CACHE.
   "summary": "<one sentence: what the diff changes>" }
 `;
 
-/** TASK_TEXT with the task's budget filled in: its step cap and wall, and half of each for the first edit (D-draft-attempt-budget). */
+/** TASK_TEXT with the task's budget filled in: its step cap and wall, and half of each for the first edit (D-0025). */
 export function taskText(budget: RepairTask["budget"]): string {
   return TASK_TEXT.replace("{max_steps}", String(budget.max_steps)).replace("{wall_s}", String(budget.wall_s))
     .replace("{half_steps}", String(Math.floor(budget.max_steps / 2))).replace("{half_wall_s}", String(Math.floor(budget.wall_s / 2)));
