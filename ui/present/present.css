@@ -1,0 +1,68 @@
+/* Presentation tabs (S14). With a non-game tab open, the LCD stays at the left and the panel sits beside it. */
+.ptabs { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.ptabs button { font: inherit; background: var(--panel); color: var(--dim); border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.ptabs button[aria-selected="true"] { color: var(--bg); background: var(--g2); border-color: var(--g2); }
+.ptabs button.pre { border-style: dashed; }
+.ptabs button.pre[aria-selected="true"] { background: #d9a400; border-color: #d9a400; }
+
+body.present-on main { grid-template-columns: auto minmax(0, 1fr); }
+body.present-on #right, body.present-on footer, body.present-on #side { display: none !important; }
+body.present-on #lcd { width: min(400px, 34vw); }
+body.present-on .shell .cap { max-width: min(400px, 34vw); font-size: 10px; }
+
+#present { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; min-width: 0; max-height: calc(100vh - 70px); overflow: auto; }
+#present h2 { font-size: 13px; margin: 12px 0 6px; color: var(--g3); }
+#present h2:first-child { margin-top: 0; }
+#present p { margin: 4px 0 8px; }
+#present .lead { font-size: 13px; }
+#present .warn { border-left: 3px solid #d9a400; padding-left: 8px; }
+table.map { border-collapse: collapse; width: 100%; margin: 4px 0 8px; }
+table.map th, table.map td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+table.map th { color: var(--dim); font-weight: normal; }
+table.map td:first-child { color: var(--g3); white-space: nowrap; }
+.uniq { margin: 4px 0 8px; padding-left: 18px; }
+.uniq li { margin: 2px 0; }
+.gloss { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.ggroup dl { margin: 0; }
+.ggroup dt { color: #fff; margin-top: 5px; }
+.ggroup dd { margin: 1px 0 0 0; color: var(--fg); }
+.cite { color: var(--dim); font-size: 10px; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
+.fact { border-top: 1px solid var(--line); padding-top: 6px; }
+
+svg.howit { width: 100%; height: auto; display: block; }
+svg.howit .stage rect { fill: #0c160c; stroke: var(--line); stroke-width: 1.5; }
+svg.howit .stage text { fill: var(--fg); font: 11px ui-monospace, Menlo, monospace; }
+svg.howit .stage .title { font-weight: bold; fill: #fff; }
+svg.howit .stage .sub, svg.howit .stage .line { fill: var(--dim); font-size: 10px; }
+svg.howit .stage.graduate .title { fill: var(--grad); }
+svg.howit .stage.refuse .title { fill: var(--red); }
+svg.howit .stage.on rect { stroke: var(--g3); stroke-width: 3; fill: #1b2f10; filter: drop-shadow(0 0 6px var(--g2)); }
+svg.howit .stage.refuse.on rect, svg.howit .stage.tombstone.on rect { stroke: var(--red); filter: drop-shadow(0 0 6px var(--red)); }
+svg.howit .line.hit { font-weight: bold; }
+svg.howit .line.hit.pass { fill: var(--grad); }
+svg.howit .line.hit.fail { fill: var(--red); }
+svg.howit .arrow { fill: none; stroke: var(--dim); stroke-width: 1.3; }
+svg.howit .head { fill: var(--dim); }
+svg.howit .alabel { fill: var(--dim); font: 9px ui-monospace, Menlo, monospace; }
+
+.hgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; }
+.hi .item { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; margin: 3px 0; cursor: pointer; background: #0c160c; overflow-wrap: anywhere; }
+.hi .item:hover { border-color: var(--g2); }
+.hi .item .at { color: var(--dim); }
+.hi .item.grad .stampmini { color: var(--grad); border: 1px solid var(--grad); }
+.hi .item.refuse .stampmini { color: var(--red); border: 1px solid var(--red); }
+.stampmini { font-weight: bold; padding: 0 3px; border-radius: 2px; font-size: 10px; }
+.hi .item.sabotage { border-style: dashed; opacity: .75; }
+.tag.sab { color: #ffb020; border-color: #ffb020; }
+.tag.pre { font-style: italic; }
+.tag.graduated, .tag.admitted { color: var(--grad); }
+.tag.tombstoned, .tag.superseded { color: var(--red); }
+.timeline { max-height: 60vh; overflow: auto; }
+.scrollbox { max-height: 150px; overflow: auto; }
+.empty { border: 1px dashed var(--line); border-radius: 4px; padding: 6px; overflow-wrap: anywhere; }
+
+@media (max-width: 1200px) {
+  body.present-on main { grid-template-columns: 1fr; }
+  body.present-on #lcd { width: min(360px, 80vw); }
+  .hgrid { grid-template-columns: 1fr; }
+}

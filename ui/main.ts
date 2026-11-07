@@ -14,6 +14,7 @@ import { incidentCard } from "./cards/incident-card.ts";
 import { esc, fmtReading, evidenceUrl, verdictIncident } from "./format.ts";
 import { detectReplay, startReplay } from "./replay.ts";
 import { mountTelemetryLed } from "./telemetry-led.ts";
+import "./present/mount.ts";
 
 /** DMG CPU clock (Hz) and T-cycles per frame; the frame period the live loop paces to is their ratio (~16.74 ms). */
 const CPU_HZ = 4_194_304;
