@@ -1,6 +1,8 @@
 // The one screen (SPEC §5 S6): the core's LCD at the centre, played from the keyboard with inputs posted to the
 // live trace; the oracle frame and a red diff beside it during an incident; the metadata panel on the right;
 // the incident feed, ratchet stack, generation curve and Mooneye LEDs below. Ledger data arrives over SSE (§6.18).
+// S19 frames these in a cabinet: the latest verdict's checks light as gate lamps beside the scope, and a new
+// incident or verdict pulses the cabinet (ui/fx.ts).
 
 import type { Attempt, Core, Incident, ProvenanceEntry, UiEvent, Verdict, VRead } from "../src/schema.ts";
 import { GAME_RAM } from "../src/schema.ts";
@@ -11,6 +13,8 @@ import { disasm } from "./disasm.ts";
 import { renderMeta, Heatmap, renderCurve, renderMooneye, mooneyeReadings } from "./panels.ts";
 import { verdictCard } from "./cards/verdict-card.ts";
 import { incidentCard } from "./cards/incident-card.ts";
+import { gateBanks, latestByKind } from "./cards/gate-lamps.ts";
+import { pulse, mountGridToggle, mountLookToggle } from "./fx.ts";
 import { esc, fmtReading, evidenceUrl, verdictIncident } from "./format.ts";
 import { detectReplay, startReplay } from "./replay.ts";
 import { mountTelemetryLed } from "./telemetry-led.ts";
@@ -43,6 +47,8 @@ let provenance: ProvenanceEntry[] = [];
 let vread: VRead | null = null;
 let selectedIncident: string | null = null;
 let liveOracle: Uint8Array | null = null;
+/** The verdict the gate lamps show; they re-render, and so replay their sequence, only when it changes. */
+let gateShown: string | null = null;
 
 let replay: ReturnType<typeof startReplay> | null = null;
 let mod: CoreModule;
@@ -227,7 +233,7 @@ let renderQueued = false;
 function queueRender(): void {
   if (renderQueued) return;
   renderQueued = true;
-  requestAnimationFrame(() => { renderQueued = false; renderFeed(); renderStack(); renderCurve($("curve"), curve); renderMooneye($("mooneye"), mooneyeReadings([...verdicts.values()], vread), vread); renderVRead(); });
+  requestAnimationFrame(() => { renderQueued = false; renderFeed(); renderStack(); renderCurve($("curve"), curve); renderMooneye($("mooneye"), mooneyeReadings([...verdicts.values()], vread), vread); renderVRead(); renderGate(); });
 }
 
 function renderFeed(): void {
@@ -241,6 +247,14 @@ function renderStack(): void {
     const a = v.subject.kind === "attempt" ? attempts.get(v.subject.id) : undefined;
     return verdictCard(v, a, verdictIncident(v, attempts, incidents));
   }).join("") || `<div class="dim">no verdict in ledger/verdicts.jsonl</div>`;
+}
+
+function renderGate(): void {
+  const vs = latestByKind([...verdicts.values()]);
+  const key = vs.map((v) => v.id).join(" ");
+  if (key === gateShown) return;
+  gateShown = key;
+  $("gatelamps").innerHTML = gateBanks(vs);
 }
 
 function renderVRead(): void {
@@ -287,11 +301,16 @@ async function onEvent(e: UiEvent): Promise<void> {
     case "incident": {
       const isNew = !incidents.has(e.incident.id);
       incidents.set(e.incident.id, e.incident);
-      if (isNew) showIncident(e.incident.id, true);
+      if (isNew) { showIncident(e.incident.id, true); pulse($("cabinet"), "ping"); pulse($("logmod"), "ping"); }
       break;
     }
     case "attempt": attempts.set(e.attempt.id, e.attempt); break;
-    case "verdict": verdicts.set(e.verdict.id, e.verdict); break;
+    case "verdict": {
+      const isNew = !verdicts.has(e.verdict.id);
+      verdicts.set(e.verdict.id, e.verdict);
+      if (isNew) pulse($("cabinet"), e.verdict.decision === "GRADUATE" ? "flash-grad" : "flash-refuse", ["flash-grad", "flash-refuse"]);
+      break;
+    }
     case "curve": curve[e.generation - 1] = e; break;
     case "vread": vread = e.result; break;
     case "meta":
@@ -325,7 +344,7 @@ function connect(): void {
 
 /** Clears every ledger-derived view; a replay seek rebuilds them from the events that follow. */
 function resetViews(): void {
-  incidents.clear(); attempts.clear(); verdicts.clear(); curve.length = 0; vread = null; selectedIncident = null; liveOracle = null;
+  incidents.clear(); attempts.clear(); verdicts.clear(); curve.length = 0; vread = null; selectedIncident = null; liveOracle = null; gateShown = null;
   $("side").hidden = true;
   queueRender();
 }
@@ -341,6 +360,8 @@ async function refreshProvenance(): Promise<void> {
   $("corelabel").textContent = loaded.label;
   heatmap = new Heatmap($("heat"), $("heatlabels"), Object.keys(mod.HANDLERS));
   mountTelemetryLed($("tled"), $("tgaps"));
+  mountGridToggle($("gridtoggle"), $("cabinet"));
+  mountLookToggle($("looktoggle"), params.get("look"));
   const rs = await detectReplay();
   if (rs) {
     replay = startReplay(rs, { reset: resetViews, draw: (s) => lcd.draw(s), note: (s) => { $("fps").textContent = s; } });

@@ -10,13 +10,10 @@ export const TOP_APPLIES = 3;
 /** Mirrors loop/route.ts ROUTE_META_KEY (the UI bundle does not import loop/, which reads node:fs). */
 const META = "_call";
 
-// Inline styles keep the row to this one file; colours come from the page's CSS variables.
-const BAR = "position:relative;display:inline-block;width:7.5em;margin-right:.3em;background:var(--line);border-radius:2px;overflow:hidden;font-size:.8em;";
-const FILL = "position:absolute;left:0;top:0;bottom:0;background:var(--g2);opacity:.45;";
-const LAB = "position:relative;padding:0 .3em;white-space:nowrap;";
+// The meter shape lives in ui/style.css under .rbar, .rfill and .rlab (S19); only the fill width, the reading, is inline.
 const pct = (p: number) => p.toLocaleString("en", { style: "percent" });
 const bar = (label: string, p: number) =>
-  `<span class="rbar" style="${BAR}" title="${esc(label)} ${esc(pct(p))}"><span class="rfill" style="${FILL}width:${esc(pct(p))}"></span><span class="rlab" style="${LAB}">${esc(label)} ${esc(pct(p))}</span></span>`;
+  `<span class="rbar" title="${esc(label)} ${esc(pct(p))}"><span class="rfill" style="width:${esc(pct(p))}"></span><span class="rlab">${esc(label)} ${esc(pct(p))}</span></span>`;
 
 export function routeBars(inc: Incident): string {
   const r = inc.route;

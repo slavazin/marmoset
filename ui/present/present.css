@@ -1,68 +1,124 @@
-/* Presentation tabs (S14). With a non-game tab open, the LCD stays at the left and the panel sits beside it. */
-.ptabs { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
-.ptabs button { font: inherit; background: var(--panel); color: var(--dim); border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
-.ptabs button[aria-selected="true"] { color: var(--bg); background: var(--g2); border-color: var(--g2); }
+/* Presentation tabs (S14), themed with the cabinet (S19): tokens come from ui/style.css :root. With a non-game tab
+   open, the cabinet stays at the left at 2× and the tab's panel is a module beside it. The S17b reliability plot
+   (.reliability) and the S18 Play tab (.play-*) pick the theme up by these class hooks. */
+.ptabs { display: flex; gap: 2px; margin-left: auto; flex-wrap: wrap; align-items: flex-end; }
+.ptabs button {
+  font: 400 11px/1 var(--display); text-transform: uppercase; letter-spacing: .08em; cursor: pointer;
+  background: var(--well); color: var(--dim); border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 6px 6px 2px 2px;
+  padding: 7px 12px 6px; transition: color .15s, border-color .15s;
+}
+.ptabs button:hover { color: var(--fg); border-color: var(--line-hi); }
+.ptabs button[aria-selected="true"] { color: var(--bg); background: var(--phos); border-color: var(--phos); box-shadow: 0 0 14px color-mix(in srgb, var(--phos) 45%, transparent); }
 .ptabs button.pre { border-style: dashed; }
-.ptabs button.pre[aria-selected="true"] { background: #d9a400; border-color: #d9a400; }
+.ptabs button.pre[aria-selected="true"] { background: var(--amber); border-color: var(--amber); box-shadow: 0 0 14px color-mix(in srgb, var(--amber) 45%, transparent); }
 
-body.present-on main { grid-template-columns: auto minmax(0, 1fr); }
-body.present-on #right, body.present-on footer, body.present-on #side { display: none !important; }
-body.present-on #lcd { width: min(400px, 34vw); }
-body.present-on .shell .cap { max-width: min(400px, 34vw); font-size: 10px; }
+body.present-on main { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "centre present"; }
+body.present-on #right, body.present-on footer, body.present-on #side, body.present-on .col.left { display: none !important; }
+body.present-on { --px: 2; }
+body.present-on .shell .cap { max-width: calc(160px * var(--px)); font-size: 10px; }
 
-#present { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; min-width: 0; max-height: calc(100vh - 70px); overflow: auto; }
-#present h2 { font-size: 13px; margin: 12px 0 6px; color: var(--g3); }
+#present {
+  grid-area: present; min-width: 0; max-height: calc(100vh - 90px); overflow: auto; padding: 14px 18px;
+  background: linear-gradient(180deg, var(--panel-hi), var(--panel)); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink-strong) 8%, transparent), 0 6px 20px #0005;
+  scrollbar-color: var(--line-hi) transparent;
+}
+#present h2 {
+  font: 400 13px/1.2 var(--display); text-transform: uppercase; letter-spacing: .1em; color: var(--cool);
+  margin: 18px 0 8px; padding-bottom: 6px; border-bottom: 1px dashed var(--line);
+  display: flex; align-items: center; gap: 8px;
+}
+#present h2::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: var(--cool); box-shadow: 0 0 6px var(--cool); flex: none; }
 #present h2:first-child { margin-top: 0; }
+#present h3 { color: var(--violet); }
 #present p { margin: 4px 0 8px; }
-#present .lead { font-size: 13px; }
-#present .warn { border-left: 3px solid #d9a400; padding-left: 8px; }
+#present .lead { font-size: 13px; color: var(--ink-strong); }
+#present .warn { border-left: 3px solid var(--amber); padding-left: 8px; }
 table.map { border-collapse: collapse; width: 100%; margin: 4px 0 8px; }
-table.map th, table.map td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
-table.map th { color: var(--dim); font-weight: normal; }
-table.map td:first-child { color: var(--g3); white-space: nowrap; }
+table.map th, table.map td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+table.map th { color: var(--dim); font: 400 10px var(--display); text-transform: uppercase; letter-spacing: .06em; }
+table.map td:first-child { color: var(--g3); }
+table.map tbody tr:hover td { background: var(--panel-hi); }
 .uniq { margin: 4px 0 8px; padding-left: 18px; }
-.uniq li { margin: 2px 0; }
+.uniq li { margin: 3px 0; }
+.uniq li::marker { content: "▸ "; color: var(--phos); }
 .gloss { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.ggroup { background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 .ggroup dl { margin: 0; }
-.ggroup dt { color: #fff; margin-top: 5px; }
+.ggroup dt { color: var(--ink-strong); margin-top: 6px; font-weight: 600; }
 .ggroup dd { margin: 1px 0 0 0; color: var(--fg); }
 .cite { color: var(--dim); font-size: 10px; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
 .fact { border-top: 1px solid var(--line); padding-top: 6px; }
+.diagram { background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 6px; overflow-x: auto; }
 
-svg.howit { width: 100%; height: auto; display: block; }
-svg.howit .stage rect { fill: #0c160c; stroke: var(--line); stroke-width: 1.5; }
-svg.howit .stage text { fill: var(--fg); font: 11px ui-monospace, Menlo, monospace; }
-svg.howit .stage .title { font-weight: bold; fill: #fff; }
+svg.howit { width: 100%; height: auto; display: block; min-width: 640px; }
+svg.howit .stage rect { fill: var(--panel); stroke: var(--line-hi); stroke-width: 1.5; }
+svg.howit .stage text { fill: var(--fg); font: 11px var(--mono); }
+svg.howit .stage .title { font: 400 11px var(--display); text-transform: uppercase; fill: var(--ink-strong); }
 svg.howit .stage .sub, svg.howit .stage .line { fill: var(--dim); font-size: 10px; }
 svg.howit .stage.graduate .title { fill: var(--grad); }
-svg.howit .stage.refuse .title { fill: var(--red); }
-svg.howit .stage.on rect { stroke: var(--g3); stroke-width: 3; fill: #1b2f10; filter: drop-shadow(0 0 6px var(--g2)); }
-svg.howit .stage.refuse.on rect, svg.howit .stage.tombstone.on rect { stroke: var(--red); filter: drop-shadow(0 0 6px var(--red)); }
+svg.howit .stage.refuse .title { fill: var(--hot); }
+svg.howit .stage.on rect { stroke: var(--phos); stroke-width: 3; fill: color-mix(in srgb, var(--phos) 14%, var(--panel)); filter: drop-shadow(0 0 8px var(--phos)); }
+svg.howit .stage.refuse.on rect, svg.howit .stage.tombstone.on rect { stroke: var(--hot); filter: drop-shadow(0 0 8px var(--hot)); }
 svg.howit .line.hit { font-weight: bold; }
 svg.howit .line.hit.pass { fill: var(--grad); }
-svg.howit .line.hit.fail { fill: var(--red); }
+svg.howit .line.hit.fail { fill: var(--hot); }
 svg.howit .arrow { fill: none; stroke: var(--dim); stroke-width: 1.3; }
 svg.howit .head { fill: var(--dim); }
-svg.howit .alabel { fill: var(--dim); font: 9px ui-monospace, Menlo, monospace; }
+svg.howit .alabel { fill: var(--dim); font: 9px var(--mono); }
 
-.hgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; }
-.hi .item { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; margin: 3px 0; cursor: pointer; background: #0c160c; overflow-wrap: anywhere; }
-.hi .item:hover { border-color: var(--g2); }
-.hi .item .at { color: var(--dim); }
+.hgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; }
+.hi .item { border: 1px solid var(--line); border-left-width: 3px; border-radius: 4px; padding: 4px 7px; margin: 3px 0; cursor: pointer; background: var(--well); overflow-wrap: anywhere; transition: border-color .15s; }
+.hi .item:hover { border-color: var(--phos); }
+.hi .item.incident { border-left-color: var(--amber); }
+.hi .item.fire { border-left-color: var(--cool); }
+.hi .item.attempt { border-left-color: var(--violet); }
+.hi .item .at { color: var(--dim); font-size: 10px; }
+.hi .item.grad { border-left-color: var(--grad); }
+.hi .item.refuse { border-left-color: var(--hot); }
 .hi .item.grad .stampmini { color: var(--grad); border: 1px solid var(--grad); }
-.hi .item.refuse .stampmini { color: var(--red); border: 1px solid var(--red); }
-.stampmini { font-weight: bold; padding: 0 3px; border-radius: 2px; font-size: 10px; }
+.hi .item.refuse .stampmini { color: var(--hot); border: 1px solid var(--hot); }
+.stampmini { font: 700 9px var(--display); letter-spacing: .06em; padding: 1px 4px; border-radius: 2px; }
 .hi .item.sabotage { border-style: dashed; opacity: .75; }
-.tag.sab { color: #ffb020; border-color: #ffb020; }
+.tag.sab { color: var(--amber); border-color: var(--amber); }
 .tag.pre { font-style: italic; }
-.tag.graduated, .tag.admitted { color: var(--grad); }
-.tag.tombstoned, .tag.superseded { color: var(--red); }
+.tag.graduated, .tag.admitted { color: var(--grad); border-color: color-mix(in srgb, var(--grad) 50%, var(--line)); }
+.tag.tombstoned, .tag.superseded { color: var(--hot); border-color: color-mix(in srgb, var(--hot) 50%, var(--line)); }
 .timeline { max-height: 60vh; overflow: auto; }
 .scrollbox { max-height: 150px; overflow: auto; }
-.empty { border: 1px dashed var(--line); border-radius: 4px; padding: 6px; overflow-wrap: anywhere; }
+.empty { border: 1px dashed var(--line); border-radius: 4px; padding: 6px; overflow-wrap: anywhere; color: var(--dim); }
 
-@media (max-width: 1200px) {
-  body.present-on main { grid-template-columns: 1fr; }
-  body.present-on #lcd { width: min(360px, 80vw); }
+/* spend gauge (ui/present/history.ts meter) */
+.gauge { position: relative; height: 18px; margin: 6px 0 4px; border-radius: 3px; overflow: hidden; border: 1px solid var(--line-hi);
+  background: repeating-linear-gradient(90deg, var(--bg2) 0 7px, transparent 7px 8px), var(--line); }
+.gauge .gfill { position: absolute; left: 0; top: 0; bottom: 0; max-width: 100%;
+  background: repeating-linear-gradient(90deg, var(--phos) 0 7px, transparent 7px 8px); box-shadow: 0 0 10px color-mix(in srgb, var(--phos) 60%, transparent); }
+.gauge.ask .gfill { background: repeating-linear-gradient(90deg, var(--amber) 0 7px, transparent 7px 8px); }
+.gauge.stop .gfill { background: repeating-linear-gradient(90deg, var(--hot) 0 7px, transparent 7px 8px); }
+.gauge .gmark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.gscale { display: flex; justify-content: space-between; font-size: 10px; color: var(--dim); }
+
+/* S17b reliability plot and S18 Play tab: theme hooks only */
+.reliability { background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+svg.reliability { width: 100%; height: auto; display: block; }
+svg.reliability text { fill: var(--dim); font: 10px var(--mono); }
+svg.reliability :where(line, path.axis, .grid) { stroke: var(--line); }
+[class^="play-"], [class*=" play-"] { font-family: var(--mono); }
+:where(.play-panel, .play-card, .play-box) { background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+:where(.play-head, .play-title) { font: 400 12px var(--display); text-transform: uppercase; letter-spacing: .1em; color: var(--cool); }
+:where(.play-panel, #present) button { font: 400 10px var(--display); text-transform: uppercase; letter-spacing: .06em; color: var(--fg); background: var(--well); border: 1px solid var(--line-hi); border-radius: 3px; padding: 5px 9px; cursor: pointer; }
+
+@media (max-width: 1100px) {
+  body.present-on main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "centre" "present"; }
   .hgrid { grid-template-columns: 1fr; }
+  #present { max-height: none; }
 }
+@media (max-width: 700px) {
+  .ptabs { margin-left: 0; }
+  .ptabs button { padding: 5px 7px 4px; font-size: 9px; letter-spacing: .04em; }
+  #present { padding: 10px 12px; }
+  svg.howit { min-width: 560px; }
+}
+body.look-compact.present-on main { grid-template-columns: minmax(0, 760px); grid-template-areas: "centre" "present"; }
+body.look-compact .hgrid { grid-template-columns: 1fr; }
+body.look-compact #present { max-height: none; }
