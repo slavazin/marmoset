@@ -63,3 +63,15 @@ test("watcher: at the spend ask over the combined meter it runs no pass and writ
   assert.equal(existsSync(nativeFile(s.runs, s.run)), false);
   assert.equal(s.runner.calls.length, 0);
 });
+
+test("watcher with outDir: reads generations from the run's runs dir and writes readings and watch lines under outDir only, leaving the run's runs dir byte-identical", async () => {
+  const s = setup();
+  const out = mkdtempSync(join(tmpdir(), "ratchet-native-out-"));
+  const before = snapshot(join(s.runs, s.run));
+  const l = await watchStep({ ...s.d, outDir: out });
+  assert.equal(l.t, "pass");
+  assert.deepEqual(snapshot(join(s.runs, s.run)), before);
+  assert.deepEqual(readdirSync(join(s.runs, s.run)).sort(), ["generations.jsonl", "manifest.json"]);
+  assert.equal(readFileSync(nativeFile(out, s.run), "utf8").trim().split("\n").length, 2);
+  assert.equal((await watchStep({ ...s.d, outDir: out })).t, "wait", "a second step reads the readings under outDir as done");
+});

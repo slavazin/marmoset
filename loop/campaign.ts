@@ -487,16 +487,20 @@ async function main(argv: string[]): Promise<number> {
     const { LIVE_BRANCH } = await import("./paths.ts");
     const { splitsPaths } = await import("../suites/splits.ts");
     const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion() });
-    // --rules-as RUN-NNNN: this run judges under that run's rule_version, or it does not open (owner requirement 2026-11-07)
+    // --rules-as RUN-NNNN (in this runs dir) or <runs dir>/RUN-NNNN: this run judges under that run's rule_version, or
+    // it does not open (owner requirement 2026-11-07)
     for (const other of v["rules-as"] ?? []) {
-      const om = readManifest(deps.runsDir, other);
-      if (!om) throw new Error(`--rules-as ${other}: ${manifestPath(deps.runsDir, other)} is missing`);
+      const [dir, id] = other.includes("/") ? [resolve(other, ".."), resolve(other).split("/").pop()!] : [deps.runsDir, other];
+      const om = readManifest(dir, id);
+      if (!om) throw new Error(`--rules-as ${other}: ${manifestPath(dir, id)} is missing`);
       if (om.rule_version !== c.rule_version) throw new Error(`rule_version ${c.rule_version.slice(0, 12)} is not ${other}'s ${om.rule_version.slice(0, 12)}: loop/gate.ts's rule constants differ`);
     }
-    if (v.resume) checkConditions(c);
+    // every --rules-as run's runs dir also joins the isolation check, so a run in another runs dir is compared too
+    const extraRunsDirs = (v["rules-as"] ?? []).filter((x) => x.includes("/")).map((x) => resolve(x, ".."));
+    if (v.resume) checkConditions(c, { extraRunsDirs });
     else {
       if (readManifest(deps.runsDir, run)) throw new Error(`${manifestPath(deps.runsDir, run)} exists: the run is already open (pass --resume to continue it)`);
-      openConditions(c, { s0Commit: v["s0-commit"] });
+      openConditions(c, { s0Commit: v["s0-commit"], extraRunsDirs });
     }
     console.log(`${run} conditions: ${c.live_branch} ${c.s0_core_commit.slice(0, 12)} in ${c.live}, rom ${c.rom} (${c.rom_sha.slice(0, 12)}), source ${c.source}, seed0 ${c.seed0}, splits ${c.splits.length} file(s), scratch ${c.scratch}, cache ${c.cache}`);
   }
