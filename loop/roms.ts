@@ -1,8 +1,17 @@
 // ROM lookup by content hash, for incidents and traces that name a ROM by rom_sha (SPEC §6.5).
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { sha256 } from "../oracle/client.ts";
+import { gamePath, type LoopPaths } from "./paths.ts";
+
+/**
+ * The directories an incident's or trace's ROM is looked up in: the suite ROMs, <root>/game, and the directory of the
+ * run's game (loop/paths.ts gamePath; RATCHET_GAME), each once (loop/campaign-cgb.test.ts "romDirs").
+ */
+export function romDirs(paths: LoopPaths): string[] {
+  return [...new Set([paths.roms, join(paths.root, "game"), dirname(gamePath(paths))])];
+}
 
 const memo = new Map<string, string>();
 

@@ -7,8 +7,8 @@ import { readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { Core, CreateCore, Incident, Splits } from "../src/schema.ts";
 import { sha256, traceSha } from "../oracle/client.ts";
-import { loadReference, runRom, type Caps } from "../suites/score.ts";
-import { familyRoms, loadSplits, passRule, referencePath, romsDir } from "../suites/splits.ts";
+import { loadReference, loadReferenceRgb, runRom, type Caps } from "../suites/score.ts";
+import { familyModel, familyRoms, loadSplits, passRule, referencePath, romsDir } from "../suites/splits.ts";
 import { frameDiff, signatureOf } from "./diff.ts";
 import { EVIDENCE_ROOT, writeEvidence } from "./evidence.ts";
 import type { IncidentSink } from "./incidents.ts";
@@ -35,15 +35,17 @@ export function suiteIncident(family: string, rom: string, o: SuiteIncidentOptio
   const seen = o.sink.open().find((i) => i.source === "suite" && i.rom_sha === rom_sha);
   if (seen) return seen;
 
+  // a CGB family (splits-cgb.json, D-0019) runs on a core created with { model: "CGB" } and diffs RGB frames
+  const model = familyModel(splits, family);
   let core: Core | null = null;
-  const reading = runRom((bytes) => (core = o.createCore(bytes)), root, rom, o.caps);
+  const reading = runRom((bytes, opts) => (core = o.createCore(bytes, opts)), root, rom, o.caps, undefined, model);
   if (reading.pass) return null;
 
   let frame: Uint8Array | null = null, ref: Uint8Array | null = null;
-  try { frame = (core as Core | null)?.frame() ?? null; } catch { frame = null; }
-  const rp = passRule(rom) === "screenshot" ? referencePath(root, rom) : null;
-  if (rp) ref = loadReference(join(root, rp));
-  const d = frame && ref ? frameDiff(frame, ref) : { pixels: 0, firstLine: -1, box: [0, 0, 0, 0] as [number, number, number, number] };
+  try { const c = core as Core | null; frame = (model === "CGB" ? c?.frameRgb?.() : c?.frame()) ?? null; } catch { frame = null; }
+  const rp = passRule(rom) === "screenshot" ? referencePath(root, rom, model) : null;
+  if (rp) ref = model === "CGB" ? loadReferenceRgb(join(root, rp)) : loadReference(join(root, rp));
+  const d = frame && ref ? (model === "CGB" ? frameDiff(...rgbMasks(frame, ref)) : frameDiff(frame, ref)) : { pixels: 0, firstLine: -1, box: [0, 0, 0, 0] as [number, number, number, number] };
   const evidenceRoot = o.evidenceRoot ?? EVIDENCE_ROOT;
 
   const inc = o.sink.record((id) => {
@@ -58,6 +60,14 @@ export function suiteIncident(family: string, rom: string, o: SuiteIncidentOptio
   });
   writeEvidence(join(evidenceRoot, inc.id), {
     kind: "suite", incident: inc, rom: { path: resolve(root, rom), sha: rom_sha }, family, rom_rel: rom, repro: reading,
-  }, frame, ref, []);
+    ...(model === "CGB" ? { model } : {}),
+  }, frame, ref, [], model === "CGB");
   return inc;
+}
+
+/** Two per-pixel arrays frameDiff reads from two RGB888 frames: 0 everywhere, 1 in the second where the colours differ. */
+function rgbMasks(a: Uint8Array, b: Uint8Array): [Uint8Array, Uint8Array] {
+  const n = a.length / 3, x = new Uint8Array(n), y = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (a[i * 3] !== b[i * 3] || a[i * 3 + 1] !== b[i * 3 + 1] || a[i * 3 + 2] !== b[i * 3 + 2]) y[i] = 1;
+  return [x, y];
 }
