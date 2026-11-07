@@ -2,7 +2,7 @@
 
 // §6.0 Id prefixes: INC incident · ATT attempt · VER verdict · OBS observation · SKL skill · FIR fire ·
 // D decision · BEL belief · TRC admitted trace · RUN run. Format: PREFIX-NNNN.
-export const ID_PREFIXES = ["INC", "ATT", "VER", "OBS", "SKL", "FIR", "D", "BEL", "TRC", "RUN", "SPT", "STR"] as const; // SPT spot (S13), STR steer (S8)
+export const ID_PREFIXES = ["INC", "ATT", "VER", "OBS", "SKL", "FIR", "D", "BEL", "TRC", "RUN", "SPT", "STR", "POL"] as const; // SPT spot (S13), STR steer (S8), POL policy (D-0020)
 export type IdPrefix = (typeof ID_PREFIXES)[number];
 
 // Status record appended to a ledger file; loop/ledger.ts current(id) reads the last one written (SPEC §6).
@@ -25,6 +25,8 @@ export interface Core {
   cpu: CoreRegs;
   read(addr: number): number; // bus read, no side effects
   frame(): Uint8Array; // 160*144 shades 0..3 (0 = white), last completed frame
+  frameRgb?(): Uint8Array; // CGB tier (D-0019): 160*144*3 RGB888 of the last completed frame; absent on DMG-only cores
+  model?: "DMG" | "CGB"; // the hardware the core emulates for this ROM
   serial: string;
   cycles: number; // total T-cycles
   setButtons(mask: number): void; // bit0 right,1 left,2 up,3 down,4 A,5 B,6 select,7 start (1 = pressed)
@@ -32,7 +34,7 @@ export interface Core {
   restore(s: Uint8Array): void; // same-commit only; cross-commit resume replays the trace (N3)
   tap: TelemetryTap;
 }
-export type CreateCore = (rom: Uint8Array) => Core;
+export type CreateCore = (rom: Uint8Array, opts?: { model?: "DMG" | "CGB" }) => Core;
 export type Handlers = Record<HandlerId, string>; // handler id → implementing file under core/
 
 // §6.3 Provenance (ledger/provenance.json)
@@ -40,7 +42,8 @@ export interface ProvenanceEntry { handler: HandlerId; file: string; commit: str
 
 // §6.4 Oracle protocol (oracle/frontend.py; one JSON object per line each way)
 export type OracleReq =
-  | { op: "load"; rom_path: string; align?: "counter" | "frame" } // align defaults to "counter" (S3)
+  | { op: "load"; rom_path: string; align?: "counter" | "frame"; model?: "DMG" | "CGB" } // align defaults to "counter" (S3); model defaults to DMG; CGB per D-0019
+  | { op: "frame_rgb" } // CGB tier → { ok, rgb_b64 } (69120 bytes)
   | { op: "run_to_counter"; counter: number; inputs: TraceInput[] } // applies inputs keyed by counter
   | { op: "frame" } // → { ok, shades_b64 } (23040 bytes)
   | { op: "ram"; addr: number; len: number } // WRAM 0xC000–0xDFFF only → { ok, bytes_b64 }
@@ -83,6 +86,7 @@ export interface RepairTask {
   base_commit: string; // core-live commit
   arm: Arm;
   skills: string[]; // SKL ids shown
+  policies?: string[]; // POL ids in force for this attempt (D-0020)
   budget: { max_steps: number; wall_s: number };
 }
 export interface RepairResult { // written by the repairer at packet/RESULT.json
@@ -124,7 +128,7 @@ export interface SuiteReading { split: Split; family: string; roms: number; pass
 export type CheckName = "diff-scope" | "repro" | "admitted-traces" | "base-suites" | "H-no-regress" | "trial-margin" | "merge";
 export interface Verdict {
   id: string; at: string; run: string | null;
-  subject: { kind: "attempt" | "skill"; id: string };
+  subject: { kind: "attempt" | "skill" | "policy"; id: string }; // policy: a tool, packet or routing change graduated by trial (D-0020)
   decision: "GRADUATE" | "REFUSE";
   checks: { name: CheckName; pass: boolean; reading: unknown }[];
   arms?: {
@@ -148,6 +152,17 @@ export interface SkillFrontmatter {
   warrant: { anchors: string[]; "false-if": string };
   enforcement: { "checked-by": CheckName[]; residue: string };
   lifecycle: { consumer: "repairer"; "retire-when": string; successor: string | null };
+}
+
+// Policy (policies/{shadow,graduated,tombstones}/POL-NNNN/POLICY.md, D-0020): a versioned change to the repairer's
+// tools, packet projection or routing, graduated by the same shadow-trial rule as a skill (candidate vs baseline vs placebo).
+export type PolicyKind = "packet" | "tool" | "routing";
+export interface PolicyFrontmatter {
+  id: string; name: string; kind: PolicyKind; status: SkillStatus;
+  change: string; // one sentence: what the policy changes in the projection, tool or router
+  params: Record<string, unknown>; // the values loop/policies.ts applies
+  warrant: { anchors: string[]; "false-if": string };
+  lifecycle: { "retire-when": string; successor: string | null };
 }
 
 // §6.10 Tombstone frontmatter (skills/tombstones/<id>.md)
