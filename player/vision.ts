@@ -119,7 +119,8 @@ export function geminiClient(ledger = ledgerDir()): VisionClient {
     const tokens_in = r.usage?.total_input_tokens ?? 0;
     const tokens_out = (r.usage?.total_output_tokens ?? 0) + (r.usage?.total_thought_tokens ?? 0);
     const text = r.output_text ?? "";
-    tlog("llm", "call", { role: "spotter", model_requested: req.model, model_echoed: model, request: logged, response: text, tokens_in, tokens_out, ms, outcome: "ok" });
+    tlog("llm", "call", { role: "spotter", model_requested: req.model, model_echoed: model, request: logged, response: text, usage: { input: tokens_in, output: tokens_out }, ms, outcome: "ok" });
+    // usage, not tokens_*: src/telemetry.ts redact() blanks any key matching /token/ (a finding).
     // SpendRecord.role has no "spotter" (finding); the sensor is the player lane's.
     const spend: SpendRecord = { at: new Date().toISOString(), run: runId(), role: "player", model, tokens_in, tokens_out, usd: (tokens_in * USD_PER_MTOK.in + tokens_out * USD_PER_MTOK.out) / 1e6 };
     try { append("spend.jsonl", spend, ledger); } catch (e) { process.stderr.write(`spot: spend append failed (${(e as Error).message})\n`); }
