@@ -18,6 +18,7 @@
     "dev:fixtures": "node ui/dev.ts --fixtures",
     "ui:fixtures": "node ui/fixtures/make.ts",
     "play": "node --env-file-if-exists=.env player/cli.ts",
+    "spot": "node player/spot.ts",
     "loop:once": "node loop/once.ts",
     "steer": "node loop/steer.ts steer",
     "veto": "node loop/steer.ts veto",
