@@ -5,28 +5,31 @@
 //                               probabilities in Incident.route); DEFAULT_ROUTE_SKILLS stands in until it lands;
 //   SUBSYSTEM_GLOBS             S13 spot subsystems (player/vision.ts SUBSYSTEMS, "other" excluded) → core/ globs;
 //   loadPolicies(dir, status)   policies/<status>/POL-NNNN/POLICY.md parsed (PolicyFrontmatter), in id order;
-//   policiesInForce(paths)      the graduated POL ids, which every fast attempt names in task.policies (loop/fast.ts);
+//   policiesInForce(paths)      the graduated POL ids a GRADUATE policy verdict names, which every fast attempt names
+//                               in task.policies (loop/fast.ts);
 //   applyPolicies(task, ctx)    the one place a policy changes behaviour: for task.policies it returns the routed
-//                               shown-skill filter (routing), packet files and TASK.md lines (packet, tool);
+//                               shown-skill filter (routing), packet files and TASK.md lines (packet, tool); on the
+//                               UNPOLICIED_ARMS (baseline, vread-baseline) it returns no effect;
 //   parsePolicyNomination(j, view)  the consolidator's `policy` reply validated against the menu and the view:
 //                               at most MAX_POLICY_NOMINATIONS, anchored to >= MIN_ANCHORS view observations;
 //   nominatePolicy(deps)        writes the valid nomination to policies/shadow/POL-NNNN/POLICY.md;
 //   makePolicyPlacebo(path, dir) the mechanical twin: same template, name, change, warrant and lifecycle, its own POL
 //                               id, and params of the same shape: routing and packet maps deranged by a seed from the
-//                               candidate's id (same glob count per subsystem), a SubQ route's order "seeded:<hex>"
-//                               (a seeded random pick of the same count as SubQ's pick), a tool hint of matched length from
+//                               candidate's id (same glob count per subsystem; a packet focus set is cut or topped up
+//                               to the size SUBSYSTEM_GLOBS points at), a SubQ route's order an orderToken like the
+//                               candidate's (a seeded random pick of the same count as SubQ's pick), a tool hint of matched length from
 //                               HINT_POOL. Nothing in its file names it the twin; the pairing lives only in
 //                               runs/<run>/trials.jsonl (loop/trial.ts). Tests: loop/policies.test.ts.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { nextId } from "./ledger.ts";
+import { all, nextId } from "./ledger.ts";
 import { extractJson, MIN_ANCHORS, slug, type ConsolidateOutput, type ConsolidatorView } from "./consolidate.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { LoopPaths } from "./paths.ts";
 import type { ShownSkill } from "./shown.ts";
-import type { Incident, PolicyFrontmatter, PolicyKind, RepairTask, SkillStatus } from "../src/schema.ts";
+import type { Arm, Incident, PolicyFrontmatter, PolicyKind, RepairTask, SkillStatus, Verdict } from "../src/schema.ts";
 import type { Subsystem } from "../player/vision.ts";
 
 /** Policy nominations a generation writes at most (D-0020 brief: 1 per generation). */
@@ -49,7 +52,10 @@ export const HINT_POOL: readonly string[] = [
   "List the edited files in RESULT.json's summary in the order they were edited, separated by commas, one time each.",
 ];
 
-interface Template { kind: PolicyKind; change: string; params: Record<string, readonly unknown[]>; resolve(p: Record<string, unknown>): Record<string, unknown> }
+interface Template { kind: PolicyKind; change: string; params: Record<string, readonly unknown[]>; resolve(p: Record<string, unknown>, id?: string): Record<string, unknown> }
+
+/** A SubQ route's params.order: 12 hex of sha256("<POL id>:<how>"), one form for a candidate and its twin alike. */
+export function orderToken(id: string, how: "probability" | "seeded"): string { return createHash("sha256").update(`${id}:${how}`).digest("hex").slice(0, 12); }
 
 /** The fixed menu: each template's allowed param values, and the params its POLICY.md carries once resolved. */
 export const POLICY_MENU: Readonly<Record<string, Template>> = {
@@ -63,7 +69,7 @@ export const POLICY_MENU: Readonly<Record<string, Template>> = {
     kind: "routing",
     change: "Shows the graduated skills the SubQ router picks for the incident from its applies:<SKL-id> probabilities (Incident.route), ranked by params.order.",
     params: { route: ["subq-applies"] },
-    resolve: (p) => ({ route: p.route, order: "probability" }),
+    resolve: (p, id = "") => ({ route: p.route, order: orderToken(id, "probability") }),
   },
   "packet-subsystem-focus": {
     kind: "packet",
@@ -132,8 +138,10 @@ export function loadPolicies(dir: string, status: "shadow" | "graduated"): Polic
     .map((id) => parsePolicy(readFileSync(join(base, id, "POLICY.md"), "utf8"), join(base, id)));
 }
 
-export function policiesInForce(paths: Pick<LoopPaths, "root">): string[] {
-  return loadPolicies(policiesDir(paths), "graduated").map((p) => p.fm.id);
+/** Graduated POL ids that a GRADUATE policy verdict names (D-0020 false-if); a file placed there by hand is not in force. */
+export function policiesInForce(paths: Pick<LoopPaths, "root" | "ledger">): string[] {
+  const ratified = new Set(all<Verdict>("verdicts.jsonl", paths.ledger).filter((v) => v.subject?.kind === "policy" && v.decision === "GRADUATE").map((v) => v.subject.id));
+  return loadPolicies(policiesDir(paths), "graduated").map((p) => p.fm.id).filter((id) => ratified.has(id));
 }
 
 /** Every POL id across policies/shadow, graduated and tombstones. */
@@ -185,9 +193,12 @@ function loadById(dir: string, ids: string[]): Policy[] {
   return ids.map((id) => all.find((p) => p.fm.id === id)).filter((p): p is Policy => !!p);
 }
 
+/** Arms no policy reaches, whatever task.policies names: the trial baseline and the V read's baseline. */
+export const UNPOLICIED_ARMS: ReadonlySet<Arm> = new Set(["baseline", "vread-baseline"]);
+
 /** The one place a policy changes behaviour (see the file header). */
 export function applyPolicies(task: RepairTask, ctx: PolicyContext): PolicyEffect {
-  const ids = task.policies ?? [];
+  const ids = UNPOLICIED_ARMS.has(task.arm) ? [] : task.policies ?? [];
   const pols = ids.length ? loadById(policiesDir(ctx.paths), ids) : [];
   const subsystem = subsystemOf(task, ctx.incident);
   const taskLines: string[] = [];
@@ -196,11 +207,12 @@ export function applyPolicies(task: RepairTask, ctx: PolicyContext): PolicyEffec
   const picks: ((ids: string[]) => string[])[] = [];
   for (const p of pols) {
     if (p.fm.kind === "routing" && p.fm.params.route === "subq-applies") {
-      const order = String(p.fm.params.order ?? "probability");
+      const order = String(p.fm.params.order ?? "");
+      const byProbability = order === orderToken(p.fm.id, "probability");
       picks.push((ids) => {
         const skills = (ctx.skills ?? []).filter((s) => ids.includes(s.id));
         const chosen = routeSkills(ctx.incident, skills, ids.length);
-        if (!order.startsWith("seeded:")) return ids.filter((id) => chosen.includes(id));
+        if (byProbability) return ids.filter((id) => chosen.includes(id));
         const rnd = seeded(`${order}:${ctx.incident?.id ?? task.family ?? ""}`);
         const pool = [...ids];
         for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
@@ -213,7 +225,16 @@ export function applyPolicies(task: RepairTask, ctx: PolicyContext): PolicyEffec
     const globs = subsystem ? map[subsystem] : undefined;
     if (p.fm.kind === "routing" && globs) routes.push(globs);
     if (p.fm.kind === "packet" && globs) {
-      const files = (ctx.coreFiles ?? []).filter((f) => globs.some((g) => globsOverlap(g, f)));
+      // size-matched (D-0020): as many files as SUBSYSTEM_GLOBS points the subsystem at, so a deranged map gives another
+      // set of that size, cut or topped up by a seeded pick from the files the subsystem does not point at
+      const core = ctx.coreFiles ?? [];
+      const matching = (gs: readonly string[]) => core.filter((f) => gs.some((g) => globsOverlap(g, f)));
+      const pointed = matching(SUBSYSTEM_GLOBS[subsystem as keyof typeof SUBSYSTEM_GLOBS] ?? []);
+      const hit = matching(globs);
+      const rest = core.filter((f) => !hit.includes(f) && !pointed.includes(f));
+      const rnd = seeded(`${p.fm.id}:${subsystem}`);
+      for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+      const files = [...hit, ...rest].slice(0, pointed.length);
       packetFiles["focus.json"] = JSON.stringify({ files }, null, 2) + "\n";
       taskLines.push("packet/focus.json names the core files this failure points at; read them first.");
     }
@@ -279,7 +300,7 @@ export function nominatePolicy(d: { paths: Pick<LoopPaths, "root">; consolidatio
   const dir = policiesDir(d.paths);
   const t = POLICY_MENU[n.template];
   const id = nextId("POL", policyIds(dir));
-  const fm: PolicyFrontmatter = { id, name: slug(n.template), kind: t.kind, status: "shadow", change: t.change, params: t.resolve(n.params),
+  const fm: PolicyFrontmatter = { id, name: slug(n.template), kind: t.kind, status: "shadow", change: t.change, params: t.resolve(n.params, id),
     warrant: { anchors: n.anchors, "false-if": n.false_if }, lifecycle: { "retire-when": n.retire_when, successor: null } };
   const path = writePolicy(dir, fm, n.template);
   tlog("loop", "policy.nominate", { generation: d.generation, id, template: n.template, kind: t.kind, params: n.params, anchors: n.anchors });
@@ -314,7 +335,7 @@ export function makePolicyPlacebo(candidatePath: string, dir: string): { id: str
     params.hint = [...HINT_POOL].sort((a, b) => Math.abs(a.length - len) - Math.abs(b.length - len))[0];
     source = "HINT_POOL";
   } else if (params.route === "subq-applies") {
-    params.order = `seeded:${createHash("sha256").update(cand.fm.id).digest("hex").slice(0, 12)}`;
+    params.order = orderToken(id, "seeded");
     source = "seeded route";
   } else {
     params.map = derange(params.map as Record<string, string[]>, cand.fm.id);
