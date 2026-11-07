@@ -5,17 +5,21 @@
 // it applies the diff on branch attempt/<ATT> in the live clone and runs, cheapest first and stopping at the first
 // failure: repro, admitted-traces, base-suites, H-no-regress. The judging code is this process's (main's loop/
 // and suites/); only core/ comes from the branch. It appends one Verdict to ledger/verdicts.jsonl.
-// GRADUATE merges the branch into core-live with trailers "Attempt: ATT-…" and "Skills: SKL-…", admits the trace
-// window to traces/TRC-NNNN.json, writes RepairResult.beliefs as ledger/beliefs/ files marked suspected,
-// regenerates ledger/provenance.json, runs `pnpm core:bundle` (recorded as skipped when it fails) and posts an
-// SSE `core` event. REFUSE leaves the branch unmerged; the verdict is the attempt's tombstone (SPEC §6.10).
+// GRADUATE merges the branch into core-live with trailers "Attempt: ATT-…" and "Skills: SKL-…"; a merge that throws
+// turns the verdict into a REFUSE naming the error. The Verdict is appended next, before any side effect. The
+// side effects then admit the trace window to traces/TRC-NNNN.json, write RepairResult.beliefs as ledger/beliefs/
+// files marked suspected, regenerate ledger/provenance.json, run `pnpm core:bundle` (recorded as skipped when it
+// fails) and post an SSE `core` event; each one that throws is listed in the verdict's `side_effect_error` status
+// record and in the loop telemetry stream, and the rest still run (gate.test.ts "throwing provenance writer").
+// REFUSE leaves the branch unmerged; the verdict is the attempt's tombstone (SPEC §6.10).
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { RULE_CONSTANTS, LITERAL_LIMIT, H_TOLERANCE, SUITE_MIN_GAIN } from "./gate.ts";
-import { appendNew, nextId, runId } from "./ledger.ts";
+import { appendNew, current, nextId, runId, status } from "./ledger.ts";
+import { tlog } from "../src/telemetry.ts";
 import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
 import { romBySha } from "./roms.ts";
 import { loadCore, type Replayer } from "./replay-seam.ts";
@@ -23,7 +27,8 @@ import type { Attempt, CheckName, Incident, ProvenanceEntry, SuiteReading, Trace
 
 /** What every repair verdict does not check (SPEC §6.8 residue). */
 export const REPAIR_RESIDUE: readonly string[] = ["audio", "CGB", "serial timing", "V (sealed)", "boot-state difference",
-  "suite-incident repro, base-suites and H-no-regress run the core in-process, with reference images reachable"];
+  "suite-incident repro, base-suites and H-no-regress run the core in-process, with reference images reachable",
+  "the repairer's shell reads absolute paths outside the scratch repo (D-draft-muse-sandbox-scope)"];
 /** Shortest trace-input JSON the memorisation check searches a diff for; shorter strings match by chance. */
 export const MEMO_MIN_BYTES = 24;
 /** Bytes of each cached oracle frame whose hex and base64 forms the memorisation check searches for. */
@@ -140,6 +145,8 @@ export interface GateInput {
   suites: SuitesJudge;
   /** Skips the SSE post (tests). */
   quiet?: boolean;
+  /** Side-effect overrides (tests): the provenance writer, default regenerateProvenance. */
+  effects?: { provenance?: (paths: LoopPaths, tag: string) => Promise<unknown> };
 }
 
 export interface GateOutput { verdict: Verdict; branch: string; head_commit?: string; trace?: string; beliefs: string[]; bundle: string }
@@ -321,36 +328,70 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   });
 
   const failed = checks.find((c) => !c.pass);
-  const decision: Verdict["decision"] = failed ? "REFUSE" : "GRADUATE";
-  const reason = failed ? `${failed.name} failed: ${JSON.stringify(failed.reading).slice(0, 300)}` : `all ${checks.length} checks passed; deciding: ${checks.at(-1)!.name}`;
+  let decision: Verdict["decision"] = failed ? "REFUSE" : "GRADUATE";
+  let reason = failed ? `${failed.name} failed: ${JSON.stringify(failed.reading).slice(0, 300)}` : `all ${checks.length} checks passed; deciding: ${checks.at(-1)!.name}`;
   const out: GateOutput = { verdict: undefined as unknown as Verdict, branch, head_commit: head, beliefs: [], bundle: "not run (REFUSE)" };
 
+  // the merge decides the verdict: a merge that throws is a REFUSE naming the error, and core-live is left as it was
+  let merged: string | undefined;
   if (decision === "GRADUATE") {
-    git(paths.live, ["merge", "--no-ff", "--quiet", "-m", `graduate ${msg}`, branch]);
-    const merged = git(paths.live, ["rev-parse", "HEAD"]);
-    out.head_commit = merged;
-    // admit the trace window
-    mkdirSync(paths.traces, { recursive: true });
-    const trc = nextId("TRC", readdirSync(paths.traces).map((f) => f.replace(/\.json$/, "")));
-    const adm: AdmittedTrace = { id: trc, rom_sha: inc.rom_sha, align: inc.align, inputs: trace?.inputs ?? [], counter_end: inc.window[1], source: trace?.source ?? (inc.source === "suite" ? "suite" : "keyboard"), window: inc.window, incident: inc.id, attempt: attempt.id };
-    writeFileSync(join(paths.traces, `${trc}.json`), JSON.stringify(adm, null, 2) + "\n");
-    out.trace = trc;
-    // beliefs, suspected
-    const bdir = join(paths.ledger, "beliefs");
-    mkdirSync(bdir, { recursive: true });
-    for (const b of attempt.result?.beliefs ?? []) {
-      const id = nextId("BEL", readdirSync(bdir).map((f) => /^(BEL-\d+)/.exec(f)?.[1] ?? ""));
-      writeFileSync(join(bdir, `${id}-${slug(b.claim)}.md`), `---\nid: ${id}\nmark: suspected\nanchors: [${inc.id}, ${attempt.id}]\ncontradicted-by: []\n---\n**Claim:** ${b.claim}\n**False if:** ${b.false_if}\n`);
-      out.beliefs.push(id);
+    try {
+      git(paths.live, ["merge", "--no-ff", "--quiet", "-m", `graduate ${msg}`, branch]);
+      merged = git(paths.live, ["rev-parse", "HEAD"]);
+      out.head_commit = merged;
+    } catch (e) {
+      try { git(paths.live, ["merge", "--abort"]); } catch { /* no merge in progress */ }
+      decision = "REFUSE";
+      reason = `merge into ${LIVE_BRANCH} failed after ${checks.length} checks passed: ${errText(e)}`;
     }
-    await regenerateProvenance(paths, attempt.id);
-    out.bundle = rebuildBundle(paths, archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "gate", `${attempt.id}.bundle`)), merged);
-    if (!g.quiet) await postCore(paths.server, merged);
   }
 
+  // the Verdict is written before any side effect, so a side effect that throws never leaves a merge without one
   out.verdict = appendNew<Verdict>("verdicts.jsonl", "VER", (id) => ({
     id, at: new Date().toISOString(), run: runId(), subject: { kind: "attempt", id: attempt.id },
     decision, checks, reason: reason.slice(0, 500), residue: [...REPAIR_RESIDUE], rule_version: ruleVersion(),
   }), paths.ledger);
+  tlog("loop", "verdict", { verdict: out.verdict.id, attempt: attempt.id, decision, reason: out.verdict.reason });
+
+  if (merged) {
+    const fx = g.effects ?? {};
+    const errors: SideEffectError[] = [];
+    const sideEffect = async (effect: string, f: () => unknown) => {
+      try { await f(); } catch (e) {
+        errors.push({ effect, error: errText(e) });
+        // the cumulative list, so current() folds to every failure of this verdict
+        status("verdicts.jsonl", out.verdict.id, "side_effect_error", [...errors], paths.ledger);
+        tlog("loop", "side_effect_error", { verdict: out.verdict.id, attempt: attempt.id, effect, error: errText(e) });
+      }
+    };
+    await sideEffect("trace", () => {
+      mkdirSync(paths.traces, { recursive: true });
+      const trc = nextId("TRC", readdirSync(paths.traces).map((f) => f.replace(/\.json$/, "")));
+      const adm: AdmittedTrace = { id: trc, rom_sha: inc.rom_sha, align: inc.align, inputs: trace?.inputs ?? [], counter_end: inc.window[1], source: trace?.source ?? (inc.source === "suite" ? "suite" : "keyboard"), window: inc.window, incident: inc.id, attempt: attempt.id };
+      writeFileSync(join(paths.traces, `${trc}.json`), JSON.stringify(adm, null, 2) + "\n");
+      out.trace = trc;
+    });
+    await sideEffect("beliefs", () => {
+      const bdir = join(paths.ledger, "beliefs");
+      mkdirSync(bdir, { recursive: true });
+      for (const b of attempt.result?.beliefs ?? []) {
+        const id = nextId("BEL", readdirSync(bdir).map((f) => /^(BEL-\d+)/.exec(f)?.[1] ?? ""));
+        writeFileSync(join(bdir, `${id}-${slug(b.claim)}.md`), `---\nid: ${id}\nmark: suspected\nanchors: [${inc.id}, ${attempt.id}]\ncontradicted-by: []\n---\n**Claim:** ${b.claim}\n**False if:** ${b.false_if}\n`);
+        out.beliefs.push(id);
+      }
+    });
+    await sideEffect("provenance", () => (fx.provenance ?? regenerateProvenance)(paths, attempt.id));
+    out.bundle = "not run (side effect failed)";
+    await sideEffect("bundle", () => { out.bundle = rebuildBundle(paths, archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "gate", `${attempt.id}.bundle`)), merged!); });
+    if (!g.quiet) await sideEffect("core-event", () => postCore(paths.server, merged!));
+    if (errors.length) out.verdict = current<Verdict>("verdicts.jsonl", out.verdict.id, paths.ledger) ?? out.verdict;
+  }
   return out;
+}
+
+/** One failed GRADUATE side effect, as the verdict's `side_effect_error` status record lists it. */
+export interface SideEffectError { effect: string; error: string }
+
+function errText(e: unknown): string {
+  return (e instanceof Error ? e.message : String(e)).slice(0, 300);
 }

@@ -60,7 +60,9 @@ export function makeBed(): Bed {
   cacheFrames(cache, adm, admInputs, 1, WINDOW[1]);
   writeFileSync(join(root, "traces", "TRC-0001.json"), JSON.stringify({ id: "TRC-0001", rom_sha: sha256(adm), align: "counter", inputs: admInputs, counter_end: WINDOW[1], source: "explorer", window: WINDOW }));
 
-  const paths: LoopPaths = { root, ledger: join(root, "ledger"), traces: join(root, "traces"), skills: join(root, "skills"), evidence: join(root, "evidence"), live, cache, roms, server: "http://127.0.0.1:9" };
+  // the scratch root is its own temp dir, as DEFAULT_SCRATCH is: under none of the bed's cache, root or live clone
+  const scratch = mkdtempSync(join(tmpdir(), "ratchet-scratch-"));
+  const paths: LoopPaths = { root, ledger: join(root, "ledger"), traces: join(root, "traces"), skills: join(root, "skills"), evidence: join(root, "evidence"), live, cache, roms, server: "http://127.0.0.1:9", scratch };
   const incident: Incident = {
     id: "INC-0001", at: "2026-11-07T00:00:00.000Z", run: null, kind: "frame", align: "counter",
     signature: { scene: 1, band: 2, bbox: [0, 0, 159, 143] }, rom_sha: sha256(inc), trace_sha: traceSha({ rom_sha: sha256(inc), align: "counter", inputs }),

@@ -1,8 +1,9 @@
 // Owner steers (SPEC §5 S8, §6.7 Steer; GCE I2, I9). Offers:
 //   steer(text, paths)    appends one Steer to ledger/steers.jsonl;      `pnpm steer "<text>"`
-//   veto(verId, paths)    reverts a GRADUATE's merge in core-live within the verdict's run, regenerates
+//   veto(verId, paths, {prerun})  reverts a GRADUATE's merge in core-live within the verdict's run (vetoRunCheck:
+//                         an explicit non-null run match, or --prerun for a run-null verdict), regenerates
 //                         ledger/provenance.json, retires the trace windows the attempt admitted, and appends a
-//                         Steer naming the verdict; `pnpm veto <VER-id>`.
+//                         Steer naming the verdict; `pnpm veto <VER-id> [--prerun]`.
 
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -37,11 +38,24 @@ export function retireTraces(paths: LoopPaths, attempt: string, verId: string): 
   return out;
 }
 
-export async function veto(verId: string, paths: LoopPaths): Promise<Steer> {
+/**
+ * The run check veto applies: a verdict with a run is vetoed only from that same run (RATCHET_RUN set and equal);
+ * a verdict with run null (written before any run opened) only with `prerun` (`pnpm veto <VER-id> --prerun`).
+ * An unset RATCHET_RUN never matches a run-bearing verdict (S8-F13).
+ */
+export function vetoRunCheck(verdictRun: string | null, current: string | null, prerun: boolean): string | null {
+  if (verdictRun === null) return prerun ? null : "it was written before any run opened (run null); pass --prerun to veto it";
+  if (current === null) return `it belongs to run ${verdictRun} and RATCHET_RUN is unset`;
+  if (verdictRun !== current) return `it belongs to run ${verdictRun}, not this run ${current}`;
+  return null;
+}
+
+export async function veto(verId: string, paths: LoopPaths, opts: { prerun?: boolean } = {}): Promise<Steer> {
   const v = current<Verdict>("verdicts.jsonl", verId, paths.ledger);
   if (!v) throw new Error(`no verdict ${verId}`);
   if (v.decision !== "GRADUATE" || v.subject.kind !== "attempt") throw new Error(`${verId} is ${v.decision} of a ${v.subject.kind}; veto reverts attempt GRADUATEs only`);
-  if (v.run !== runId()) throw new Error(`${verId} belongs to run ${v.run}, not this run ${runId()}`);
+  const refused = vetoRunCheck(v.run, runId(), opts.prerun === true);
+  if (refused) throw new Error(`veto refuses ${verId}: ${refused}`);
   const merge = graduateMerge(paths.live, v.subject.id);
   if (!merge) throw new Error(`no core-live merge for ${v.subject.id}`);
   git(paths.live, ["revert", "--no-edit", "-m", "1", merge]);
@@ -55,7 +69,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const [mode, ...rest] = process.argv.slice(2);
   const paths = pathsFromEnv();
   if (mode === "veto") {
-    const s = await veto(rest[0] ?? "", paths);
+    const s = await veto(rest.find((a) => !a.startsWith("--")) ?? "", paths, { prerun: rest.includes("--prerun") });
     console.log(`${s.id} ${s.text}`);
   } else {
     const s = steer(rest.join(" "), paths);

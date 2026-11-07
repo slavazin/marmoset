@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, statSync, readdirSync, lstatSync, mkdirSync, writeFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, relative, isAbsolute } from "node:path";
 import { makeBed, writeSkill } from "./fixtures/harness.ts";
 import { repairPacket, allowed, fileList, removeScratch } from "./projection.ts";
 import { listSkills, selectShown, hooksFor, SKILL_ARMS } from "./shown.ts";
-import { git } from "./paths.ts";
+import { git, pathsFromEnv, scratchRoot, DEFAULT_SCRATCH } from "./paths.ts";
 import { MAX_SHOWN } from "./gate.ts";
 import type { Arm, RepairTask } from "../src/schema.ts";
 
@@ -102,4 +102,39 @@ test("hooksFor writes no matcher for baseline and vread-baseline", () => {
   assert.deepEqual(hooksFor("baseline", s), { hooks: {} });
   assert.deepEqual(hooksFor("vread-baseline", s), { hooks: {} });
   assert.equal(hooksFor("placebo", s).hooks.PreToolUse?.[0].hooks.length, 1);
+});
+
+/** True when `p` is `dir` or lies under it, compared on real paths where they exist. */
+function inside(p: string, dir: string): boolean {
+  const real = (x: string) => { try { return realpathSync(x); } catch { return resolve(x); } };
+  const rel = relative(real(dir), real(p));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+test("no relative hop (../, ../../, ../../../) from a scratch repo resolves into the cache, the repository, the live clone or the ledger", () => {
+  const bed = makeBed();
+  mkdirSync(join(bed.paths.root, "node_modules", "pkg"), { recursive: true });
+  const base = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const p = repairPacket({ kind: "incident", incident: "INC-0001", base_commit: base, arm: "fast", skills: [], budget: { max_steps: 1, wall_s: 1 } }, { attempt: "ATT-0001", paths: bed.paths, incident: bed.incident });
+  // the bed's paths, and the defaults pathsFromEnv reads with no RATCHET_* variable set
+  const defaults = pathsFromEnv({});
+  assert.equal(scratchRoot(defaults), DEFAULT_SCRATCH);
+  const cases = [
+    { dir: p.dir, paths: bed.paths },
+    { dir: join(scratchRoot(defaults), "ATT-0001"), paths: defaults },
+  ];
+  for (const { dir, paths } of cases) {
+    for (const hop of ["..", "../..", "../../.."]) {
+      const at = resolve(dir, hop);
+      for (const [name, guarded] of [["cache", paths.cache], ["repository", paths.root], ["live clone", paths.live], ["ledger", paths.ledger]] as const) {
+        assert.equal(inside(at, guarded), false, `${dir}/${hop} -> ${at} lies in the ${name} ${guarded}`);
+      }
+    }
+  }
+  // node_modules' read-only copy sits under the scratch root, so a hop through the link stays out of the cache
+  const nmUp = resolve(realpathSync(join(p.dir, "node_modules")), "..", "..");
+  assert.equal(inside(nmUp, bed.paths.cache), false);
+  assert.equal(inside(nmUp, bed.paths.root), false);
+  removeScratch(p.envDir);
+  removeScratch(p.dir);
 });
