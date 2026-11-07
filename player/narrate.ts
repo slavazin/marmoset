@@ -30,7 +30,7 @@ export interface Narration { id: string; sentence: string; model: string; fallba
 
 /**
  * Narrates one incident. When NARRATOR_MODEL refuses for quota (HTTP 429), it narrates with PLAYER_MODEL and
- * says so (draft decision ledger/decisions/D-draft-narrator-flash-fallback.md).
+ * says so (draft decision ledger/decisions/D-0015.md).
  */
 export async function narrate(o: { id: string; dir?: string; run?: string | null; ledgerDir?: string }): Promise<Narration> {
   const dir = o.dir ?? join(REPO, "evidence", "incidents", o.id);

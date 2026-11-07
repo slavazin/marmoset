@@ -33,7 +33,8 @@ export function currentRun(): string | null {
   } catch { return null; }
 }
 
-const SECRET_KEY = /authorization|api[-_]?key|token|secret|password|muse_code_key/i;
+// Field names that hold credentials. Usage counts (tokens_in, prompt_tokens, …) are kept.
+const SECRET_KEY = /^(authorization|x-goog-api-key|api[-_]?key|[a-z_]*_api_key|access_token|refresh_token|id_token|bearer|secret|client_secret|password|muse_code_key)$/i;
 /** Replaces the value of any field whose name looks like a secret with "[redacted]", recursively. */
 export function redact(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(redact);

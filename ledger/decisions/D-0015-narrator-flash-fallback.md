@@ -1,7 +1,7 @@
 ---
-id: D-draft-narrator-flash-fallback
+id: D-0015
 title: The narrator falls back to gemini-3.8-flash when gemini-4-argon refuses for quota
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:** `player/narrate.ts` asks `NARRATOR_MODEL` (`gemini-4-argon`, `thinking_level: "medium"`) and, on an HTTP 429, asks `PLAYER_MODEL` (`gemini-3.8-flash`, `"low"`) the same prompt; the spend record and the `llm` telemetry stream carry the model the service echoed, so every narration names its model.

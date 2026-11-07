@@ -21,3 +21,8 @@ test("tlog appends one redacted JSONL record per call to <dir>/<stream>.jsonl", 
 test("redact leaves non-secret fields unchanged", () => {
   assert.deepEqual(redact({ a: 1, b: [{ c: "x" }] }), { a: 1, b: [{ c: "x" }] });
 });
+
+test("redact keeps token usage counts and blanks credential fields", () => {
+  assert.deepEqual(redact({ tokens_in: 5, usage: { prompt_tokens: 3 }, access_token: "t", gemini_api_key: "g" }),
+    { tokens_in: 5, usage: { prompt_tokens: 3 }, access_token: "[redacted]", gemini_api_key: "[redacted]" });
+});

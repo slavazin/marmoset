@@ -1,7 +1,7 @@
 ---
-id: D-draft-player-stride-30
+id: D-0014
 title: Gemini play widens its decision stride to 30 frames once a decision takes over 3 s
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:** `player/play.ts` decides every `STRIDE` (15) game frames and switches to `STRIDE_SLOW` (30) after the first decision slower than `SLOW_MS` (3000 ms); the game waits on the oracle during a decision, so latency costs wall time and no frames.
