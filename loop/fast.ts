@@ -12,6 +12,8 @@ import { runRepair, type MuseRunner } from "./repair.ts";
 import { gateAttempt, type GateOutput, type SuitesJudge } from "./gate-repair.ts";
 import { listSkills, selectShown } from "./shown.ts";
 import type { Replayer } from "./replay-seam.ts";
+import { join } from "node:path";
+import { loadSplits, familiesIn, familyRoms } from "../suites/splits.ts";
 import type { Attempt, Fire, Incident, Observation, RepairTask, Verdict } from "../src/schema.ts";
 
 /** Wall-clock budget of one fast-loop attempt, in seconds; SPEC §5 S8 Wiggle reads a median over 10 minutes as too slow. */
@@ -56,7 +58,9 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
   const id = start.id;
   const S = (field: string, value: unknown) => status("attempts.jsonl", id, field, value, paths.ledger);
 
-  const packet = repairPacket(task, { attempt: id, paths, incident: inc, shown: graduated.filter((s) => shownIds.includes(s.id)) });
+  const splits = loadSplits();
+  const tFamilies = Object.fromEntries(familiesIn(splits, "T").map((f) => [f, familyRoms(splits, f, paths.roms).map((r) => join(paths.roms, r))]));
+  const packet = repairPacket(task, { attempt: id, paths, incident: inc, shown: graduated.filter((s) => shownIds.includes(s.id)), tFamilies });
   S("scratch_files", packet.files);
   const rep = await runRepair(task, packet, { attempt: id, server: paths.server, runner: d.runner });
   S("model", rep.model);

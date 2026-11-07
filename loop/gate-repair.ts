@@ -21,7 +21,8 @@ import { loadCore, type Replayer } from "./replay-seam.ts";
 import type { Attempt, CheckName, Incident, ProvenanceEntry, SuiteReading, Trace, Verdict } from "../src/schema.ts";
 
 /** What every repair verdict does not check (SPEC §6.8 residue). */
-export const REPAIR_RESIDUE: readonly string[] = ["audio", "CGB", "serial timing", "V (sealed)", "boot-state difference"];
+export const REPAIR_RESIDUE: readonly string[] = ["audio", "CGB", "serial timing", "V (sealed)", "boot-state difference",
+  "suite-incident repro, base-suites and H-no-regress run the core in-process, with reference images reachable"];
 /** Shortest trace-input JSON the memorisation check searches a diff for; shorter strings match by chance. */
 export const MEMO_MIN_BYTES = 24;
 /** Bytes of each cached oracle frame whose hex and base64 forms the memorisation check searches for. */

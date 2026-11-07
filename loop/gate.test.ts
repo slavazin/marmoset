@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 
 import { join } from "node:path";
 import { makeBed, makeDiff, setShade, attemptFor, FIX, BREAKS_ADMITTED, type Bed } from "./fixtures/harness.ts";
 import { gateAttempt, diffScope, longestLiteral, type SuitesJudge } from "./gate-repair.ts";
-import { toolReplayer } from "./replay-seam.ts";
+import { isolatedReplayer } from "./replay-seam.ts";
 import { git } from "./paths.ts";
 import { LITERAL_LIMIT, RULE_CONSTANTS } from "./gate.ts";
 import * as gateConsts from "./gate.ts";
@@ -13,7 +13,7 @@ import * as gateConsts from "./gate.ts";
 const steadySuites: SuitesJudge = { async score() { return { readings: [{ split: "base", family: "f", roms: 1, pass: 1, exact: 1, pixel_match: 1 }], roms: { "f.gb": true } }; } };
 
 async function judge(bed: Bed, diff: string, suites = steadySuites) {
-  return gateAttempt({ attempt: attemptFor(bed), diff, incident: bed.incident, paths: bed.paths, replayer: toolReplayer(bed.paths.root), suites, quiet: true });
+  return gateAttempt({ attempt: attemptFor(bed), diff, incident: bed.incident, paths: bed.paths, replayer: isolatedReplayer(bed.paths.root), suites, quiet: true });
 }
 
 test("RULE_CONSTANTS stays exported with its nine names", () => {

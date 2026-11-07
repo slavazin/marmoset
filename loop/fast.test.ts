@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { makeBed, setShade, FIX, writeSkill } from "./fixtures/harness.ts";
 import { runFastCycle, openIncidents } from "./fast.ts";
 import { fakeRunner, museArgs, usageFromEvents, repairEnv } from "./repair.ts";
-import { toolReplayer } from "./replay-seam.ts";
+import { isolatedReplayer } from "./replay-seam.ts";
 import { current, read } from "./ledger.ts";
 import { steer, veto } from "./steer.ts";
 import { seedLive } from "./seed.ts";
@@ -22,7 +22,7 @@ test("one fast cycle with the fake runner writes an attempt, a GRADUATE verdict 
   const bed = makeBed();
   writeSkill(bed, "SKL-0001");
   const runner = fakeRunner((d) => setShade(d, FIX), RESULT);
-  const r = await runFastCycle("INC-0001", { paths: bed.paths, runner, replayer: toolReplayer(bed.paths.root), suites: steady, quiet: true });
+  const r = await runFastCycle("INC-0001", { paths: bed.paths, runner, replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true });
   assert.equal(r.verdict.decision, "GRADUATE", r.verdict.reason);
   assert.equal(r.attempt.id, "ATT-0001");
   assert.deepEqual(r.attempt.task.skills, ["SKL-0001"]);
@@ -57,7 +57,7 @@ test("one fast cycle with the fake runner writes an attempt, a GRADUATE verdict 
 
 test("a refused attempt on the MAX_ATTEMPTS-th try flips the incident to unrepaired", async () => {
   const bed = makeBed();
-  const deps = { paths: bed.paths, runner: fakeRunner(() => {}, null), replayer: toolReplayer(bed.paths.root), suites: steady, quiet: true };
+  const deps = { paths: bed.paths, runner: fakeRunner(() => {}, null), replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true };
   const a = await runFastCycle("INC-0001", deps);
   assert.equal(a.verdict.decision, "REFUSE");
   assert.match(a.observation.text, /refused at diff-scope/);
@@ -70,7 +70,7 @@ test("a refused attempt on the MAX_ATTEMPTS-th try flips the incident to unrepai
 
 test("veto reverts a GRADUATE's merge in core-live and appends a steer naming the verdict", async () => {
   const bed = makeBed();
-  const r = await runFastCycle("INC-0001", { paths: bed.paths, runner: fakeRunner((d) => setShade(d, FIX), RESULT), replayer: toolReplayer(bed.paths.root), suites: steady, quiet: true });
+  const r = await runFastCycle("INC-0001", { paths: bed.paths, runner: fakeRunner((d) => setShade(d, FIX), RESULT), replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true });
   const s = await veto(r.verdict.id, bed.paths);
   assert.equal(s.vetoes, r.verdict.id);
   assert.equal(readFileSync(join(bed.paths.live, "core", "ppu.ts"), "utf8").includes("romByte === 2 ? 3"), true);
