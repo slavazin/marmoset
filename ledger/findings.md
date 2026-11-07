@@ -54,3 +54,4 @@ Cold-read findings, one line each: id, claim or property, reading, disposition (
 | S15-F6 | S15 | history policy figures | not counted | fix: 599baf5 |
 | S15-F7 | S15 | displayables and curve include policies | triggered on skill only | fix: 599baf5 |
 | S15-R1..R5 | S15 | routing twin map readable as wrong; id order; subq route empty on family tasks; only ppu globs match real core; baseline shows no skills in policy trials | readings in cold read | accept-residue |
+| S1-F3 | S1 | G7: the scratch repo's `tools/replay.mjs` carries V's ROM globs | 37 matches in the bundle; loop/projection.ts copies it (S5-F2 compiled them in so the bundle refuses V) | accept-residue: names only, so the bundle can refuse V; no V ROM, reading or reference reaches the scratch repo |
