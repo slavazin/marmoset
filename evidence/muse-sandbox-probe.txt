@@ -1,0 +1,22 @@
+== flags muse advertises
+      --permission-profile <ID>
+          Select a named permission profile for this session.
+      --workspace <PATH>
+          Root policy-gated workspace tools at PATH
+      --allow-workspace-switch
+          Allow switching the workspace mid-run
+Safety (approval and the sandbox are ON by default):
+          Disable approval and sandbox, trust this workspace (this run)
+      --trust-workspace
+          Load this workspace's skills and rules (this run)
+      --disable-sandbox
+          Disable shell filesystem/network sandboxing for this run
+      --sandbox-network <MODE>
+          Sandbox network mode (default: proxy-only)
+          Disable non-shell workspace filesystem writes
+          Disable workspace shell execution
+== probes
+default exit=0 outside-read=OPEN cache-read=OPEN inside-write=ok args=[] err=muse: workspace root: /private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/muse-probe.oR1uHi/ws-default (cwd default) muse: workspace trust: trusted source=
+seatbelt exit=0 outside-read=closed cache-read=closed inside-write=ok args=[--disable-sandbox] err=muse: workspace root: /private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/muse-probe.oR1uHi/ws-seatbelt (cwd default) muse: workspace trust: trusted source
+workspace-flag exit=0 outside-read=OPEN cache-read=OPEN inside-write=ok args=[--workspace .] err=muse: workspace root: /private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/muse-probe.oR1uHi/ws-workspace-flag/. (explicit) muse: workspace trust: trusted s
+== wanted: outside-read=closed AND cache-read=closed AND inside-write=ok. Full logs: /private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/muse-probe.oR1uHi
