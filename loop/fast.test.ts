@@ -11,7 +11,7 @@ import { current, read } from "./ledger.ts";
 import { steer, veto } from "./steer.ts";
 import { seedLive } from "./seed.ts";
 import { git } from "./paths.ts";
-import type { SuitesJudge } from "./gate-repair.ts";
+import { admittedTraces, type SuitesJudge } from "./gate-repair.ts";
 import { createServer } from "../server/index.ts";
 import type { Attempt, Incident, Verdict } from "../src/schema.ts";
 
@@ -75,6 +75,11 @@ test("veto reverts a GRADUATE's merge in core-live and appends a steer naming th
   assert.equal(s.vetoes, r.verdict.id);
   assert.equal(readFileSync(join(bed.paths.live, "core", "ppu.ts"), "utf8").includes("romByte === 2 ? 3"), true);
   assert.match(git(bed.paths.live, ["log", "-1", "--format=%s", "core-live"]), /^Revert/);
+  // the vetoed repair's admitted window is retired by a status flip, so later attempts on the reverted core
+  // are not refused at admitted-traces for a repair the owner took back
+  const trc = JSON.parse(readFileSync(join(bed.paths.traces, "TRC-0002.json"), "utf8"));
+  assert.deepEqual([trc.status, trc.vetoed_by], ["retired", r.verdict.id]);
+  assert.deepEqual(admittedTraces(bed.paths.traces).map((t) => t.id), ["TRC-0001"]);
   const plain = steer("prefer fetcher steps over delays", bed.paths);
   assert.equal(plain.id, "STR-0002");
   assert.equal(read("steers.jsonl", bed.paths.ledger).length, 2);

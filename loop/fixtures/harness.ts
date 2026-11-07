@@ -84,8 +84,8 @@ export const FIX = "return romByte & 3;";
 /** Fixes the incident ROM (2 → 2) and breaks the admitted trace's ROM (1 → 0). */
 export const BREAKS_ADMITTED = "return romByte === 2 ? 2 : 0;";
 
-/** A diff against the fixture core produced by real git: `edit` runs in a copy of the core's repo. */
-export function makeDiff(edit: (dir: string) => void): string {
+/** A diff against the fixture core produced by real git: `edit` runs in a copy of the core's repo; `binary` adds --binary as loop/repair.ts scratchDiff does. */
+export function makeDiff(edit: (dir: string) => void, binary = false): string {
   const d = mkdtempSync(join(tmpdir(), "ratchet-diff-"));
   cpSync(FIXTURE_CORE, join(d, "core"), { recursive: true });
   git(d, ["init", "--quiet"]);
@@ -93,7 +93,7 @@ export function makeDiff(edit: (dir: string) => void): string {
   git(d, ["commit", "--quiet", "-m", "base"]);
   edit(d);
   git(d, ["add", "-A", "."]);
-  return git(d, ["diff", "--cached", "HEAD"]) + "\n";
+  return git(d, ["diff", "--cached", ...(binary ? ["--binary"] : []), "HEAD"]) + "\n";
 }
 
 export function attemptFor(bed: Bed, id = "ATT-0001", skills: string[] = []): Attempt {

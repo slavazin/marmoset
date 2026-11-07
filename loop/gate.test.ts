@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { makeBed, makeDiff, setShade, attemptFor, FIX, BREAKS_ADMITTED, type Bed } from "./fixtures/harness.ts";
 import { gateAttempt, diffScope, longestLiteral, type SuitesJudge } from "./gate-repair.ts";
@@ -89,5 +89,58 @@ test("GRADUATE merges into core-live with trailers, admits TRC-0002, writes a su
   assert.deepEqual(prov.find((e: { handler: string }) => e.handler === "ppu.fifo"), { handler: "ppu.fifo", file: "core/ppu.ts", commit: out.verdict && git(bed.paths.live, ["log", "-1", "--format=%H", "core-live", "--", "core/ppu.ts"]), attempt: "ATT-0001" });
   assert.match(out.bundle, /^skipped/);
   assert.ok(existsSync(join(bed.paths.ledger, "verdicts.jsonl")));
+});
+
+test("a path outside core/ hidden under a space-bearing name or in a headerless hunk is REFUSED at diff-scope and never reaches core-live", async () => {
+  const spaced = makeDiff((d) => { setShade(d, FIX); mkdirSync(join(d, "loop")); writeFileSync(join(d, "loop", "a b.ts"), "export const X = 1;\n"); });
+  const headerless = makeDiff((d) => setShade(d, FIX)) + "--- a/loop/evil.ts\n+++ b/loop/evil.ts\n@@ -0,0 +1 @@\n+export const E = 1;\n";
+  for (const [diff, file] of [[spaced, "a b.ts"], [headerless, "evil.ts"]] as const) {
+    const bed = makeBed();
+    const before = git(bed.paths.live, ["rev-parse", "core-live"]);
+    const { verdict } = await judge(bed, diff);
+    assert.equal(verdict.decision, "REFUSE", file);
+    assert.deepEqual(verdict.checks.map((c) => [c.name, c.pass]), [["diff-scope", false]]);
+    assert.deepEqual((verdict.checks[0].reading as { outside: string[] }).outside, [`loop/${file}`]);
+    assert.equal(git(bed.paths.live, ["rev-parse", "core-live"]), before);
+    assert.equal(existsSync(join(bed.paths.live, "loop", file)), false);
+  }
+});
+
+test("a symlink or a binary file under core/ is REFUSED at diff-scope", async () => {
+  const link = makeDiff((d) => { setShade(d, FIX); symlinkSync("../../../cache/oracle", join(d, "core", "o")); });
+  const bin = makeDiff((d) => { setShade(d, FIX); writeFileSync(join(d, "core", "t.bin"), Buffer.alloc(4096, 7).fill(0, 0, 1)); }, true) + "\n"; // a binary hunk ends with a blank line
+  for (const [diff, key] of [[link, "modes"], [bin, "binary"]] as const) {
+    const bed = makeBed();
+    const { verdict } = await judge(bed, diff);
+    assert.equal(verdict.decision, "REFUSE", key);
+    assert.deepEqual(verdict.checks.map((c) => [c.name, c.pass]), [["diff-scope", false]]);
+    assert.equal(((verdict.checks[0].reading as Record<string, string[]>)[key] ?? []).length, 1, JSON.stringify(verdict.checks[0].reading));
+  }
+});
+
+test("a check that throws is a REFUSE verdict at that check, not a missing verdict", async () => {
+  const bed = makeBed();
+  const replayer = { async incident(): Promise<never> { throw new Error("replay tool exploded"); }, async trace(): Promise<never> { throw new Error("unused"); } };
+  const { verdict } = await gateAttempt({ attempt: attemptFor(bed), diff: makeDiff((d) => setShade(d, FIX)), incident: bed.incident, paths: bed.paths, replayer, suites: steadySuites, quiet: true });
+  assert.equal(verdict.decision, "REFUSE");
+  assert.deepEqual(verdict.checks.map((c) => [c.name, c.pass]), [["diff-scope", true], ["repro", false]]);
+  assert.match(JSON.stringify(verdict.checks[1].reading), /replay tool exploded/);
+});
+
+test("a family or ROM the base reading has and the attempt's reading lacks is a regression, not a pass", async () => {
+  for (const split of ["base", "H"] as const) {
+    const bed = makeBed();
+    const one = (s: "base" | "H", family: string) => ({ split: s, family, roms: 1, pass: 1, exact: 1, pixel_match: 1 });
+    const judgeSuites: SuitesJudge = {
+      async score(dir, s) {
+        const roms: Record<string, boolean> = { "f.gb": true };
+        if (s !== split || !dir.endsWith(".base/core")) return { readings: [one(s, "f")], roms };
+        return { readings: [one(s, "f"), one(s, "g")], roms: { ...roms, "g.gb": true } };
+      },
+    };
+    const { verdict } = await judge(bed, makeDiff((d) => setShade(d, FIX)), judgeSuites);
+    assert.equal(verdict.decision, "REFUSE", split);
+    assert.equal(verdict.checks.at(-1)!.name, split === "base" ? "base-suites" : "H-no-regress");
+  }
 });
 
