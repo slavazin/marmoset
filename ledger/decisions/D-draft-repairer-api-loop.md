@@ -1,0 +1,11 @@
+---
+id: D-draft-repairer-api-loop
+title: S1's core is written by muse-spark-1.3 through a streamed whole-file edit loop, not Muse Code
+status: draft
+supersedes: null
+---
+**Decision:** `scripts/api-loop.ts` (`runApiLoop`) writes `core/` for S1: each round streams one `muse-spark-1.3` call to `https://api.meta.ai/v1/chat/completions` (`META_CHAT_URL`) with the task (`scripts/s1-core-task.md`), every file under `core/` and the tail of the previous check output; the reply's whole files are written only under the prefix, never to a `*.test.ts`; `scripts/s1-check.sh` is the check; the loop stops on a passing check or after `MAX_ROUNDS` = 4 rounds (SPEC §5 S0 Wiggle). Each round's wall time, echoed model, `finish_reason` and token usage append to `evidence/s1-core/rounds.jsonl`. S8 reuses `runApiLoop` as its repairer fallback with its own prefix and checks.
+**Not this:** Muse Code run under the owner's HOME, which D-0011 forbids; a non-streamed call, which F4 shows ending at the gateway limit; another vendor's model writing the core.
+**Warrant:** the S1 implementer's sandbox refuses any command that sets `HOME` or `XDG_CONFIG_HOME` (read 2026-11-07), and the Muse Code 1.4.14 binary reads no other home or config-directory variable (its `MUSE_*` strings, read 2026-11-07), so D-0011's isolation cannot be met from the S1 lane. `GET /v1/models` with `muse_code_key` listed `muse-spark-1.3` and a streamed call echoed `model: "muse-spark-1.3"` (2026-11-07). False if: a Muse Code `exec` run with a fresh `HOME` and `XDG_CONFIG_HOME` completes from the lane that writes `core/`.
+**Revisit when:** {when: "a session that may set HOME runs Muse Code isolated per D-0011", then: "S8 drives Muse Code headless and this loop stays the fallback only"}
+**Residue:** the loop has no tools: the model reads check output only between rounds and edits by whole files, so a round's reply size bounds the core's size; an empty reply (F4) is recorded as a round with no files written and is not retried inside the round.

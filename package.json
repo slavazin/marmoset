@@ -8,7 +8,7 @@
   "scripts": {
     "test": "node --test \"**/*.test.ts\"",
     "roms:fetch": "node scripts/roms-fetch.ts",
-    "core:bundle": "node -e \"console.error('not built: S1');process.exit(1)\"",
+    "core:bundle": "node scripts/core-bundle.ts",
     "suites": "node suites/run.ts",
     "oracle:smoke": "node oracle/smoke.ts",
     "game:build": "sh game/build.sh",
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "esbuild": "0.25.10",
     "typescript": "^5.7.0",
     "vite": "^6.4.5"
   },
