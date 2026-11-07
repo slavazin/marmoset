@@ -11,7 +11,7 @@
 //   loop    every loop step: incident opened, attempt start/end, gate check start/reading, verdict, skill moves
 //   spot    every Gemini visual-sensor answer and its oracle scoring
 //   process process start/stop, argv, git commit, env NAMES (never values)
-import { appendFileSync, mkdirSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,7 +28,7 @@ let seq = 0;
 export function currentRun(): string | null {
   if (process.env.RATCHET_RUN) return process.env.RATCHET_RUN;
   try {
-    const runs = readdirSync(join(ROOT, "runs")).filter((d) => /^RUN-\d{4}$/.test(d)).sort();
+    const runs = readdirSync(join(ROOT, "runs")).filter((d) => /^RUN-\d{4}$/.test(d) && existsSync(join(ROOT, "runs", d, "manifest.json"))).sort();
     return runs.at(-1) ?? null;
   } catch { return null; }
 }

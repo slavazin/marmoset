@@ -19,10 +19,23 @@ import { join } from "node:path";
 import { loadSplits, familiesIn, familyRoms } from "../suites/splits.ts";
 import type { Attempt, Fire, Incident, Observation, RepairTask, Verdict } from "../src/schema.ts";
 
-/** Wall-clock budget of one fast-loop attempt, in seconds; SPEC §5 S8 Wiggle reads a median over 10 minutes as too slow. */
-export const ATTEMPT_WALL_S = 600;
+/**
+ * Seconds per Muse model step, measured on ATT-0001 (2026-11-07, as the orchestrator read it): about 13.5 s per call
+ * (40 calls inside the 600 s wall). The wall is matched to the step cap so neither binds far before the other
+ * (D-draft-attempt-budget).
+ */
+export const SECONDS_PER_STEP = 13.5;
+/** Wall-clock budget of one fast-loop attempt, in seconds: MAX_STEPS × SECONDS_PER_STEP, rounded up. */
+export const ATTEMPT_WALL_S = Math.ceil(MAX_STEPS * SECONDS_PER_STEP);
 
-export interface FastDeps { paths: LoopPaths; runner: MuseRunner; replayer: Replayer; suites: SuitesJudge; quiet?: boolean }
+export interface FastDeps {
+  paths: LoopPaths; runner: MuseRunner; replayer: Replayer; suites: SuitesJudge; quiet?: boolean;
+  /**
+   * Runs the gate step under the caller's mutex. The gate adds a worktree to the one live clone and merges into
+   * core-live there, so parallel attempts (loop/campaign.ts) serialise it; absent, the gate runs directly.
+   */
+  gateLock?: <T>(fn: () => Promise<T>) => Promise<T>;
+}
 export interface CycleOutput { attempt: Attempt; verdict: Verdict; observation: Observation; gate: GateOutput }
 
 /** The incidents an attempt may still be run on: status open and fewer than MAX_ATTEMPTS attempts. */
@@ -83,7 +96,8 @@ export async function runFastCycle(incidentId: string, d: FastDeps): Promise<Cyc
 
   const attempt = { ...current<Attempt>("attempts.jsonl", id, paths.ledger)!, result: rep.result ?? undefined };
   t = lap("repair", t);
-  const gate = await gateAttempt({ attempt, diff: rep.diff, incident: inc, paths, replayer: d.replayer, suites: d.suites, quiet: d.quiet });
+  const runGate = () => gateAttempt({ attempt, diff: rep.diff, incident: inc, paths, replayer: d.replayer, suites: d.suites, quiet: d.quiet });
+  const gate = d.gateLock ? await d.gateLock(runGate) : await runGate();
   lap("gate", t);
   ms.total = Math.round(performance.now() - t0);
   if (gate.head_commit) S("head_commit", gate.head_commit);

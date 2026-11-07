@@ -28,8 +28,9 @@
     "veto": "node loop/steer.ts veto",
     "slow": "node loop/slow.ts",
     "route": "node loop/route.ts",
-    "campaign": "node -e \"console.error('not built: S10');process.exit(1)\"",
-    "vread": "node -e \"console.error('not built: S10');process.exit(1)\""
+    "campaign": "node --env-file-if-exists=.env loop/campaign.ts",
+    "vread": "node --env-file-if-exists=.env loop/vread.ts",
+    "freeze": "node loop/freeze.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

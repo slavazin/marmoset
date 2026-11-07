@@ -71,10 +71,17 @@ function spots(h: History): string {
 ${s.subsystem ? `<div class="dim">subsystem agreement: ${esc(fmtReading(s.subsystem))}</div>` : ""}<div class="dim">spotSummary over ledger/spots.jsonl (player/spot-score.ts). The sensor nominates; the oracle decides (D-0004).</div>`;
 }
 
+function meter(h: History): string {
+  const m = h.meter;
+  if (!m) return "";
+  const owner = m.owner_read_usd === null ? "no spend-override.json" : fmtUsd(m.owner_read_usd);
+  return `<div>owner-read (Meta console) <b>${esc(owner)}</b> · priced (list rates, held by review) ${esc(fmtUsd(m.priced_usd))} · the guard reads ${esc(m.source)} ${esc(fmtUsd(m.usd))}: ask at ${esc(fmtUsd(m.ask_usd))}, stop at ${esc(fmtUsd(m.stop_usd))}</div>`;
+}
+
 function spend(h: History): string {
-  if (!h.spend) return empty("No attempt record and no ledger/spend.jsonl line.");
+  if (!h.spend) return meter(h) + empty("No attempt record and no ledger/spend.jsonl line.");
   const roles = Object.entries(h.spend.by_role);
-  return `<div>total <b>${esc(fmtUsd(h.spend.total_usd))}</b> · repair attempts ${esc(fmtUsd(h.spend.attempts_usd))} over ${esc(h.spend.attempts_n)} attempt records${roles.map(([r, b]) => ` · ${esc(r)} ${esc(fmtUsd(b.usd))} over ${esc(b.n)} calls`).join("")}</div>
+  return `${meter(h)}<div>priced total <b>${esc(fmtUsd(h.spend.total_usd))}</b> · repair attempts ${esc(fmtUsd(h.spend.attempts_usd))} over ${esc(h.spend.attempts_n)} attempt records${roles.map(([r, b]) => ` · ${esc(r)} ${esc(fmtUsd(b.usd))} over ${esc(b.n)} calls`).join("")}</div>
 <div class="dim">Summed from Attempt.spent.usd in ledger/attempts.jsonl and usd in ledger/spend.jsonl.</div>`;
 }
 
