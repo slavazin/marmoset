@@ -486,6 +486,9 @@ async function main(argv: string[]): Promise<number> {
     if (spendAlso.length) deps.meter = () => combinedMeter([{ ledger: deps.paths.ledger, runsDir: deps.runsDir, run }, ...spendAlso]);
   }
   if (!v.dry) {
+    // no Muse key means every attempt exits before its first model call and spends an attempt: refuse to open
+    const { apiKey } = await import("./llm.ts");
+    if (!apiKey()) throw new Error("no Muse key: META_API_KEY unset and no muse_code_key in this checkout's or the main checkout's .env");
     const { runConditions, openConditions, checkConditions } = await import("./run-conditions.ts");
     const { LIVE_BRANCH } = await import("./paths.ts");
     const { splitsPaths } = await import("../suites/splits.ts");

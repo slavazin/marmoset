@@ -10,6 +10,9 @@ import { git } from "./paths.ts";
 import { nativeFile, watchFile, watchStep } from "./muse-native-watch.ts";
 import { readNative } from "../server/history.ts";
 import type { TrialJudge } from "./trial.ts";
+import { apiKey } from "./llm.ts";
+
+const apiKeyPresent = () => !!apiKey({});
 
 const judge: TrialJudge = { async score(_dir, split, family) { return [{ split, family: family ?? "fam", roms: 2, pass: 1, exact: 1, pixel_match: 0.5 }]; } };
 
@@ -62,6 +65,37 @@ test("watcher: at the spend ask over the combined meter it runs no pass and writ
   assert.match(l.t === "spend" ? l.line : "", /dropped at the spend ask \(D-0013\)/);
   assert.equal(existsSync(nativeFile(s.runs, s.run)), false);
   assert.equal(s.runner.calls.length, 0);
+});
+
+test("no model call: a Muse run that exits non-zero with 0 steps writes no reading; the watcher records the generation as skipped with an error line", async () => {
+  const s = setup();
+  const dead = { async skillsList() { return "[]"; }, async run() { return { exitCode: 1, model: "", steps: 0, tokens_in: 0, tokens_out: 0, wall_s: 0.1 }; } };
+  const l = await watchStep({ ...s.d, runner: dead });
+  assert.equal(l.t, "error");
+  assert.match(l.t === "error" ? l.error : "", /exited 1 before any model call/);
+  assert.equal(existsSync(nativeFile(s.runs, s.run)), false);
+  const lines = readFileSync(watchFile(s.runs, s.run), "utf8").trim().split("\n").map((x) => JSON.parse(x));
+  assert.deepEqual(lines.filter((x) => x.t === "skip").flatMap((x) => x.generations), [1, 2, 3]);
+});
+
+test("a checkout with no .env (a worktree) hands the repairer llm.ts apiKey's key, and an explicit dotEnv without one hands none", { skip: !apiKeyPresent() && "no Muse key in this or the main checkout's .env" }, async () => {
+  const { runRepair } = await import("./repair.ts");
+  const { repairPacket } = await import("./projection.ts");
+  const s = setup();
+  const seen: (string | undefined)[] = [];
+  const spy = { async skillsList() { return "[]"; }, async run(r: { env: Record<string, string> }) { seen.push(r.env.META_API_KEY); return { exitCode: 0, model: "fake", steps: 1, tokens_in: 0, tokens_out: 0, wall_s: 0 }; } };
+  const task = { kind: "family" as const, family: "fam", base_commit: s.base, arm: "baseline" as const, skills: [], budget: { max_steps: 1, wall_s: 1 } };
+  const saved = process.env.META_API_KEY;
+  delete process.env.META_API_KEY;
+  try {
+    await runRepair(task, repairPacket(task, { attempt: "KEY-1", paths: s.bed.paths, familyRoms: [] }), { attempt: "KEY-1", server: "http://127.0.0.1:9", runner: spy as never });
+    const empty = join(mkdtempSync(join(tmpdir(), "ratchet-noenv-")), ".env");
+    writeFileSync(empty, "");
+    await runRepair(task, repairPacket(task, { attempt: "KEY-2", paths: s.bed.paths, familyRoms: [] }), { attempt: "KEY-2", server: "http://127.0.0.1:9", runner: spy as never, dotEnv: empty });
+  } finally { if (saved !== undefined) process.env.META_API_KEY = saved; }
+  assert.equal(typeof seen[0], "string");
+  assert.ok((seen[0] ?? "").length > 0);
+  assert.equal(seen[1], undefined);
 });
 
 test("watcher with outDir: reads generations from the run's runs dir and writes readings and watch lines under outDir only, leaving the run's runs dir byte-identical", async () => {

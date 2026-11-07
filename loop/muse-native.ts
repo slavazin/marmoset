@@ -70,6 +70,9 @@ export async function runMuseNative(d: NativeDeps): Promise<NativeReading[]> {
     tlog("loop", "muse-native.start", { generation: d.generation, family, base_commit: base, home });
     const packet = repairPacket(task, { attempt: id, paths: d.paths, familyRoms: roms });
     const rep = await runRepair(task, packet, { attempt: id, server: d.paths.server, runner });
+    // a Muse run that exits non-zero before any model call repaired nothing: no reading is written for it
+    // (loop/muse-native.test.ts "no model call")
+    if (rep.exitCode !== 0 && rep.spent.steps === 0) { removeScratch(packet.dir); throw new Error(`muse-native ${family}: Muse exited ${rep.exitCode} before any model call`); }
     const coreDir = join(d.paths.cache, "trial", id);
     try { coreAt(d.paths, base, coreDir, rep.diff); } catch { coreAt(d.paths, base, coreDir); }
     const [reading] = await d.judge.score(join(coreDir, "core"), "H", family);

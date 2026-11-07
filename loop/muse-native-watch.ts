@@ -109,6 +109,8 @@ async function main(argv: string[]): Promise<void> {
   const runsDir = resolve(v.runs ?? process.env.RATCHET_RUNS ?? "runs");
   if (!existsSync(join(runsDir, run, "manifest.json"))) throw new Error(`${join(runsDir, run, "manifest.json")} is missing: the watcher serves an open run`);
   process.env.RATCHET_RUN = run;
+  const { apiKey } = await import("./llm.ts");
+  if (!apiKey()) throw new Error("no Muse key: META_API_KEY unset and no muse_code_key in this checkout's or the main checkout's .env");
   const { defaultJudge } = await import("./trial.ts");
   await watch({ paths: pathsFromEnv(), run, runsDir, outDir: v.out ? resolve(v.out) : undefined, judge: defaultJudge(), home: v.home ? resolve(v.home) : undefined, spendAlso: (v["spend-also"] ?? []).map(parseMeterPart), pollS: v["poll-s"] ? Number(v["poll-s"]) : undefined, once: !!v.once });
 }
