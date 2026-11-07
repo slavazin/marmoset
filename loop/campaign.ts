@@ -32,7 +32,7 @@
 // --dry runs the same loop on a scratch test bed (loop/fixtures/harness.ts) with the fake runner, a fake SubQ client,
 // fake play that opens DRY_INCIDENTS incidents and no Gemini, and stops when the deadline passes or nothing is left.
 
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -485,11 +485,13 @@ async function main(argv: string[]): Promise<number> {
     // the dry bed's meter joins the --spend-also runs, so a dry run reads the combined guard it would act on
     if (spendAlso.length) deps.meter = () => combinedMeter([{ ledger: deps.paths.ledger, runsDir: deps.runsDir, run }, ...spendAlso]);
   }
+  // a first open that fails after writing conditions.json removes it, so the run can be opened again from S0
+  let wroteConditions: string | null = null;
   if (!v.dry) {
     // no Muse key means every attempt exits before its first model call and spends an attempt: refuse to open
     const { apiKey } = await import("./llm.ts");
     if (!apiKey()) throw new Error("no Muse key: META_API_KEY unset and no muse_code_key in this checkout's or the main checkout's .env");
-    const { runConditions, openConditions, checkConditions } = await import("./run-conditions.ts");
+    const { runConditions, openConditions, checkConditions, conditionsPath } = await import("./run-conditions.ts");
     const { LIVE_BRANCH } = await import("./paths.ts");
     const { splitsPaths } = await import("../suites/splits.ts");
     const c = runConditions({ run, paths: deps.paths, runsDir: deps.runsDir, rom, source, seed0: CAMPAIGN_SEED0, liveBranch: LIVE_BRANCH, splits: splitsPaths(), ruleVersion: ruleVersion() });
@@ -507,10 +509,13 @@ async function main(argv: string[]): Promise<number> {
     else {
       if (readManifest(deps.runsDir, run)) throw new Error(`${manifestPath(deps.runsDir, run)} exists: the run is already open (pass --resume to continue it)`);
       openConditions(c, { s0Commit: v["s0-commit"], extraRunsDirs });
+      wroteConditions = conditionsPath(c.runs_dir, run);
     }
     console.log(`${run} conditions: ${c.live_branch} ${c.s0_core_commit.slice(0, 12)} in ${c.live}, rom ${c.rom} (${c.rom_sha.slice(0, 12)}), source ${c.source}, seed0 ${c.seed0}, splits ${c.splits.length} file(s), scratch ${c.scratch}, cache ${c.cache}`);
   }
-  const m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"], ...(v.dry ? {} : { ruleVersion: ruleVersion() }) });
+  let m: Manifest;
+  try { m = await openRun({ runsDir: deps.runsDir, run: deps.run, resume: !!v.resume, build: manifest, s0Dirs: sDirs(deps.paths.skills, deps.paths.root), allowNonEmptyS0: !!v["allow-nonempty-s0"], ...(v.dry ? {} : { ruleVersion: ruleVersion() }) }); }
+  catch (e) { if (wroteConditions) rmSync(wroteConditions, { force: true }); throw e; }
   console.log(`${m.id} open: rule_version ${m.rule_version.slice(0, 12)}, s0 ${m.s0_sha.slice(0, 12)}, ${Object.keys(m.roms).length} ROM hashes, models ${JSON.stringify(m.models)}`);
   console.log(meterLine(deps.meter ? deps.meter() : spendMeter({ ledger: deps.paths.ledger, runsDir: deps.runsDir, run: deps.run, env: deps.env })));
   console.log(`K ${K}, MAX_ATTEMPTS ${MAX_ATTEMPTS}, CAMPAIGN_PARALLEL ${CAMPAIGN_PARALLEL}, ${minutes} min`);
