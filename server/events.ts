@@ -112,7 +112,9 @@ export interface UiState {
   provenance: ProvenanceEntry[]; curve: UiEvent[]; vread: VRead | null;
 }
 
-type Listener = (e: UiEvent) => void;
+/** Where an emitted event came from: a tailed ledger record, or `publish` by another producer. */
+export type Origin = "ledger" | "producer";
+type Listener = (e: UiEvent, origin: Origin) => void;
 
 /**
  * The event bus: holds one Fold per streamed ledger file, tails each file from its last read offset,
@@ -159,17 +161,17 @@ export class EventBus {
       for (const r of records) {
         const id = fold.apply(r);
         if (!id) continue;
-        this.emit(toEvent(f, fold.get(id)!));
+        this.emit(toEvent(f, fold.get(id)!), "ledger");
         if (f === "verdicts.jsonl") {
           const curve = curveEvents(fold.all());
           const v = fold.get(id) as unknown as Verdict;
-          if (v.subject?.kind === "skill" && v.arms) { const last = curve.at(-1); if (last) this.emit(last); }
+          if (v.subject?.kind === "skill" && v.arms) { const last = curve.at(-1); if (last) this.emit(last, "ledger"); }
         }
       }
     }
     if (!this.vreadSeen) {
       const v = readVRead(this.paths.runs);
-      if (v) { this.vreadSeen = true; this.emit({ t: "vread", result: v }); }
+      if (v) { this.vreadSeen = true; this.emit({ t: "vread", result: v }, "ledger"); }
     }
   }
 
@@ -226,12 +228,12 @@ export class EventBus {
       if (last !== undefined && now - last < 1000 / MAX_FRAMES_PER_S) return false;
       this.lastFrameAt.set(e.source, now);
     }
-    this.emit(e);
+    this.emit(e, "producer");
     return true;
   }
 
-  private emit(e: UiEvent): void {
-    for (const l of this.listeners) l(e);
+  private emit(e: UiEvent, origin: Origin): void {
+    for (const l of this.listeners) l(e, origin);
   }
 }
 

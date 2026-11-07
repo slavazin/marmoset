@@ -11,6 +11,7 @@ import { defaultReplayer } from "./replay-seam.ts";
 import { defaultSuites } from "./gate-repair.ts";
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  (await import("../src/telemetry-process.ts")).processStart("loop:once");
   const paths = pathsFromEnv();
   const id = process.argv[2] ?? openIncidents(paths)[0]?.id;
   if (!id) { console.error("loop:once: no open incident with attempts left in ledger/incidents.jsonl"); process.exit(1); }

@@ -1,0 +1,21 @@
+{"at":"2026-11-07T12:00:30.700Z","seq":10,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:02:30.700Z","seq":48,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:04:30.700Z","seq":86,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:06:30.700Z","seq":124,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:08:30.700Z","seq":162,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:10:30.700Z","seq":200,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:12:30.700Z","seq":238,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:14:30.700Z","seq":276,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:16:30.700Z","seq":314,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:18:30.700Z","seq":352,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:20:30.700Z","seq":390,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:22:30.700Z","seq":428,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:24:30.700Z","seq":466,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:26:30.700Z","seq":504,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:28:30.700Z","seq":542,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:30:30.700Z","seq":580,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:32:30.700Z","seq":618,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:34:30.700Z","seq":656,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:36:30.700Z","seq":694,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}
+{"at":"2026-11-07T12:38:30.700Z","seq":732,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"no","oracle":{"diff_px":0},"scored":"agree"}}
+{"at":"2026-11-07T12:40:30.700Z","seq":770,"pid":4242,"run":null,"stream":"spot","kind":"answer","data":{"question":"Does the HUD look torn?","answer":"yes, top band","oracle":{"diff_px":1280},"scored":"agree"}}

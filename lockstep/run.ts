@@ -11,6 +11,7 @@ import type { Trace } from "../src/schema.ts";
 import { loadCreateCore } from "./core-dir.ts";
 import { LedgerIncidentSink } from "../loop/incident-sink.ts";
 import { lockstep } from "./lockstep.ts";
+import { processStart } from "../src/telemetry-process.ts"; processStart("lockstep");
 
 const REPO = resolve(import.meta.dirname, "..");
 

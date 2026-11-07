@@ -19,6 +19,7 @@ import { appendNew, nextId, runId } from "./ledger.ts";
 import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
 import { romBySha } from "./roms.ts";
 import { loadCore, type Replayer } from "./replay-seam.ts";
+import { tlog } from "../src/telemetry.ts";
 import type { Attempt, CheckName, Incident, ProvenanceEntry, SuiteReading, Trace, Verdict } from "../src/schema.ts";
 
 /** What every repair verdict does not check (SPEC §6.8 residue). */
@@ -243,6 +244,7 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   const trace = workingTrace(paths, inc);
   const scope = diffScope(diff, memoNeedles(inc, trace, cachedFrames(paths, inc)));
   checks.push(scope);
+  tlog("loop", "gate-check", { attempt: attempt.id, name: scope.name, pass: scope.pass, reading: scope.reading });
 
   // the attempt branch exists in the live clone whatever the verdict (G3)
   const wt = join(paths.cache, "gate", attempt.id);
@@ -278,8 +280,13 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
 
   const run = async (name: CheckName, fn: () => Promise<{ pass: boolean; reading: unknown }>) => {
     if (checks.some((c) => !c.pass)) return;
+    tlog("loop", "gate-check-start", { attempt: attempt.id, name });
     // a check that throws fails: the attempt still gets its REFUSE verdict (its tombstone)
-    try { checks.push({ name, ...(await fn()) }); } catch (e) { checks.push({ name, pass: false, reading: { error: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200) } }); }
+    let r: { pass: boolean; reading: unknown };
+    try { r = await fn(); } catch (e) { r = { pass: false, reading: { error: String((e as Error)?.message ?? e).split("
+")[0].slice(0, 200) } }; }
+    tlog("loop", "gate-check", { attempt: attempt.id, name, ...r });
+    checks.push({ name, ...r });
   };
   const coreDir = join(wt, "core");
   const baseDir = (): string => archiveCore(paths.live, attempt.task.base_commit, join(paths.cache, "gate", `${attempt.id}.base`));
@@ -352,5 +359,6 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
     id, at: new Date().toISOString(), run: runId(), subject: { kind: "attempt", id: attempt.id },
     decision, checks, reason: reason.slice(0, 500), residue: [...REPAIR_RESIDUE], rule_version: ruleVersion(),
   }), paths.ledger);
+  tlog("loop", "verdict", { attempt: attempt.id, verdict: out.verdict.id, decision, reason: out.verdict.reason, head_commit: out.head_commit ?? null, trace: out.trace ?? null });
   return out;
 }

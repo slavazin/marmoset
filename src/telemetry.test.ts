@@ -18,6 +18,11 @@ test("tlog appends one redacted JSONL record per call to <dir>/<stream>.jsonl", 
   assert.ok(lines[1].seq > lines[0].seq);
 });
 
+test("redact keeps token counts and redacts token credentials", () => {
+  assert.deepEqual(redact({ tokens: { in: 4 }, input_tokens: 9, tokens_in: 1, max_tokens: 2, token: "t", access_token: "a", refresh_token: "r" }),
+    { tokens: { in: 4 }, input_tokens: 9, tokens_in: 1, max_tokens: 2, token: "[redacted]", access_token: "[redacted]", refresh_token: "[redacted]" });
+});
+
 test("redact leaves non-secret fields unchanged", () => {
   assert.deepEqual(redact({ a: 1, b: [{ c: "x" }] }), { a: 1, b: [{ c: "x" }] });
 });
