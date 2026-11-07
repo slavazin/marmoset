@@ -1,0 +1,5 @@
+# Intermediates of game/build.sh; game.gb and src/ are committed.
+build/
+game.map
+game.ihx
+game.noi
