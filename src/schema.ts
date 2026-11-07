@@ -204,7 +204,7 @@ export interface BeliefFrontmatter { id: string; mark: "suspected" | "verified";
 // §6.16 Splits (splits.json)
 export interface Splits {
   version: string;
-  families: Record<string, { split: Split; roms: string[] /* globs under $RATCHET_ROMS */ }>;
+  families: Record<string, { split: Split; roms: string[] /* globs under $RATCHET_ROMS */; model?: "DMG" | "CGB" /* splits-cgb.json, D-0019 */ }>;
   dmg_suffixes: string[];
   excluded: { rom: string; reason: string }[];
 }

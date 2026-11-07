@@ -1,7 +1,7 @@
 ---
-id: D-draft-cgb-splits
+id: D-0022
 title: The CGB tier's base, T, H and V families in splits-cgb.json, chosen by which CGB references the ROM pack holds
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:** `splits-cgb.json` holds five families, each marked `model: "CGB"`: base `cgb:acid2` (cgb-acid2); T `cgb:mealybug:palette-scroll-bg` (the palette, scroll and BG-control Mealybug ROMs of `splits.json`'s T, plus their CGB-only `*2` variants); H `cgb:acid-hell` (cgb-acid-hell) and `cgb:mealybug:window` (the window Mealybug ROMs of `splits.json`'s H, plus their `*2` variants); V `cgb:mealybug:wx-obj` (the wx and OBJ Mealybug ROMs of `splits.json`'s V). A Mealybug ROM scores against its `_cgb_c.png` (CPU CGB C, the revision `oracle/frontend.py` MODEL_OPTION runs SameBoy as); cgb-acid2 and cgb-acid-hell score against `<stem>.png`. A ROM with no such reference is excluded with its reason, and `splits-cgb.json`'s `excluded` equals `computeExcluded` over the fetched ROMs (suites/splits.test.ts). V-cgb opens only to a token from `runs/RUN-0002/vread.lock` (suites/score.ts guardV, CGB_RUN_ID; suites/score.test.ts). Its list freezes when `splits-cgb.json` first merges (D-0019).
