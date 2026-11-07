@@ -21,3 +21,16 @@ Cold-read findings, one line each: id, claim or property, reading, disposition (
 | S5-F6 | S5 | G4 check 1 / G7: a core under test can read the oracle cache at replay time | playback fixture shows the pattern | fix: sent to S8, gate replay without read access to the cache path, else stated residue |
 | S5-F7 | S5 | H containment in `--family` | any H list scores; containment rests on S8's ROM paths | accept-residue |
 | S5-F8 | S5 | oracle cache integrity | truncated `<n>.bin` kept; cache not keyed by oracle build | accept-residue: reads as mismatch, never clean |
+| S8-F1 | S8 | G7: gate accepts only the `core/**` diff | `loop/a b.ts`, headerless hunk, symlink and binary all graduated | fix: fix/s8-cold-read df82db9, judges staged paths/modes/binaries |
+| S8-F2 | S8 | G4: repro read in the parent cannot be forged by the core | core-printed protocol lines made a wrong core clean; stray stdout crashed the gate | fix: df82db9, ordered protocol, non-protocol lines skipped |
+| S8-F3 | S8 | G4: every attempt gets a verdict | a throwing check left no Verdict and no tombstone | fix: df82db9, a throw fails its check |
+| S8-F4 | S8 | G7: env paths hold the task's oracle frames only | whole-ROM cache dir linked writable; real oracle_dir in window.json | fix: df82db9, read-only copies of the trace's frames |
+| S8-F5 | S8 | G4: missing readings are not a pass | family absent after repair skipped | fix: df82db9, absence is regression |
+| S8-F6 | S8 | node_modules read-only in scratch | linked to writable repo node_modules | fix: df82db9, read-only copy |
+| S8-F7 | S8 | admitted trace replays its window | replayed from counter 1 | fix: df82db9 |
+| S8-F8 | S8 | veto reverts a GRADUATE fully | trace stayed admitted | fix: df82db9, traces retired with vetoed_by |
+| S8-F9 | S8 | G7: scratch repo isolated from cache, readings, ledger | scratch under $RATCHET_CACHE; Muse shell scope unmeasured | fix: dispatched (scratch root moved out; Muse sandbox scope spike) |
+| S8-F10 | S8 | suite repro, base-suites, H run in-process | full fs access incl. references | accept-residue (REPAIR_RESIDUE) |
+| S8-F11 | S8 | binary hunks | trimmed hunk drops binary silently; merged equals judged | accept-residue (binaries refused by F1) |
+| S8-F12 | S8 | GRADUATE side effects after merge | a throw leaves a merge with no Verdict | fix: dispatched with S8-F9 |
+| S8-F13 | S8 | /fire forgery; lock stale-break race; veto run check with RATCHET_RUN unset; base readings cache key | probes | accept-residue; veto null-run check dispatched with S8-F9 |
