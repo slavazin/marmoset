@@ -5,6 +5,8 @@
 //   POST /api/input         {counter, mask} appends one TraceInput to the live trace.
 //   GET  /api/trace         the live trace (§6.5 Trace).
 //   POST /api/event         a UiEvent from another producer (lockstep, player); frames are capped per source.
+//   POST /api/play-session  {op: "start"} or {op: "stop", duration_ms} from the Play tab (ui/play/session.ts); writes
+//                           one `ui` telemetry record "play-session", touches no trace, bus or ledger, refuses any other field.
 //   GET  /evidence/**, /game/**   files under the evidence dir and the game dir.
 //   POST /fire              a hook fire {skill, attempt, path, owed}; server/fire.ts appends it to ledger/fires.jsonl.
 // The live trace is a working trace at $RATCHET_CACHE/traces/live.json; /fire is the one ledger write, through loop/ledger.ts.
@@ -196,6 +198,14 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
         trace.add({ from_counter: b.counter, mask: b.mask });
         log("input", "mask", { counter: b.counter, mask: b.mask, source: "keyboard" });
         bus.publish({ t: "player", intent: "keyboard", mask: b.mask });
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && path === "/api/play-session") {
+        const b = (await readBody(req)) as Record<string, unknown> | null;
+        const keys = b && typeof b === "object" ? Object.keys(b).sort().join(",") : "";
+        const ok = (b?.op === "start" && keys === "op") || (b?.op === "stop" && keys === "duration_ms,op" && isInt(b.duration_ms));
+        if (!ok) return send(res, 400, { error: "op start, or op stop with duration_ms" });
+        log("ui", "play-session", b);
         return send(res, 200, { ok: true });
       }
       if (req.method === "POST" && path === "/fire") return send(res, 200, { ok: true, fire: recordFire(await readBody(req), opts.ledger) });

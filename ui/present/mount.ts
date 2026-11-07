@@ -1,5 +1,6 @@
 // The presentation tabs (S14), mounted by one import in ui/main.ts. Adds a tab bar to the header: Game (the
-// default, S6's screen untouched), Premise, Approach, History and the Pre-event evidence tab. A non-game tab shows
+// default, S6's screen untouched), Premise, Approach, History, the Pre-event evidence tab and Play (ui/play/play.ts,
+// a visitor's game outside the experiment, which hides the live LCD while open). A non-game tab shows
 // its panel beside the LCD and hides the metadata panel and footer; the LCD keeps playing. The page opens on the
 // tab named by `#tab=<id>`. A second EventSource on /events drives the Approach diagram's highlight
 // (ui/present/diagram.ts StageTracker) and refetches /api/history while History is open. No numeric literal
@@ -16,6 +17,7 @@ import { openEvidence } from "./evidence.ts";
 import { PRE_EVENT_LABEL } from "./pre-event-evidence.ts";
 import { HISTORY_REFETCH_MS } from "./layout.ts";
 import { esc } from "../format.ts";
+import { createPlayTab } from "../play/play.ts";
 
 export const TABS = [
   { id: "game", label: "Game" },
@@ -23,12 +25,14 @@ export const TABS = [
   { id: "approach", label: "Approach" },
   { id: "history", label: "History" },
   { id: "pre-event", label: PRE_EVENT_LABEL },
+  { id: "play", label: "Play" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
 const LEDGER_EVENTS = new Set<UiEvent["t"]>(["incident", "attempt", "verdict", "fire", "curve", "vread", "core"]);
 
 const tracker = new StageTracker();
+const play = createPlayTab();
 let tab: TabId = "game";
 let history: History | null = null;
 let historyError: string | undefined;
@@ -76,6 +80,7 @@ function render(): void {
   if (tab === "approach") panel.innerHTML = approachTab(diagramSvg(tracker.lit), `last event: ${tracker.lit.label}`);
   if (tab === "pre-event") panel.innerHTML = preEventTab();
   if (tab === "history") { renderHistory(); fetchHistory(); }
+  if (tab === "play") { panel.replaceChildren(play.el); play.show(); } else play.hide();
 }
 
 export function selectTab(id: TabId): void {
