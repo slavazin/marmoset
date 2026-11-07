@@ -1,7 +1,7 @@
 ---
-id: D-draft-play-tab
+id: D-0028
 title: The visitor's Play tab is a presentation tab on main's core, scaled by whole multiples, and holds a tap for two frames
-status: draft
+status: admitted
 supersedes: null
 ---
 **Decision:**
