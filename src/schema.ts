@@ -155,9 +155,15 @@ export interface TombstoneFrontmatter { id: string; was: SkillStatus; verdict: s
 export interface PlayerAction { mask: number; frames: number; intent: string }
 
 // §6.12 Hook and fire
-// .muse/hooks.json entry (shape per Muse Code docs, verified at S0, D-0001):
-// { "event": "PreToolUse", "match": { "paths": ["core/ppu*.ts"] }, "command": "node tools/fire.mjs SKL-0003" }
-export interface HookEntry { event: "PreToolUse"; match: { paths: string[] }; command: string }
+// .muse/hooks.json (shape measured at S0, D-0001; Claude-compatible). matcher keys on tool names only, so
+// tools/fire.mjs reads tool_input.path from stdin JSON and checks it against the skill's activation.paths itself.
+// Hook commands run in a cleared environment: ATTEMPT_ID and RATCHET_SERVER reach fire.mjs through the scratch repo
+// (packet/ATTEMPT.json, read via cwd), not through the environment.
+// { "hooks": { "PreToolUse": [ { "matcher": "edit_file", "hooks": [ { "type": "command", "command": "node tools/fire.mjs SKL-0003" } ] } ] } }
+export interface HookCommand { type: "command"; command: string }
+export interface HookMatcher { matcher: string; hooks: HookCommand[] }
+export interface HooksFile { hooks: { PreToolUse?: HookMatcher[] } }
+export interface HookStdin { tool_name: string; tool_input: { path?: string; [k: string]: unknown }; session_id: string; cwd: string }
 export interface Fire { id: string; at: string; run: string | null; skill: string; attempt: string; path: string; owed: string }
 
 // §6.13 Router question shapes (SubQ Snap, N7)
