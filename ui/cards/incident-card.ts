@@ -3,6 +3,7 @@
 
 import type { Incident } from "../../src/schema.ts";
 import { esc } from "../format.ts";
+import { routeBars } from "../route-bars.ts";
 
 export function incidentCard(inc: Incident, selected: boolean): string {
   const [x0, y0, x1, y1] = inc.signature.bbox;
@@ -12,5 +13,6 @@ export function incidentCard(inc: Incident, selected: boolean): string {
   <div class="row">counter ${esc(inc.counter)} · window ${esc(inc.window.join("…"))} · ${esc(inc.pixels)} px</div>
   <div class="row dim">scene ${esc(inc.signature.scene)} · band ${esc(inc.signature.band)} · bbox ${esc(`${x0},${y0}–${x1},${y1}`)}</div>
   ${inc.narration ? `<div class="row narr">${esc(inc.narration)}</div>` : ""}
+  ${routeBars(inc)}
 </article>`;
 }

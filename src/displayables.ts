@@ -86,6 +86,12 @@ export const DISPLAYABLES: readonly Displayable[] = [
   // ---- S14 presentation tabs: the History tab reads GET /api/history, which replay mode serves from the recorded ledger ----
   { id: "history-tab", shows: "the History tab (S14)", where: "panel", trigger: { ledger: { file: "verdicts.jsonl" } },
     sources: [{ ledger: { file: "verdicts.jsonl" } }, { ledger: { file: "attempts.jsonl" } }], producers: [{ file: "server/history.ts", pattern: String.raw`history` }] },
+  // ---- S17 SubQ router (N7) ----
+  { id: "route", shows: "the SubQ route of an incident: subsystem and top applies: bars, questions, calls, input tokens, usd, ms", where: "panel", trigger: { ledger: { file: "incidents.jsonl", field: "route" } },
+    sources: [{ ledger: { file: "incidents.jsonl", field: "route" } }, { ledger: { file: "spend.jsonl", field: "role" } }, { telemetry: { stream: "llm", kind: "response", match: { field: "role", equals: "router" } } }],
+    producers: [{ file: "loop/route.ts", pattern: String.raw`status\("incidents\.jsonl", inc\.id, "route"` }, { file: "loop/route.ts", pattern: String.raw`role: "router"` }, { file: "ui/route-bars.ts", pattern: String.raw`routeBars` }] },
+  { id: "router-calibration", shows: "router calibration: Brier and accuracy for subsystem and applies:, with n", where: "meter", trigger: { ledger: { file: "verdicts.jsonl", field: "decision", equals: "GRADUATE" } },
+    sources: [{ telemetry: { stream: "loop", kind: "router-calibration" } }], producers: [{ file: "loop/route.ts", pattern: String.raw`tlog\("loop", "router-calibration"` }] },
   // ---- the replay itself ----
   { id: "inputs", shows: "the input stream the replay regenerates frames from", where: "panel", trigger: { play: true },
     sources: [{ telemetry: { stream: "input", kind: "mask" } }], producers: [{ file: "server/index.ts", pattern: String.raw`log\("input", "mask"` }] },
