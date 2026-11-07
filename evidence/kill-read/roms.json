@@ -1,0 +1,15 @@
+{
+ "families": {
+  "mealybug:palette-scroll-bg": [
+   "mealybug-tearoom-tests/ppu/m3_bgp_change.gb",
+   "mealybug-tearoom-tests/ppu/m3_bgp_change_sprites.gb",
+   "mealybug-tearoom-tests/ppu/m3_obp0_change.gb",
+   "mealybug-tearoom-tests/ppu/m3_scx_high_5_bits.gb",
+   "mealybug-tearoom-tests/ppu/m3_scx_low_3_bits.gb",
+   "mealybug-tearoom-tests/ppu/m3_scy_change.gb",
+   "mealybug-tearoom-tests/ppu/m3_lcdc_bg_en_change.gb",
+   "mealybug-tearoom-tests/ppu/m3_lcdc_bg_map_change.gb",
+   "mealybug-tearoom-tests/ppu/m3_lcdc_tile_sel_change.gb"
+  ]
+ }
+}

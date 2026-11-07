@@ -1,0 +1,401 @@
+diff -ruN a/core/index.ts b/core/index.ts
+--- a/core/index.ts	2026-11-07 12:09:57
++++ b/core/index.ts	2026-11-07 12:26:58
+@@ -303,7 +303,7 @@
+   function snapshot(): Uint8Array {
+     const sbytes = new TextEncoder().encode(serialText);
+     const ramLen = cart.ram.length;
+-    const total = 4 + 8 + 2 + 2 + 4 + (2+1+1+1+1+1+1+1+1) + (1+1+1+1) + 2 + sbytes.length + (1+1+1+1) + 4 + ramLen + 0x2000 + 0x80 + 0x40 + 0x2000 + 0xa0 + 23040 + 16 + 8;
++    const total = 4 + 8 + 2 + 2 + 4 + (2+1+1+1+1+1+1+1+1) + (1+1+1+1) + 2 + sbytes.length + (1+1+1+1) + 4 + ramLen + 0x2000 + 0x80 + 0x40 + 0x2000 + 0xa0 + 23040 + 16 + 8 + 8 * 456 + 64 + 512;
+     const buf = new Uint8Array(total + 64);
+     const dv = new DataView(buf.buffer);
+     let o = 0;
+@@ -336,6 +336,22 @@
+     dv.setUint16(o, ppu.dot, true); o += 2;
+     buf[o++] = ppu.winLine & 0xff; buf[o++] = ppu.statLine ? 1 : 0;
+     dv.setUint16(o, ppu.m3len, true); o += 2;
++    buf.set(ppu.histScx, o); o += 456;
++    buf.set(ppu.histScy, o); o += 456;
++    buf.set(ppu.histLcdc, o); o += 456;
++    buf.set(ppu.histBgp, o); o += 456;
++    buf.set(ppu.histObp0, o); o += 456;
++    buf.set(ppu.histObp1, o); o += 456;
++    buf.set(ppu.histWy, o); o += 456;
++    buf.set(ppu.histWx, o); o += 456;
++    buf[o++] = ppu.outX & 0xff; buf[o++] = (ppu.outX >> 8) & 0xff;
++    buf[o++] = ppu.fetchIdx & 0xff; buf[o++] = (ppu.fetchIdx >> 8) & 0xff;
++    buf[o++] = ppu.fetchTimer & 0xff; buf[o++] = ppu.discardRem & 0xff;
++    buf[o++] = ppu.winActive ? 1 : 0; buf[o++] = ppu.winFetchIdx & 0xff;
++    buf[o++] = ppu.stallCnt & 0xff; buf[o++] = 0;
++    buf.set(ppu.spDone.subarray(0, 40), o); o += 40;
++    buf[o++] = ppu.fifo.length & 0xff;
++    for (let i = 0; i < ppu.fifo.length && o < buf.length - 8; i++) buf[o++] = ppu.fifo[i] & 3;
+     const cyc = Math.floor(cycles);
+     dv.setUint32(o, cyc >>> 0, true); o += 4;
+     dv.setUint32(o, Math.floor(cyc / 4294967296), true); o += 4;
+@@ -374,6 +390,29 @@
+     ppu.dot = dv.getUint16(o, true); o += 2;
+     ppu.winLine = s[o++]; ppu.statLine = s[o++] !== 0;
+     ppu.m3len = dv.getUint16(o, true); o += 2;
++    try {
++      ppu.histScx.set(s.subarray(o, o + 456)); o += 456;
++      ppu.histScy.set(s.subarray(o, o + 456)); o += 456;
++      ppu.histLcdc.set(s.subarray(o, o + 456)); o += 456;
++      ppu.histBgp.set(s.subarray(o, o + 456)); o += 456;
++      ppu.histObp0.set(s.subarray(o, o + 456)); o += 456;
++      ppu.histObp1.set(s.subarray(o, o + 456)); o += 456;
++      ppu.histWy.set(s.subarray(o, o + 456)); o += 456;
++      ppu.histWx.set(s.subarray(o, o + 456)); o += 456;
++    } catch { /* old snapshot without history */ }
++    try {
++      ppu.outX = (s[o] | (s[o + 1] << 8)) & 0xffff; o += 2;
++      ppu.fetchIdx = (s[o] | (s[o + 1] << 8)) & 0xffff; o += 2;
++      ppu.fetchTimer = s[o++]; ppu.discardRem = s[o++];
++      ppu.winActive = s[o++] !== 0; ppu.winFetchIdx = s[o++];
++      ppu.stallCnt = s[o++]; o++;
++      ppu.spDone = new Uint8Array(40);
++      ppu.spDone.set(s.subarray(o, o + 40)); o += 40;
++      const fl = s[o++];
++      ppu.fifo = [];
++      for (let i = 0; i < fl && o < s.length - 8; i++) ppu.fifo.push(s[o++] & 3);
++      ppu.lineSprites = ppu.scanSpritesRaw();
++    } catch { /* old snapshot */ }
+     const lo32 = dv.getUint32(o, true); o += 4;
+     const hi32 = dv.getUint32(o, true); o += 4;
+     cycles = hi32 * 4294967296 + lo32;
+diff -ruN a/core/ppu.ts b/core/ppu.ts
+--- a/core/ppu.ts	2026-11-07 12:09:57
++++ b/core/ppu.ts	2026-11-07 12:26:58
+@@ -7,6 +7,25 @@
+   bgp = 0xfc; obp0 = 0xff; obp1 = 0xff; wy = 0; wx = 0;
+   dot = 0; mode: 0 | 1 | 2 | 3 = 2; winLine = 0; statLine = false;
+   m3len = 172; lineSprites: number[] = [];
++  histScx = new Uint8Array(456);
++  histScy = new Uint8Array(456);
++  histLcdc = new Uint8Array(456);
++  histBgp = new Uint8Array(456);
++  histObp0 = new Uint8Array(456);
++  histObp1 = new Uint8Array(456);
++  histWy = new Uint8Array(456);
++  histWx = new Uint8Array(456);
++  // live mode-3 FIFO state
++  fifo: number[] = [];
++  fetchTimer = 0;
++  fetchIdx = 0;
++  discardRem = 0;
++  outX = 0;
++  winActive = false;
++  winFetchIdx = 0;
++  stallCnt = 0;
++  spDone = new Uint8Array(40);
++  winLineUsed = false;
+   hits: Record<HandlerId, number>;
+   constructor(hits: Record<HandlerId, number>) { this.hits = hits; this.resetStatLine(); }
+   get on(): boolean { return (this.lcdc & 0x80) !== 0; }
+@@ -71,6 +90,7 @@
+     this.statLine = l;
+   }
+   beginLine(raise: (b: number) => void): void {
++    void raise;
+     if (!this.on || this.ly >= 144) return;
+     this.m3len = 172 + (this.scx & 7);
+     let n = 0;
+@@ -81,8 +101,14 @@
+     }
+     this.m3len += n * 6; if (this.m3len > 376) this.m3len = 376;
+     this.hits["ppu.oam"] = (this.hits["ppu.oam"] || 0) + 1;
++    for (let d = 0; d < 456; d++) {
++      this.histScx[d] = this.scx; this.histScy[d] = this.scy; this.histLcdc[d] = this.lcdc;
++      this.histBgp[d] = this.bgp; this.histObp0[d] = this.obp0; this.histObp1[d] = this.obp1;
++      this.histWy[d] = this.wy; this.histWx[d] = this.wx;
++    }
++    this.lineSprites = this.scanSpritesRaw();
+   }
+-  scanSprites(): number[] {
++  scanSpritesRaw(): number[] {
+     const out: number[] = [];
+     if (!(this.lcdc & 0x02)) return out;
+     const tall = (this.lcdc & 0x04) !== 0; const h = tall ? 16 : 8;
+@@ -93,74 +119,187 @@
+     out.sort((a, b) => (this.oam[a * 4 + 1] - this.oam[b * 4 + 1]) || (a - b));
+     return out;
+   }
+-  renderLine(): void {
+-    const y = this.ly; if (y >= 144) return;
+-    const row = y * 160;
+-    const pal = [this.bgp & 3, (this.bgp >> 2) & 3, (this.bgp >> 4) & 3, (this.bgp >> 6) & 3];
+-    const bgOn = (this.lcdc & 0x01) !== 0;
+-    const winOn = (this.lcdc & 0x20) !== 0;
+-    const signed = (this.lcdc & 0x10) === 0;
+-    const bgMap = (this.lcdc & 0x08) ? 0x1c00 : 0x1800;
+-    const winMap = (this.lcdc & 0x40) ? 0x1c00 : 0x1800;
+-    const useWin = this.on && winOn && y >= this.wy && this.wx <= 166;
+-    const wx = this.wx - 7;
+-    for (let x = 0; x < 160; x++) {
+-      let ci = 0;
+-      if (!bgOn) ci = 0;
+-      else {
+-        let px = x, prow = y, map = bgMap;
+-        if (useWin && x >= wx) { px = x - wx; prow = this.winLine; map = winMap; }
+-        else if (useWin && x < wx && wx <= 7) { /* bg */ px = (x + this.scx) & 0xff; prow = (y + this.scy) & 0xff; }
+-        else if (useWin && x >= wx) { px = x - wx; prow = this.winLine; map = winMap; }
+-        else { px = (x + this.scx) & 0xff; prow = (y + this.scy) & 0xff; }
+-        const tx = px >> 3, ty = prow >> 3;
+-        let ti = this.vram[map + ty * 32 + tx];
+-        let tn = signed ? 0x1000 + (((ti ^ 0x80) - 0x80) << 4) : (ti << 4);
+-        const r = this.vram[(tn + ((prow & 7) << 1)) & 0x1fff];
+-        const r2 = this.vram[(tn + ((prow & 7) << 1) + 1) & 0x1fff];
+-        const b = 7 - (px & 7);
+-        ci = ((r >> b) & 1) | (((r2 >> b) & 1) << 1);
+-      }
+-      this.fb[row + x] = pal[ci];
++  scanSprites(): number[] { return this.lineSprites.slice(); }
++  histAt(arr: Uint8Array, dot: number): number {
++    if (dot < 0) dot = 0;
++    if (dot > 455) dot = 455;
++    return arr[dot] & 0xff;
++  }
++  startMode3(): void {
++    this.fifo = [];
++    this.fetchTimer = 0;
++    this.fetchIdx = 0;
++    this.discardRem = this.scx & 7;
++    this.outX = 0;
++    this.winActive = false;
++    this.winFetchIdx = 0;
++    this.stallCnt = 0;
++    this.spDone = new Uint8Array(40);
++    this.winLineUsed = false;
++  }
++  doBgFetch(): void {
++    const lcd = this.lcdc;
++    if (this.winActive) {
++      const map = (lcd & 0x40) ? 0x1c00 : 0x1800;
++      const signed = (lcd & 0x10) === 0;
++      const ty = ((this.winLine) >> 3) & 31;
++      const tx = this.winFetchIdx & 31;
++      const ti = this.vram[map + ty * 32 + tx];
++      const tn = signed ? 0x1000 + (((ti ^ 0x80) - 0x80) << 4) : (ti << 4);
++      const prow = this.winLine & 7;
++      const b0 = this.vram[(tn + (prow << 1)) & 0x1fff];
++      const b1 = this.vram[(tn + (prow << 1) + 1) & 0x1fff];
++      for (let b = 7; b >= 0; b--) this.fifo.push(((b0 >> b) & 1) | (((b1 >> b) & 1) << 1));
++      this.winFetchIdx++;
++    } else {
++      const scx = this.scx; const scy = this.scy;
++      const prow = (this.ly + scy) & 0xff;
++      const map = (lcd & 0x08) ? 0x1c00 : 0x1800;
++      const signed = (lcd & 0x10) === 0;
++      const scol = (scx + this.fetchIdx * 8) & 0xff;
++      const tx = (scol >> 3) & 31, ty = (prow >> 3) & 31;
++      const ti = this.vram[map + ty * 32 + tx];
++      const tn = signed ? 0x1000 + (((ti ^ 0x80) - 0x80) << 4) : (ti << 4);
++      const lr = prow & 7;
++      const b0 = this.vram[(tn + (lr << 1)) & 0x1fff];
++      const b1 = this.vram[(tn + (lr << 1) + 1) & 0x1fff];
++      for (let b = 7; b >= 0; b--) this.fifo.push(((b0 >> b) & 1) | (((b1 >> b) & 1) << 1));
++      this.fetchIdx++;
+     }
+     this.hits["ppu.fetcher"] = (this.hits["ppu.fetcher"] || 0) + 1;
++  }
++  outputPixel(): void {
++    const y = this.ly; const x = this.outX;
++    if (y >= 144 || x >= 160) return;
++    const pix = this.fifo.shift() as number;
++    const lcd = this.lcdc;
++    const bgOn = (lcd & 0x01) !== 0;
++    let ci = pix;
++    let bgShade: number;
++    if (!bgOn) {
++      bgShade = (this.bgp & 3);
++      ci = 0;
++    } else {
++      const b = this.bgp;
++      bgShade = ((b >> (ci * 2)) & 3);
++    }
++    let shade = bgShade;
++    const bgPrio = bgOn && ci !== 0;
++    if ((lcd & 0x02) !== 0) {
++      for (const idx of this.lineSprites) {
++        const sx = this.oam[idx * 4 + 1] - 8;
++        if (x >= sx && x < sx + 8) {
++          const o = idx * 4;
++          const sy = this.oam[o] - 16;
++          const at = this.oam[o + 3];
++          const tile = this.oam[o + 2];
++          const tall = (lcd & 0x04) !== 0;
++          let ry = y - sy; if (at & 0x40) ry = (tall ? 15 : 7) - ry;
++          const tn = tall ? (tile & 0xfe) + (ry >= 8 ? 1 : 0) : tile;
++          const lr = ry & 7;
++          const b0 = this.vram[(tn * 16 + lr * 2) & 0x1fff];
++          const b1 = this.vram[(tn * 16 + lr * 2 + 1) & 0x1fff];
++          const px = x - sx;
++          const bx = (at & 0x20) ? px : 7 - px;
++          const ci2 = ((b0 >> bx) & 1) | (((b1 >> bx) & 1) << 1);
++          if (ci2 !== 0) {
++            if (!((at & 0x80) && bgPrio)) {
++              const obp = (at & 0x10) ? this.obp1 : this.obp0;
++              shade = (obp >> (ci2 * 2)) & 3;
++            }
++            break;
++          } else {
++            // transparent: continue to next sprite only if overlapping? HW priority:
++            // keep looking only if this sprite pixel is 0 — lower priority sprites behind?
++            // Actually sprites don't overlap in priority beyond first opaque; transparent lets lower show.
++            continue;
++          }
++        }
++      }
++    }
++    this.fb[y * 160 + x] = shade & 3;
+     this.hits["ppu.fifo"] = (this.hits["ppu.fifo"] || 0) + 1;
+-    if (useWin) { this.hits["ppu.window"] = (this.hits["ppu.window"] || 0) + 1; this.winLine++; }
+-    const spr = this.scanSprites();
+-    if (spr.length) this.hits["ppu.sprites"] = (this.hits["ppu.sprites"] || 0) + 1;
+-    if (spr.length && this.on) {
+-      const tall = (this.lcdc & 0x04) !== 0;
+-      const bgPrio = new Uint8Array(160);
+-      if (bgOn) {
+-        for (let x = 0; x < 160; x++) {
+-          const v = this.fb[row + x];
+-          bgPrio[x] = (v === pal[0]) ? 0 : 1;
++  }
++  stepMode3(): void {
++    if (this.outX >= 160) return;
++    // window trigger check (only when not stalling)
++    if (this.stallCnt === 0 && !this.winActive) {
++      if ((this.lcdc & 0x20) && this.ly >= this.wy && this.wx <= 166) {
++        if (this.outX === this.wx - 7) {
++          this.winActive = true;
++          this.fifo = [];
++          this.fetchTimer = 0;
++          this.stallCnt = 6;
++          this.winFetchIdx = 0;
++          this.hits["ppu.window"] = (this.hits["ppu.window"] || 0) + 1;
+         }
+       }
+-      for (let k = spr.length - 1; k >= 0; k--) {
+-        const i = spr[k]; const o = i * 4;
+-        const sy = this.oam[o] - 16, sx = this.oam[o + 1] - 8;
+-        const tile = this.oam[o + 2], at = this.oam[o + 3];
+-        const palO = [(at & 0x10 ? this.obp1 : this.obp0) & 3, 0, 0, 0];
+-        const p = at & 0x10 ? this.obp1 : this.obp0;
+-        const pc = [(p) & 3, (p >> 2) & 3, (p >> 4) & 3, (p >> 6) & 3];
+-        void palO;
+-        let ry = y - sy; if (at & 0x40) ry = (tall ? 15 : 7) - ry;
+-        let tn2 = tall ? (tile & 0xfe) + (ry >= 8 ? 1 : 0) : tile;
+-        const lr = ry & 7;
+-        const b0 = this.vram[(tn2 * 16 + lr * 2) & 0x1fff];
+-        const b1 = this.vram[(tn2 * 16 + lr * 2 + 1) & 0x1fff];
+-        for (let px2 = 0; px2 < 8; px2++) {
+-          const bx = (at & 0x20) ? px2 : 7 - px2;
+-          const ci2 = ((b0 >> bx) & 1) | (((b1 >> bx) & 1) << 1);
+-          if (ci2 === 0) continue;
+-          const dx = sx + px2; if (dx < 0 || dx >= 160) continue;
+-          if ((at & 0x80) && bgPrio[dx]) continue;
+-          this.fb[row + dx] = pc[ci2];
++    }
++    // sprite trigger check
++    if (this.stallCnt === 0 && (this.lcdc & 0x02)) {
++      for (const idx of this.lineSprites) {
++        if (this.spDone[idx]) continue;
++        const sx = this.oam[idx * 4 + 1] - 8;
++        // trigger when current output x reaches sprite left edge, for sx in [-7,160)
++        // for partially offscreen left, trigger at x==0
++        let trig = sx;
++        if (sx < -7 || sx >= 160) continue;
++        if (sx < 0) trig = 0;
++        if (this.outX === trig) {
++          this.spDone[idx] = 1;
++          this.stallCnt = 6;
++          this.hits["ppu.sprites"] = (this.hits["ppu.sprites"] || 0) + 1;
++          break;
+         }
+       }
+     }
++    if (this.stallCnt > 0) { this.stallCnt--; return; }
++    // fetcher: needs 8 dots per tile, first tile 8? we use 8/6 with initial offset 4:
++    // to emulate 12-dot first fetch, start fetchTimer at -4.
++    this.fetchTimer++;
++    let need = 8;
++    if (this.winActive) need = this.winFetchIdx === 0 ? 6 : 8;
++    else need = this.fetchIdx === 0 ? 8 : 8;
++    // initial delay: don't push until timer reaches need, and shifter runs in parallel below.
++    // To get 12-dot delay for first pixels, require fifo fill: we push on schedule,
++    // but shifter only pops when fifo has data; with need=8 the first pop is at ~8.
++    // Add extra 4-dot startup by delaying first fetch:
++    if (this.fetchIdx === 0 && !this.winActive && this.fetchTimer < 12 && this.fifo.length === 0) {
++      // wait until 8? actually push at 8 then pop with discard gives ~ 8+discard.
++      // Real delay is 12+discard. So hold first push until 12.
++      need = 12;
++    }
++    if (this.winActive && this.winFetchIdx === 0) need = 6;
++    if (this.fetchTimer >= need) {
++      if (this.fifo.length <= 8) {
++        this.doBgFetch();
++        this.fetchTimer = 0;
++      }
++    }
++    // shifter pops one per dot if available
++    if (this.fifo.length > 0) {
++      if (this.discardRem > 0 && !this.winActive) {
++        this.fifo.shift();
++        this.discardRem--;
++      } else {
++        this.outputPixel();
++        this.outX++;
++      }
++    }
+   }
++  renderLine(): void {
++    // fallback: mark window line increment if window was used (handled in finishLine)
++  }
++  finishMode3(): void {
++    // output any remaining? should already be 160. If short, fill.
++    while (this.outX < 160) {
++      if (this.fifo.length === 0) { this.doBgFetch(); }
++      if (this.discardRem > 0 && !this.winActive) { this.fifo.shift(); this.discardRem--; continue; }
++      this.outputPixel(); this.outX++;
++      if (this.outX > 200) break;
++    }
++    if (this.winActive) this.winLine++;
++  }
+   tick(t: number, raise: (b: number) => void): void {
+     for (let i = 0; i < t; i++) this.tick1(raise);
+   }
+@@ -169,13 +308,31 @@
+     const prevMode = this.mode; const prevLy = this.ly;
+     void prevLy;
+     this.dot++;
++    if (this.dot < 456 && this.ly < 144) {
++      this.histScx[this.dot] = this.scx; this.histScy[this.dot] = this.scy; this.histLcdc[this.dot] = this.lcdc;
++      this.histBgp[this.dot] = this.bgp; this.histObp0[this.dot] = this.obp0; this.histObp1[this.dot] = this.obp1;
++      this.histWy[this.dot] = this.wy; this.histWx[this.dot] = this.wx;
++    }
+     if (this.ly < 144) {
+-      const m3end = 80 + this.m3len;
+-      let nm: 0 | 1 | 2 | 3 = this.mode;
+-      if (this.dot <= 80) nm = 2; else if (this.dot <= m3end) nm = 3; else nm = 0;
++      if (this.dot === 81) {
++        // entering mode 3 (dot 80->81): init FIFO. Mode flag set below.
++      }
++      // mode transitions driven by FIFO progress: mode2 for dot<=80, mode3 until outX==160, then mode0
++      let nm: 0 | 1 | 2 | 3;
++      if (this.dot <= 80) nm = 2;
++      else if (this.mode === 2) {
++        // just entered mode3
++        this.startMode3();
++        nm = 3;
++      } else if (this.mode === 3) {
++        this.stepMode3();
++        if (this.outX >= 160) {
++          this.finishMode3();
++          nm = 0;
++        } else nm = 3;
++      } else nm = 0;
+       if (nm !== this.mode) {
+         this.mode = nm; this.stat = (this.stat & ~0x03) | nm;
+-        if (nm === 0) this.renderLine();
+         this.checkStat(raise);
+       }
+       if (this.dot >= 456) {
