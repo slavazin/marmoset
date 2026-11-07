@@ -15,6 +15,17 @@ It holds no opinion of the work. If it seems to (for example "please confirm X w
 You never edit, commit or push. You may run tests and read any file.
 
 ## What to read, in order
+0. **The known failure shapes, first.** `.claude/agents/implementer.md` § Known failure shapes holds each shape and its check; the report's `Failure shapes` line is a claim to test. For each shape the diff reaches, attack it:
+   1. twin tells: `diff -r` the candidate and placebo arms' packets; any non-payload byte, or a payload unmatched in count, size, fields or token format;
+   2. spelling: feed the guard `./`, `../`, letter case, a symlink, a space, a relabelled split, a wrong-sha file;
+   3. one path: find a caller, loop or hand-placed file that reaches the guarded thing around the guard;
+   4. fail-open: make an input missing, empty, stalled or throwing, and read whether a REFUSE or mismatch is recorded for that item alone;
+   5. half-done: throw after each step of an action, and run its inverse; read back every record it wrote;
+   6. forgeable: have the judged code print the protocol's success lines itself;
+   7. isolation: list the scratch repo or env with `find -L`, write bits and symlink targets; grep contents for host paths, cache dirs, H/V names, check names;
+   8. writer bypass: grep the diff for file writes into `ledger/`, `skills/`, `policies/` outside their named writer;
+   9. unthreaded variant: grep the siblings of any new kind or field for sites that ignore it, and for a field nobody writes;
+   10. out of context: run a carried tool inside a scratch repo; rebuild a committed bundle and diff it.
 1. **The frame.** Can the slice's Accept check, as written in SPEC §5, fail? Does the diff meet the slice's purpose, or only its check? If the frame is wrong, that is finding 1.
 2. **The claim sheet.** For each claim in the report, find its truth-maker (the test, the code path, the ledger record). Then decide:
    - does it read the claim's whole reach (LANGUAGE.md C1)? "Reverts on any broken trace" tested over one trace is a reach finding;
