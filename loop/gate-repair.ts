@@ -1,7 +1,8 @@
 // The gate's repair logic (SPEC §5 S8 `loop/gate.ts`, G4, G7), beside the rule constants in loop/gate.ts.
 // `gateAttempt(input)` takes the scratch diff, refuses it at diff-scope when it touches a path outside core/**,
-// adds a literal over LITERAL_LIMIT bytes, or contains the incident's frame hash or trace bytes; otherwise it
-// applies the diff on branch attempt/<ATT> in the live clone and runs, cheapest first and stopping at the first
+// adds a literal over LITERAL_LIMIT bytes, or contains the incident's frame hash or trace bytes, or when what git
+// staged from it (read from the index, not the diff text) holds a non-core path, a symlink or a binary file; otherwise
+// it applies the diff on branch attempt/<ATT> in the live clone and runs, cheapest first and stopping at the first
 // failure: repro, admitted-traces, base-suites, H-no-regress. The judging code is this process's (main's loop/
 // and suites/); only core/ comes from the branch. It appends one Verdict to ledger/verdicts.jsonl.
 // GRADUATE merges the branch into core-live with trailers "Attempt: ATT-…" and "Skills: SKL-…", admits the trace
@@ -89,6 +90,30 @@ export function diffScope(diff: string, needles: string[]): Check {
   };
 }
 
+/** File modes a repair may stage under core/: regular files, plus 000000 for a deletion. */
+export const STAGED_MODES: readonly string[] = ["100644", "100755", "000000"];
+
+/**
+ * What `git apply --index` staged in `wt`, read from git's index (renames split): the paths outside core/,
+ * entries whose new mode is not a regular file (a symlink, a submodule), and binary files.
+ */
+export function stagedFacts(wt: string): { outside: string[]; modes: string[]; binary: string[] } {
+  const names = git(wt, ["diff", "--cached", "--no-renames", "--name-only", "-z"]).split("\0").filter(Boolean);
+  const raw = git(wt, ["diff", "--cached", "--no-renames", "--raw", "-z"]).split("\0").filter(Boolean);
+  const modes: string[] = [];
+  for (let i = 0; i + 1 < raw.length; i += 2) {
+    const newMode = raw[i].replace(/^:/, "").split(" ")[1];
+    if (!STAGED_MODES.includes(newMode)) modes.push(`${raw[i + 1]} ${newMode}`);
+  }
+  const binary = git(wt, ["diff", "--cached", "--no-renames", "--numstat", "-z"]).split("\0").filter((l) => l.startsWith("-\t-\t")).map((l) => l.slice(4));
+  return { outside: names.filter((p) => !p.startsWith("core/")), modes, binary };
+}
+
+/** Families a base reading holds that the attempt's reading does not. */
+function missingFamilies(before: SuiteReading[], after: SuiteReading[]): string[] {
+  return before.filter((b) => !after.some((a) => a.family === b.family)).map((b) => b.family);
+}
+
 /** The suites the gate judges with; `defaultSuites` runs suites/score.ts, tests pass fakes. */
 export interface SuitesJudge {
   score(coreDir: string, split: "base" | "H"): Promise<{ readings: SuiteReading[]; roms: Record<string, boolean> }>;
@@ -146,11 +171,13 @@ function archiveCore(live: string, rev: string, dir: string): string {
   return join(dir, "core");
 }
 
-/** Admitted traces: traces/TRC-NNNN.json records (Trace fields plus window, incident, attempt). */
-export type AdmittedTrace = Trace & { window: [number, number]; incident?: string; attempt?: string };
+/** Admitted traces: traces/TRC-NNNN.json records (Trace fields plus window, incident, attempt; status "retired" after a veto). */
+export type AdmittedTrace = Trace & { window: [number, number]; incident?: string; attempt?: string; status?: "retired"; vetoed_by?: string };
+/** The admitted traces the gate replays: every TRC file not retired by a veto (loop/steer.ts retireTraces). */
 export function admittedTraces(dir: string): AdmittedTrace[] {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => /^TRC-\d+\.json$/.test(f)).sort().map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
+  return readdirSync(dir).filter((f) => /^TRC-\d+\.json$/.test(f)).sort().map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")) as AdmittedTrace)
+    .filter((t) => t.status !== "retired");
 }
 
 async function baseReadings(judge: SuitesJudge, paths: LoopPaths, commit: string, coreDir: string, split: "base" | "H") {
@@ -232,8 +259,17 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
     writeFileSync(patch, diff);
     try {
       git(wt, ["apply", "--index", "--whitespace=nowarn", patch]);
-      git(wt, ["commit", "--quiet", "--no-verify", "-m", msg]);
-      head = git(wt, ["rev-parse", "HEAD"]);
+      // what git applied, not what the diff text claims: a headerless hunk or a path with a space escapes diffPaths
+      const staged = stagedFacts(wt);
+      const r = scope.reading as Record<string, unknown> & { outside: string[] };
+      r.outside = [...new Set([...r.outside, ...staged.outside])];
+      if (staged.modes.length) r.modes = staged.modes;
+      if (staged.binary.length) r.binary = staged.binary;
+      if (r.outside.length || staged.modes.length || staged.binary.length) scope.pass = false;
+      else {
+        git(wt, ["commit", "--quiet", "--no-verify", "-m", msg]);
+        head = git(wt, ["rev-parse", "HEAD"]);
+      }
     } catch (e) {
       scope.pass = false;
       (scope.reading as Record<string, unknown>).apply_error = String((e as Error).message).split("\n")[0].slice(0, 200);
@@ -242,8 +278,8 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
 
   const run = async (name: CheckName, fn: () => Promise<{ pass: boolean; reading: unknown }>) => {
     if (checks.some((c) => !c.pass)) return;
-    const r = await fn();
-    checks.push({ name, ...r });
+    // a check that throws fails: the attempt still gets its REFUSE verdict (its tombstone)
+    try { checks.push({ name, ...(await fn()) }); } catch (e) { checks.push({ name, pass: false, reading: { error: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200) } }); }
   };
   const coreDir = join(wt, "core");
   const baseDir = (): string => archiveCore(paths.live, attempt.task.base_commit, join(paths.cache, "gate", `${attempt.id}.base`));
@@ -269,7 +305,8 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   await run("base-suites", async () => {
     const before = await baseReadings(g.suites, paths, attempt.task.base_commit, bd(), "base");
     const after = await g.suites.score(coreDir, "base");
-    const regressed = after.readings.filter((a) => { const b = before.readings.find((x) => x.family === a.family); return b && (a.pass < b.pass || a.pixel_match < b.pixel_match - 1e-9); }).map((a) => a.family);
+    const regressed = after.readings.filter((a) => { const b = before.readings.find((x) => x.family === a.family); return b && (a.pass < b.pass || a.pixel_match < b.pixel_match - 1e-9); }).map((a) => a.family)
+      .concat(missingFamilies(before.readings, after.readings));
     return { pass: regressed.length === 0, reading: { families: after.readings.length, pass: after.readings.reduce((s, r) => s + r.pass, 0), roms: after.readings.reduce((s, r) => s + r.roms, 0), regressed } };
   });
   await run("H-no-regress", async () => {
@@ -277,7 +314,9 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
     const after = await g.suites.score(coreDir, "H");
     const drops: Record<string, number> = {};
     for (const a of after.readings) { const b = before.readings.find((x) => x.family === a.family); if (b && b.pixel_match - a.pixel_match > H_TOLERANCE) drops[a.family] = +(b.pixel_match - a.pixel_match).toFixed(5); }
-    const flipped = Object.keys(before.roms).filter((r) => before.roms[r] && after.roms[r] === false);
+    // a family or ROM read at the base and absent from the attempt's reading counts against it
+    for (const f of missingFamilies(before.readings, after.readings)) drops[f] = before.readings.find((x) => x.family === f)!.pixel_match;
+    const flipped = Object.keys(before.roms).filter((r) => before.roms[r] && after.roms[r] !== true);
     return { pass: Object.keys(drops).length === 0 && flipped.length === 0, reading: { families: after.readings.length, drops, flipped: flipped.slice(0, 8), tolerance: H_TOLERANCE } };
   });
 

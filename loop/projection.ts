@@ -8,13 +8,14 @@
 //   tools/replay.mjs and tools/fire.mjs, copied from the repository when present;
 //   .agents/skills/<SKL>/ for the shown skills, read-only, on the skill arms only (shown.ts SKILL_ARMS);
 //   .muse/hooks.json (hooksFor: entries on the skill arms, [] on baseline and vread-baseline);
-//   node_modules, a symlink to the repository's;
+//   node_modules, a symlink to a read-only copy of the repository's (readOnlyModules);
 //   .git, a one-commit repository whose HEAD is the projection, so the gate diffs against it.
-// ROMs and the oracle cache sit outside the scratch repo at <attempt>.env/, holding symlinks to the task's ROMs
-// only; `env` carries RATCHET_ROMS and RATCHET_CACHE pointing there. `allowed(arm, path)` is the allowlist
+// ROMs and the oracle cache sit outside the scratch repo at <attempt>.env/, holding read-only copies of the task's
+// ROMs and of the incident trace's oracle frames only; `env` carries RATCHET_ROMS and RATCHET_CACHE pointing there. `allowed(arm, path)` is the allowlist
 // projection.test.ts asserts against the real file list per arm.
 
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync, readFileSync, lstatSync, chmodSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync, readFileSync, lstatSync, chmodSync, statSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { git, type LoopPaths } from "./paths.ts";
@@ -106,16 +107,28 @@ export function scratchFiles(dir: string): string[] {
   return fileList(dir, (rel) => rel.startsWith(".git/"));
 }
 
-function linkInto(dir: string, target: string, name = basename(target)): void {
-  mkdirSync(dir, { recursive: true });
-  const p = join(dir, name);
-  if (!existsSync(p)) symlinkSync(target, p);
-}
-
 function makeReadOnly(p: string): void {
-  const st = statSync(p);
+  const st = lstatSync(p);
+  if (st.isSymbolicLink()) return;
   if (st.isDirectory()) for (const e of readdirSync(p)) makeReadOnly(join(p, e));
   chmodSync(p, st.mode & ~0o222);
+}
+
+/**
+ * A read-only copy of `nm` under $RATCHET_CACHE/node_modules-ro/<key>, made once per key (the lockfile's sha256 and
+ * node_modules' mtime); pnpm's relative links are kept verbatim, so they resolve inside the copy.
+ */
+export function readOnlyModules(nm: string, paths: LoopPaths): string {
+  const lock = join(paths.root, "pnpm-lock.yaml");
+  const key = createHash("sha256").update(existsSync(lock) ? readFileSync(lock) : "").update(String(statSync(nm).mtimeMs)).digest("hex").slice(0, 16);
+  const out = join(paths.cache, "node_modules-ro", key);
+  if (existsSync(out)) return out;
+  const tmp = `${out}.tmp-${process.pid}`;
+  removeScratch(tmp);
+  cpSync(nm, tmp, { recursive: true, verbatimSymlinks: true });
+  makeReadOnly(tmp);
+  try { renameSync(tmp, out); } catch { removeScratch(tmp); /* a racing attempt made it */ }
+  return out;
 }
 
 /** Removes a scratch dir, restoring write bits first (the skills dir is a-w). */
@@ -146,7 +159,7 @@ export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
   // hook commands run in a cleared environment (D-0001); tools/fire.mjs reads the attempt and server from here
   writeFileSync(join(pk, "ATTEMPT.json"), JSON.stringify({ attempt: ctx.attempt, server: paths.server }));
   const roms: string[] = [];
-  const oracleShas: string[] = [];
+  const oracleTraces: { rom_sha: string; trace_sha: string }[] = [];
   const families: Record<string, string[]> = {};
   if (task.kind === "incident") {
     const inc = ctx.incident;
@@ -157,7 +170,7 @@ export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
     const ev = resolve(paths.root, inc.files.dir);
     if (existsSync(ev)) cpSync(ev, join(pk, "evidence"), { recursive: true, dereference: true });
     roms.push(romBySha(inc.rom_sha, [paths.roms, join(paths.root, "game")]));
-    oracleShas.push(inc.rom_sha);
+    oracleTraces.push({ rom_sha: inc.rom_sha, trace_sha: inc.trace_sha });
   } else {
     families[task.family ?? ""] = ctx.familyRoms ?? [];
   }
@@ -187,26 +200,37 @@ export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
   mkdirSync(join(dir, ".muse"), { recursive: true });
   writeFileSync(join(dir, ".muse", "hooks.json"), JSON.stringify(hooksFor(task.arm, shown), null, 2));
 
-  // node_modules
-  const nm = join(paths.root, "node_modules");
-  if (existsSync(nm)) symlinkSync(nm, join(dir, "node_modules"));
-
-  // the scratch repo's one commit
-  git(dir, ["init", "--quiet"]);
-  git(dir, ["add", "-A", "."]);
-  git(dir, ["commit", "--quiet", "--no-verify", "-m", `projection ${ctx.attempt} @ ${task.base_commit}`]);
-
-  // environment paths: only the task's ROMs and their oracle cache
+  // environment paths: read-only copies of the task's ROMs and of its trace's oracle frames. A link would hand the
+  // repairer a write path into the real cache the gate compares against, and the ROM's whole oracle dir holds
+  // every other trace of that ROM.
   const romDir = join(envDir, "roms");
   mkdirSync(romDir, { recursive: true });
   for (const r of roms) {
     const rel = r.startsWith(paths.roms + "/") ? relative(paths.roms, r) : basename(r);
     mkdirSync(join(romDir, rel, ".."), { recursive: true });
-    linkInto(join(romDir, rel, ".."), r, basename(rel));
+    if (!existsSync(join(romDir, rel))) cpSync(r, join(romDir, rel), { dereference: true });
   }
   const cacheDir = join(envDir, "cache");
   mkdirSync(join(cacheDir, "oracle"), { recursive: true });
-  for (const s of oracleShas) { const o = join(paths.cache, "oracle", s); if (existsSync(o)) linkInto(join(cacheDir, "oracle"), o); }
+  for (const { rom_sha, trace_sha } of oracleTraces) {
+    const o = join(paths.cache, "oracle", rom_sha, trace_sha);
+    if (!existsSync(o)) continue;
+    const copy = join(cacheDir, "oracle", rom_sha, trace_sha);
+    cpSync(o, copy, { recursive: true, dereference: true });
+    const w = join(pk, "evidence", "window.json");
+    if (existsSync(w)) { const j = JSON.parse(readFileSync(w, "utf8")); if (j.oracle_dir) { j.oracle_dir = copy; writeFileSync(w, JSON.stringify(j, null, 2) + "\n"); } }
+  }
+  makeReadOnly(envDir);
+
+  // node_modules: a link to a read-only copy (SPEC §5 S8 "symlinked read-only"), so a write through it cannot
+  // reach the repository's node_modules, which the gate's in-process suites import (pngjs)
+  const nm = join(paths.root, "node_modules");
+  if (existsSync(nm)) symlinkSync(readOnlyModules(nm, paths), join(dir, "node_modules"));
+
+  // the scratch repo's one commit
+  git(dir, ["init", "--quiet"]);
+  git(dir, ["add", "-A", "."]);
+  git(dir, ["commit", "--quiet", "--no-verify", "-m", `projection ${ctx.attempt} @ ${task.base_commit}`]);
 
   return { dir, envDir, env: { RATCHET_ROMS: romDir, RATCHET_CACHE: cacheDir }, files: scratchFiles(dir), skills: shown, roms };
 }

@@ -87,8 +87,15 @@ export function isolatedReplay(coreDir: string, w: ReplayWindow): Promise<Replay
       while (!done && (i = buf.indexOf("\n")) >= 0) {
         const l = buf.slice(0, i);
         buf = buf.slice(i + 1);
-        const o = JSON.parse(l) as { n: number; stall?: boolean; ram?: string; frame?: string };
+        // a line without a numeric n is the core's own output (a console.log), not the producer's: skip it
+        let o: { n: number; stall?: boolean; ram?: string; frame?: string };
+        try { o = JSON.parse(l); } catch { continue; }
+        if (!o || typeof o.n !== "number") continue;
         if (o.stall) { finish({ clean: false, exit: 1, line: `first mismatch: counter ${o.n} (core stalled)` }); break; }
+        // counters arrive in order, each once: a core that prints a line it got right for a counter it gets wrong
+        // reads as a mismatch, never as a compared counter
+        const want = w.from + compared;
+        if (o.n !== want) { finish({ clean: false, exit: 1, line: `first mismatch: counter ${want} (child wrote counter ${o.n} out of order)` }); break; }
         compared++;
         const ram = w.oracleRam[o.n];
         if (ram !== undefined && ram !== o.ram) { finish({ clean: false, exit: 1, line: `first mismatch: counter ${o.n} (game-state RAM)` }); break; }
@@ -127,10 +134,12 @@ export function isolatedReplayer(root: string): Replayer {
       });
     },
     async trace(a) {
-      const t = JSON.parse(readFileSync(join(a.tracesDir, `${a.id}.json`), "utf8")) as Trace;
-      const first = Math.min(...t.inputs.map((i) => i.from_counter), t.counter_end);
+      const t = JSON.parse(readFileSync(join(a.tracesDir, `${a.id}.json`), "utf8")) as Trace & { window?: [number, number] };
+      // an admitted trace is its window (SPEC §5 S8 "admit the trace window"): counters before it may hold other,
+      // unrepaired divergences on the same play trace; a trace without a window compares from its first input
+      const first = t.window?.[0] ?? Math.min(...t.inputs.map((i) => i.from_counter), t.counter_end);
       return isolatedReplay(a.coreDir, {
-        rom: a.rom, rom_sha: t.rom_sha, align: t.align, inputs: t.inputs, from: Math.max(1, first), to: t.counter_end,
+        rom: a.rom, rom_sha: t.rom_sha, align: t.align, inputs: t.inputs, from: Math.max(1, first), to: t.window?.[1] ?? t.counter_end,
         oracleDir: oracleDirFor(a.cache, t.rom_sha, t.align, t.inputs), oracleRam: {},
       });
     },

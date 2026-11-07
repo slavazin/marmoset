@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, statSync, readdirSync, lstatSync } from "node:fs";
+import { readFileSync, statSync, readdirSync, lstatSync, mkdirSync, writeFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { makeBed, writeSkill } from "./fixtures/harness.ts";
 import { repairPacket, allowed, fileList, removeScratch } from "./projection.ts";
@@ -38,13 +38,49 @@ for (const arm of ARMS) {
     if (arm === "fast") {
       assert.ok(real.includes("packet/incident.json") && real.includes("packet/trace.json") && real.includes("packet/evidence/window.json"));
     }
-    // the env ROM path lists only the task's ROM
-    const romList = fileList(p.env.RATCHET_ROMS).filter((r) => lstatSync(join(p.env.RATCHET_ROMS, r)).isSymbolicLink());
+    // the env ROM path lists only the task's ROM, as a read-only copy
+    const romList = fileList(p.env.RATCHET_ROMS).filter((r) => lstatSync(join(p.env.RATCHET_ROMS, r)).isFile());
     assert.deepEqual(romList, [arm === "fast" ? "fixture/inc.gb" : "fixture/adm.gb"]);
+    assert.equal(statSync(join(p.env.RATCHET_ROMS, romList[0])).mode & 0o222, 0);
     assert.equal(readdirSync(join(p.env.RATCHET_CACHE, "oracle")).length, arm === "fast" ? 1 : 0);
     removeScratch(p.dir);
   });
 }
+
+test("the env oracle cache holds a read-only copy of the incident trace's frames only, never a link into the real cache or a sibling trace", () => {
+  const bed = makeBed();
+  const romDir = join(bed.paths.cache, "oracle", bed.incident.rom_sha);
+  mkdirSync(join(romDir, "f".repeat(64)), { recursive: true });
+  writeFileSync(join(romDir, "f".repeat(64), "1.bin"), "sibling trace of the same ROM");
+  const base = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const p = repairPacket({ kind: "incident", incident: "INC-0001", base_commit: base, arm: "fast", skills: [], budget: { max_steps: 1, wall_s: 1 } }, { attempt: "ATT-0001", paths: bed.paths, incident: bed.incident });
+  const envRom = join(p.env.RATCHET_CACHE, "oracle", bed.incident.rom_sha);
+  assert.deepEqual(readdirSync(envRom), [bed.incident.trace_sha]);
+  for (const rel of fileList(join(p.env.RATCHET_CACHE, "oracle"))) assert.equal(lstatSync(join(p.env.RATCHET_CACHE, "oracle", rel)).isSymbolicLink(), false, rel);
+  const f = join(envRom, bed.incident.trace_sha, "1.bin");
+  assert.equal(statSync(f).mode & 0o222, 0);
+  assert.throws(() => writeFileSync(f, "poison"), /EACCES|EPERM/);
+  assert.equal(readFileSync(join(romDir, bed.incident.trace_sha, "1.bin"))[0], 2);
+  // the evidence copy points the repairer at its copy, not at the real cache
+  assert.equal(JSON.parse(readFileSync(join(p.dir, "packet", "evidence", "window.json"), "utf8")).oracle_dir, join(envRom, bed.incident.trace_sha));
+  removeScratch(p.envDir);
+  removeScratch(p.dir);
+});
+
+test("node_modules in the scratch repo is a read-only copy: a write through it cannot reach the repository's node_modules", () => {
+  const bed = makeBed();
+  mkdirSync(join(bed.paths.root, "node_modules", "pkg"), { recursive: true });
+  writeFileSync(join(bed.paths.root, "node_modules", "pkg", "index.js"), "export const ok = 1;\n");
+  const base = git(bed.paths.live, ["rev-parse", "core-live"]);
+  const p = repairPacket({ kind: "incident", incident: "INC-0001", base_commit: base, arm: "fast", skills: [], budget: { max_steps: 1, wall_s: 1 } }, { attempt: "ATT-0001", paths: bed.paths, incident: bed.incident });
+  const nm = join(p.dir, "node_modules");
+  assert.equal(lstatSync(nm).isSymbolicLink(), true);
+  assert.notEqual(realpathSync(nm), realpathSync(join(bed.paths.root, "node_modules")));
+  assert.equal(readFileSync(join(nm, "pkg", "index.js"), "utf8"), "export const ok = 1;\n");
+  assert.throws(() => writeFileSync(join(nm, "pkg", "index.js"), "export const ok = 0;\n"), /EACCES|EPERM/);
+  assert.equal(readFileSync(join(bed.paths.root, "node_modules", "pkg", "index.js"), "utf8"), "export const ok = 1;\n");
+  removeScratch(p.dir);
+});
 
 test("the allowlist refuses loop/, suites/, oracle/, splits.json and skills on the baseline arm", () => {
   for (const p of ["loop/gate.ts", "suites/score.ts", "oracle/frontend.py", "splits.json", "tools/replay.ts", ".muse/other.json"]) assert.equal(allowed("fast", p), false, p);

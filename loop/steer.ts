@@ -1,13 +1,15 @@
 // Owner steers (SPEC §5 S8, §6.7 Steer; GCE I2, I9). Offers:
 //   steer(text, paths)    appends one Steer to ledger/steers.jsonl;      `pnpm steer "<text>"`
 //   veto(verId, paths)    reverts a GRADUATE's merge in core-live within the verdict's run, regenerates
-//                         ledger/provenance.json, and appends a Steer naming the verdict; `pnpm veto <VER-id>`.
+//                         ledger/provenance.json, retires the trace windows the attempt admitted, and appends a
+//                         Steer naming the verdict; `pnpm veto <VER-id>`.
 
-import { resolve } from "node:path";
+import { writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendNew, current, runId, STEER_PREFIX } from "./ledger.ts";
 import { git, LIVE_BRANCH, pathsFromEnv, type LoopPaths } from "./paths.ts";
-import { regenerateProvenance } from "./gate-repair.ts";
+import { admittedTraces, regenerateProvenance } from "./gate-repair.ts";
 import type { Steer, Verdict } from "../src/schema.ts";
 
 export function steer(text: string, paths: LoopPaths, extra: Partial<Pick<Steer, "vetoes" | "latch_should_have_fired">> = {}): Steer {
@@ -22,6 +24,19 @@ export function graduateMerge(live: string, attempt: string): string | null {
   return line ? line.split(" ")[0] : null;
 }
 
+/**
+ * Flips the traces/ windows `attempt` admitted to status "retired" with `vetoed_by` (a status flip, never a
+ * deletion); the gate's admitted-traces check skips them, since the vetoed repair is no longer in core-live.
+ */
+export function retireTraces(paths: LoopPaths, attempt: string, verId: string): string[] {
+  const out: string[] = [];
+  for (const t of admittedTraces(paths.traces).filter((x) => x.attempt === attempt)) {
+    writeFileSync(join(paths.traces, `${t.id}.json`), JSON.stringify({ ...t, status: "retired", vetoed_by: verId }, null, 2) + "\n");
+    out.push(t.id);
+  }
+  return out;
+}
+
 export async function veto(verId: string, paths: LoopPaths): Promise<Steer> {
   const v = current<Verdict>("verdicts.jsonl", verId, paths.ledger);
   if (!v) throw new Error(`no verdict ${verId}`);
@@ -32,6 +47,7 @@ export async function veto(verId: string, paths: LoopPaths): Promise<Steer> {
   git(paths.live, ["revert", "--no-edit", "-m", "1", merge]);
   const revert = git(paths.live, ["rev-parse", "HEAD"]);
   await regenerateProvenance(paths, `veto-${verId}`);
+  retireTraces(paths, v.subject.id, verId);
   return steer(`veto ${verId}: reverted ${v.subject.id}'s merge ${merge.slice(0, 10)} in ${LIVE_BRANCH} as ${revert.slice(0, 10)}`, paths, { vetoes: verId });
 }
 
