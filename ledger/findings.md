@@ -34,3 +34,14 @@ Cold-read findings, one line each: id, claim or property, reading, disposition (
 | S8-F11 | S8 | binary hunks | trimmed hunk drops binary silently; merged equals judged | accept-residue (binaries refused by F1) |
 | S8-F12 | S8 | GRADUATE side effects after merge | a throw leaves a merge with no Verdict | fix: dispatched with S8-F9 |
 | S8-F13 | S8 | /fire forgery; lock stale-break race; veto run check with RATCHET_RUN unset; base readings cache key | probes | accept-residue; veto null-run check dispatched with S8-F9 |
+| S9-F1 | S9 | G4: placebo indistinguishable from candidate | placebo packet/task.json read `"arm": "placebo"` | fix: fix/s9-cold-read 0abaf89, both skill arms' packets name "candidate" |
+| S9-F2 | S9 | G7: consolidatorView holds no H reading | fast observations named the refusing check (H-no-regress) | fix: 0abaf89, check names scrubbed |
+| S9-F3 | S9 | G4: base regression counted on missing readings | arm with no base reading graduated | fix: 0abaf89 |
+| S9-F4 | S9 | G4: a crashed arm still ends in REFUSE | a scoring throw rejected the whole trial | fix: 0abaf89 |
+| S9-F5 | S9 | placebo from a different failure shape | twin took an overlapping-path candidate's payload | fix: 0abaf89, overlapping paths skipped |
+| S9-F6 | S9 | placebo name indistinguishable | slug of its own Do, mechanically checkable | fix: 0abaf89 |
+| S9-F7 | S9 | curve per generation | Verdict.generation never written | fix: 0abaf89 |
+| S9-F8 | S9 | id order and template checked-by reveal the twin | visible only across arms | accept-residue |
+| S9-F9 | S9 | tie graduates with no floor and zero spread | reachable only via test override | accept-residue |
+| S9-F10 | S9 | tombstone keeps every byte | true for single-file skills only | accept-residue |
+| S9-F11 | S9 | calibration commit unrecorded | margin reused across core-live commits per SPEC | accept-residue |
