@@ -14,7 +14,8 @@
 //             and at MAX_ATTEMPTS the incident is parked: status records "parked" then status unrepaired
 //             (campaign.test.ts "throws before minting");
 //   slow      one slow-loop generation (loop/slow.ts runGeneration) whenever generationsDue says one is owed (every K);
-//   spend     before every attempt, server/spend.ts's meter: at SPEND_ASK_USD a `pause` record and "owner gate: spend $X",
+//   spend     before every attempt, server/spend.ts's meter plus attemptReserve per in-flight attempt (their spend is not
+//             written yet): at SPEND_ASK_USD a `pause` record and "owner gate: spend $X",
 //             no new attempt until a steer "resume spend" (pnpm steer "resume spend") written after the pause; at
 //             SPEND_STOP_USD a `stop` record and the campaign ends once in-flight attempts finish.
 //   freeze    once runs/<run>/manifest.json holds s_star_sha (pnpm freeze), the loop starts nothing more and stops when
@@ -36,7 +37,7 @@ import { pathsFromEnv, type LoopPaths } from "./paths.ts";
 import { openIncidents, runFastCycle, type CycleOutput } from "./fast.ts";
 import { generationsDue } from "./slow.ts";
 import { buildManifest, manifestPath, openManifest, readManifest, RUN_ID, sDirs, sMembers } from "./run-records.ts";
-import { meterLine, spendGate, spendMeter, type SpendMeter } from "../server/spend.ts";
+import { attemptReserve, meterLine, spendGate, spendMeter, type SpendMeter } from "../server/spend.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { Attempt, Incident, Manifest, Steer } from "../src/schema.ts";
 
@@ -60,7 +61,7 @@ export const DRY_INCIDENTS = 3;
 export type CampaignRecord =
   | { t: "open"; at: string; run: string; manifest: string; resumed: boolean }
   | { t: "segment"; at: string; run: string; seed: number; opened: string[]; error?: string }
-  | { t: "pause"; at: string; run: string; usd: number; source: SpendMeter["source"]; priced_usd: number; owner_read_usd: number | null }
+  | { t: "pause"; at: string; run: string; usd: number; source: SpendMeter["source"]; priced_usd: number; owner_read_usd: number | null; inflight?: number; reserve_usd?: number }
   | { t: "resume"; at: string; run: string; steer: string }
   /** An attempt that threw; `minted` says whether it wrote its ATT before throwing. */
   | { t: "attempt-error"; at: string; run: string; incident: string; minted: boolean; error: string }
@@ -199,13 +200,17 @@ export async function runCampaign(d: CampaignDeps): Promise<CampaignOutput> {
     // fill the attempt slots, the spend guard first before each
     while (inflight.size < CAMPAIGN_PARALLEL) {
       const m = spendMeter({ ledger: d.paths.ledger, runsDir: d.runsDir, run: d.run, env: d.env });
-      const g = spendGate(m.usd);
-      if (g === "stop") { stopped = `spend stop: $${m.usd.toFixed(2)} (${m.source}) ≥ $${m.stop_usd}`; log(meterLine(m)); break; }
+      // in-flight attempts have not written their spend yet: each holds a reserve (server/spend.ts attemptReserve)
+      const reserve_usd = inflight.size * attemptReserve({ ledger: d.paths.ledger, run: d.run, ratio: m.source === "owner-read" ? m.ratio : null });
+      const guarded = m.usd + reserve_usd;
+      const held = reserve_usd ? ` + $${reserve_usd.toFixed(2)} reserved for ${inflight.size} in flight` : "";
+      const g = spendGate(guarded);
+      if (g === "stop") { stopped = `spend stop: $${m.usd.toFixed(2)} (${m.source})${held} ≥ $${m.stop_usd}`; log(meterLine(m)); break; }
       if (g === "ask" && !askLifted) {
         if (!paused) {
-          lastPause = record(d.runsDir, d.run, { t: "pause", at: new Date(now()).toISOString(), run: d.run, usd: m.usd, source: m.source, priced_usd: m.priced_usd, owner_read_usd: m.owner_read_usd }) as Extract<CampaignRecord, { t: "pause" }>;
+          lastPause = record(d.runsDir, d.run, { t: "pause", at: new Date(now()).toISOString(), run: d.run, usd: m.usd, source: m.source, priced_usd: m.priced_usd, owner_read_usd: m.owner_read_usd, inflight: inflight.size, reserve_usd }) as Extract<CampaignRecord, { t: "pause" }>;
           paused = true;
-          log(`owner gate: spend $${m.usd.toFixed(2)}`);
+          log(`owner gate: spend $${m.usd.toFixed(2)}${held}`);
           log(meterLine(m));
         }
         const s = resumeSteer(d.paths.ledger, lastPause!.at);

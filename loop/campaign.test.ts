@@ -8,7 +8,7 @@ import { makeBed, writeSkill, type Bed } from "./fixtures/harness.ts";
 import { openManifest, readManifest, sDirs } from "./run-records.ts";
 import { append, all, current } from "./ledger.ts";
 import { steer } from "./steer.ts";
-import { meterLine, spendMeter } from "../server/spend.ts";
+import { ATTEMPT_RESERVE_USD, attemptReserve, meterLine, SPEND_ASK_USD, spendMeter } from "../server/spend.ts";
 import { MAX_ATTEMPTS } from "./gate.ts";
 import { ruleVersion } from "./gate-repair.ts";
 import type { Attempt, Incident, Manifest, Verdict } from "../src/schema.ts";
@@ -136,6 +136,30 @@ test("the owner-read override is what the guard acts on: $61 priced with a $5 co
   const after = spendMeter({ ledger: g.bed.paths.ledger, runsDir: g.runsDir, run: "RUN-0001" });
   assert.equal(after.ratio, 5 / 61);
   assert.equal(after.owner_read_usd, (5 / 61) * 2.5);
+});
+
+test("before a start the guard adds a reserve per in-flight attempt: ATTEMPT_RESERVE_USD until the run has a finished attempt, so $50 with two in flight pauses at $60", async () => {
+  const g = guardBed(50);
+  const base = current<Incident>("incidents.jsonl", "INC-0001", g.bed.paths.ledger)!;
+  for (const id of ["INC-0002", "INC-0003", "INC-0004"]) append("incidents.jsonl", { ...base, id }, g.bed.paths.ledger);
+  g.deps.minutes = 0.005;
+  g.deps.fast = async (id) => { g.calls.push(id); await new Promise((r) => setTimeout(r, 600)); throw new Error("slow fake attempt"); };
+  assert.equal(attemptReserve({ ledger: g.bed.paths.ledger, run: "RUN-0001", ratio: null }), ATTEMPT_RESERVE_USD);
+  await runCampaign(g.deps);
+  const n = Math.ceil((SPEND_ASK_USD - 50) / ATTEMPT_RESERVE_USD);
+  assert.equal(g.calls.length, n, `starts until $50 + ${ATTEMPT_RESERVE_USD} x in-flight reaches $${SPEND_ASK_USD}`);
+  const pause = readCampaign(g.runsDir, "RUN-0001").find((r) => r.t === "pause") as { reserve_usd: number; inflight: number } | undefined;
+  assert.deepEqual(pause && [pause.inflight, pause.reserve_usd], [n, n * ATTEMPT_RESERVE_USD]);
+});
+
+test("the reserve is the median scaled cost of the run's finished attempts", () => {
+  const bed = makeBed();
+  const L = bed.paths.ledger;
+  for (const [id, usd, run] of [["ATT-0001", 2, "RUN-0001"], ["ATT-0002", 4, "RUN-0001"], ["ATT-0003", 30, "RUN-0001"], ["ATT-0004", 99, null]] as const)
+    append("attempts.jsonl", { id, at: "2026-11-07T14:31:00.000Z", run, task: { kind: "incident", incident: "INC-0001" }, spent: { usd }, result: { summary: "s" } }, L);
+  append("attempts.jsonl", { id: "ATT-0005", at: "2026-11-07T14:31:00.000Z", run: "RUN-0001", task: { kind: "incident", incident: "INC-0001" }, spent: { usd: 500 } }, L); // in flight: no result
+  assert.equal(attemptReserve({ ledger: L, run: "RUN-0001", ratio: null }), 4);
+  assert.equal(attemptReserve({ ledger: L, run: "RUN-0001", ratio: 0.5 }), 2);
 });
 
 test("post-reading priced dollars are scaled by the owner's ratio, console usd at `at` over every priced dollar up to `at` (pre-run included), clamped to (0, 1], and the meter line names it", () => {

@@ -81,6 +81,25 @@ export function readOverride(runsDir: string, run: string | null): (SpendOverrid
   } catch { return null; }
 }
 
+/**
+ * The reserve per in-flight attempt before the run has a finished one, in console dollars: the owner's console total
+ * of about $5 on 2026-11-07 ~12:50 covered all pre-run work including ATT-0001 (runs/RUN-0001/spend-override.json
+ * note), so one attempt costs at most that; held by review.
+ */
+export const ATTEMPT_RESERVE_USD = 5;
+
+/**
+ * The guard's reserve per in-flight attempt: the median spent.usd × ratio (ratio null reads 1) of attempts that carry
+ * `run` and hold a result, else ATTEMPT_RESERVE_USD (campaign.test.ts "reserve is the median").
+ */
+export function attemptReserve(o: { ledger: string; run: string | null; ratio: number | null }): number {
+  const done = attempts(o.ledger).filter((a) => a.run === o.run && (a as { result?: unknown }).result != null && typeof a.spent?.usd === "number")
+    .map((a) => a.spent.usd * (o.ratio ?? 1)).sort((x, y) => x - y);
+  if (!done.length) return ATTEMPT_RESERVE_USD;
+  const k = done.length >> 1;
+  return done.length % 2 ? done[k] : (done[k - 1] + done[k]) / 2;
+}
+
 /** Console dollars per priced dollar at the reading, clamped to (0, 1]; 1 when nothing was priced before it. */
 export function ownerRatio(consoleUsd: number, pricedBeforeUsd: number): number {
   if (!(pricedBeforeUsd > 0) || !(consoleUsd > 0)) return 1;
