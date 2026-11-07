@@ -42,6 +42,24 @@ test("family ROM counts on c-sp v7.0: blargg 15, mbc1 12 without multicart, T 9 
   assert.equal(n("mooneye:ppu"), 12);
 });
 
+test("V's ROM lists on c-sp v7.0 are mealybug:wx-obj 8 and mooneye:dma-timer-intr 31, frozen at S2 merge (D-0009)", { skip }, () => {
+  const s = loadSplits();
+  const strip = (f: string, pre: string) => familyRoms(s, f).map((r) => r.slice(pre.length).replace(/\.gb$/, ""));
+  assert.deepEqual(strip("mealybug:wx-obj", "mealybug-tearoom-tests/ppu/"), [
+    "m3_lcdc_obj_en_change", "m3_lcdc_obj_en_change_variant", "m3_lcdc_obj_size_change", "m3_lcdc_obj_size_change_scx",
+    "m3_wx_4_change", "m3_wx_4_change_sprites", "m3_wx_5_change", "m3_wx_6_change",
+  ]);
+  assert.deepEqual(strip("mooneye:dma-timer-intr", "mooneye-test-suite/acceptance/"), [
+    "di_timing-GS", "ei_sequence", "ei_timing", "halt_ime0_ei", "halt_ime0_nointr_timing", "halt_ime1_timing", "halt_ime1_timing2-GS",
+    "if_ie_registers", "interrupts/ie_push", "intr_timing",
+    "oam_dma/basic", "oam_dma/reg_read", "oam_dma/sources-GS", "oam_dma_restart", "oam_dma_start", "oam_dma_timing",
+    "rapid_di_ei", "reti_intr_timing",
+    "timer/div_write", "timer/rapid_toggle", "timer/tim00", "timer/tim00_div_trigger", "timer/tim01", "timer/tim01_div_trigger",
+    "timer/tim10", "timer/tim10_div_trigger", "timer/tim11", "timer/tim11_div_trigger", "timer/tima_reload",
+    "timer/tima_write_reloading", "timer/tma_write_reloading",
+  ]);
+});
+
 test("DMG-compatible means no suffix or a suffix in dmg_suffixes; only Mooneye names carry suffixes", () => {
   const sfx = ["GS", "dmgABC", "dmgABCmgb"];
   assert.equal(modelSuffix("mooneye-test-suite/acceptance/di_timing-GS.gb"), "GS");
