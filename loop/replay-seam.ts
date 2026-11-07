@@ -10,12 +10,24 @@
 // is the reading. A suite incident's fail line carries the pixel match and the repro's, from which the gate reads
 // the gain against SUITE_MIN_GAIN; there the core runs in-process with the tool (verdict residue names it).
 
+// S22: a window from a games-registry ROM carries its logic ranges and, when lockstep ran both sides from a start
+// state, that state's cache file and sha (lockstep/evidence.ts FrameWindow). The child then restores the start
+// state written in the core's snapshot format to a fresh temp dir it may read; a start file whose sha differs from
+// the window's reads as missing data, never as a power-on replay.
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { sha256, traceSha } from "../oracle/client.ts";
 import { GAME_RAM } from "../lockstep/diff.ts";
+import { coreSnapshotOf, readStartState, startDirSuffix, startKey, startPath, type StartState } from "../lockstep/start-state.ts";
+import { readRegistry } from "../lockstep/games.ts";
+
+/** The games-registry entry for a ROM sha, or null when the ROM is unregistered; throws when games.json is unreadable. */
+function gameBySha256(sha: string) {
+  return readRegistry().find((g) => g.rom.sha256 === sha) ?? null;
+}
 import type { CreateCore, Trace, TraceInput } from "../src/schema.ts";
 
 export interface ReplayReading { clean: boolean; exit: number; line: string; gain?: number }
@@ -66,6 +78,21 @@ export const FRAMES_CHILD = join(import.meta.dirname, "frames-child.mjs");
 export interface ReplayWindow {
   rom: string; rom_sha: string; align: "counter" | "frame"; inputs: TraceInput[];
   from: number; to: number; oracleDir: string; oracleRam: Record<string, string>;
+  /** The ranges oracleRam concatenates; absent, GAME_RAM. */
+  logic?: { addr: number; len: number }[];
+  /** The start file and its sha256 (window.json `start`); absent, power-on. */
+  start?: { file: string; sha: string };
+}
+
+/** Writes the start state's core.bin and check.json to a fresh temp dir; null when the file is missing or its sha differs. */
+function startDirFor(w: ReplayWindow): string | null {
+  if (!w.start) return null;
+  if (!w.start.file || !existsSync(w.start.file) || sha256(readFileSync(w.start.file)) !== w.start.sha) throw new Error(`start state ${w.start.file || "(none)"} is missing or not sha ${w.start.sha.slice(0, 12)}`);
+  const st: StartState = readStartState(w.start.file, w.rom_sha);
+  const dir = mkdtempSync(join(tmpdir(), "ratchet-start-"));
+  writeFileSync(join(dir, "core.bin"), coreSnapshotOf(st.machine));
+  writeFileSync(join(dir, "check.json"), JSON.stringify({ pc: st.machine.pc, wram_hex: Buffer.from(st.machine.wram_b64, "base64").toString("hex") }));
+  return realpathSync(dir);
 }
 
 /** Runs the core in the permission-limited child and compares each window counter with the cache. */
@@ -74,8 +101,12 @@ export function isolatedReplay(coreDir: string, w: ReplayWindow): Promise<Replay
     if (sha256(readFileSync(w.rom)) !== w.rom_sha) return res({ clean: false, exit: 2, line: `${w.rom} is not the ROM (sha ${w.rom_sha.slice(0, 12)})` });
     for (let n = w.from; n <= w.to; n++) if (!existsSync(join(w.oracleDir, `${n}.bin`))) return res({ clean: false, exit: 2, line: `oracle frame ${n} not cached` });
     const core = realpathSync(coreDir), rom = realpathSync(w.rom), child = realpathSync(FRAMES_CHILD);
+    let startDir: string | null;
+    try { startDir = startDirFor(w); } catch (e) { return res({ clean: false, exit: 2, line: String(e instanceof Error ? e.message : e) }); }
+    const ram = w.logic ? [JSON.stringify(w.logic), "0"] : [String(GAME_RAM.addr), String(GAME_RAM.len)];
     const ch = spawn(process.execPath, ["--permission", `--allow-fs-read=${core}`, `--allow-fs-read=${rom}`, `--allow-fs-read=${child}`,
-      child, core, rom, w.align, String(w.from), String(w.to), JSON.stringify(w.inputs), String(GAME_RAM.addr), String(GAME_RAM.len)],
+      ...(startDir ? [`--allow-fs-read=${startDir}`] : []),
+      child, core, rom, w.align, String(w.from), String(w.to), JSON.stringify(w.inputs), ...ram, ...(startDir ? [startDir] : [])],
       { cwd: core, env: { PATH: process.env.PATH ?? "" }, stdio: ["ignore", "pipe", "pipe"] });
     let buf = "", err = "", compared = 0;
     let done: ReplayReading | null = null;
@@ -115,8 +146,8 @@ export function isolatedReplay(coreDir: string, w: ReplayWindow): Promise<Replay
   });
 }
 
-function oracleDirFor(cache: string, rom_sha: string, align: ReplayWindow["align"], inputs: TraceInput[], fallback?: string): string {
-  const d = join(cache, "oracle", rom_sha, traceSha({ rom_sha, align, inputs }));
+function oracleDirFor(cache: string, rom_sha: string, align: ReplayWindow["align"], inputs: TraceInput[], fallback?: string, startKey?: string): string {
+  const d = join(cache, "oracle", rom_sha, traceSha({ rom_sha, align, inputs }) + (startKey ? startDirSuffix({ key: startKey }) : ""));
   return existsSync(d) || !fallback ? d : fallback;
 }
 
@@ -130,7 +161,8 @@ export function isolatedReplayer(root: string): Replayer {
       const inc = w.incident as { rom_sha: string; window: [number, number] };
       return isolatedReplay(a.coreDir, {
         rom: a.rom ?? w.rom.path, rom_sha: inc.rom_sha, align: w.trace.align, inputs: w.trace.inputs, from: inc.window[0], to: inc.window[1],
-        oracleDir: oracleDirFor(a.cache, inc.rom_sha, w.trace.align, w.trace.inputs, w.oracle_dir), oracleRam: w.oracle_ram ?? {},
+        oracleDir: oracleDirFor(a.cache, inc.rom_sha, w.trace.align, w.trace.inputs, w.oracle_dir, w.start?.key), oracleRam: w.oracle_ram ?? {},
+        ...(w.map ? { logic: w.map.logic } : {}), ...(w.start ? { start: { file: w.start.file, sha: w.start.sha } } : {}),
       });
     },
     async trace(a) {
@@ -138,9 +170,15 @@ export function isolatedReplayer(root: string): Replayer {
       // an admitted trace is its window (SPEC §5 S8 "admit the trace window"): counters before it may hold other,
       // unrepaired divergences on the same play trace; a trace without a window compares from its first input
       const first = t.window?.[0] ?? Math.min(...t.inputs.map((i) => i.from_counter), t.counter_end);
+      // a trace on a registry game with a start state replays from that start state (Trace carries none; S22)
+      const g = gameBySha256(t.rom_sha);
+      const start = g?.start ? startPath({ rom_sha: t.rom_sha, ...g.start, ram_init: "zero" }, a.cache) : null;
+      const key = g?.start ? startKey({ rom_sha: t.rom_sha, ...g.start, ram_init: "zero" }) : undefined;
       return isolatedReplay(a.coreDir, {
         rom: a.rom, rom_sha: t.rom_sha, align: t.align, inputs: t.inputs, from: Math.max(1, first), to: t.window?.[1] ?? t.counter_end,
-        oracleDir: oracleDirFor(a.cache, t.rom_sha, t.align, t.inputs), oracleRam: {},
+        oracleDir: oracleDirFor(a.cache, t.rom_sha, t.align, t.inputs, undefined, key), oracleRam: {},
+        ...(g?.map ? { logic: g.map.logic.map(({ addr, len }) => ({ addr, len })) } : {}),
+        ...(start ? { start: { file: start, sha: existsSync(start) ? sha256(readFileSync(start)) : "" } } : {}),
       });
     },
   };

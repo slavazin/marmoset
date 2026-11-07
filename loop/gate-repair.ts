@@ -176,8 +176,11 @@ export function workingTrace(paths: LoopPaths, inc: Incident): (Pick<Trace, "ali
   return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
 }
 
-function cachedFrames(paths: LoopPaths, inc: Incident): Uint8Array[] {
-  const d = join(paths.cache, "oracle", inc.rom_sha, inc.trace_sha);
+/** The incident's cached oracle frames; a window run from a start state keeps them under trace_sha@start-<key> (lockstep/start-state.ts). */
+export function cachedFrames(paths: LoopPaths, inc: Incident): Uint8Array[] {
+  const w = join(evidenceDir(paths, inc), "window.json");
+  const key = existsSync(w) ? (JSON.parse(readFileSync(w, "utf8")).start?.key as string | undefined) : undefined;
+  const d = join(paths.cache, "oracle", inc.rom_sha, inc.trace_sha + (key ? `@start-${key}` : ""));
   if (!existsSync(d)) return [];
   return readdirSync(d).filter((f) => f.endsWith(".bin")).map((f) => new Uint8Array(readFileSync(join(d, f))));
 }

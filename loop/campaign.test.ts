@@ -238,3 +238,13 @@ test("an attempt that throws after minting its ATT counts once, and the MAX_ATTE
   assert.equal(inc.status, "unrepaired");
   assert.deepEqual(inc.parked && [inc.parked.early_throws, inc.parked.attempts], [0, MAX_ATTEMPTS]);
 });
+
+test("real play's game.gb trace is the explorer's trace, and a game.gb manifest addition is its ROM sha alone (no start state)", async () => {
+  const { playTrace } = await import("./game-trace.ts");
+  const { explorerTrace } = await import("../player/explore.ts");
+  const { gameById } = await import("../lockstep/games.ts");
+  const { gameManifestRoms } = await import("./campaign.ts");
+  const o = { rom_sha: "c8444ff9a470e23e3b17de184d992e15c2f80b6f46004714d37b9ea39d2408f3", frames: 3600, seed: 1001 };
+  assert.deepEqual(playTrace(gameById("game"), o), explorerTrace(o));
+  assert.deepEqual(await gameManifestRoms("game", join(import.meta.dirname, "..")), { "game:game": o.rom_sha });
+});

@@ -286,13 +286,20 @@ function child(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string)
   });
 }
 
-/** Real play: an explorer trace at `seed`, then player/spot.ts (lockstep plus spot sampling) in a child process against the live clone's core. */
+/**
+ * Real play: a play trace at `seed` (loop/game-trace.ts playTrace: the explorer for game.gb), then player/spot.ts
+ * (lockstep plus spot sampling) in a child process against the live clone's core. The game is the games-registry
+ * entry named by $RATCHET_GAME (lockstep/games.ts), game.gb when unset; lockstep selects its map and start state
+ * by the ROM's sha.
+ */
 function realPlay(paths: LoopPaths, env: NodeJS.ProcessEnv): CampaignDeps["play"] {
   return async (seed) => {
-    const { explorerTrace } = await import("../player/explore.ts");
+    const { playTrace } = await import("./game-trace.ts");
+    const { gameById, romPathOf } = await import("../lockstep/games.ts");
     const { ratchetCache, sha256, traceSha } = await import("../oracle/client.ts");
-    const romPath = join(paths.root, "game", "game.gb");
-    const trace = explorerTrace({ rom_sha: sha256(readFileSync(romPath)), frames: SEGMENT_FRAMES, seed });
+    const game = gameById(env.RATCHET_GAME ?? "game");
+    const romPath = romPathOf(game, paths.root);
+    const trace = playTrace(game, { rom_sha: sha256(readFileSync(romPath)), frames: SEGMENT_FRAMES, seed });
     const dir = join(ratchetCache(), "traces");
     mkdirSync(dir, { recursive: true });
     const tp = join(dir, `${traceSha(trace)}.json`);
@@ -352,6 +359,21 @@ export async function dryDeps(minutes: number): Promise<{ deps: CampaignDeps; ma
   return { deps, manifest };
 }
 
+/**
+ * Manifest `roms` entries for a registry game: `game:<id>` → the ROM's sha256 and, when the game has a start
+ * state, `start:<id>` → the sha256 of its cache file (built here when absent). Truth-maker: loop/campaign.test.ts.
+ */
+export async function gameManifestRoms(id: string, root: string): Promise<Record<string, string>> {
+  const { gameById, romPathOf } = await import("../lockstep/games.ts");
+  const { buildStartState, startFileSha, startPath } = await import("../lockstep/start-state.ts");
+  const { sha256 } = await import("../oracle/client.ts");
+  const g = gameById(id);
+  const romPath = romPathOf(g, root);
+  const out: Record<string, string> = { [`game:${id}`]: sha256(readFileSync(romPath)) };
+  if (g.start) out[`start:${id}`] = startFileSha(startPath((await buildStartState(romPath, { ...g.start, ram_init: "zero" })).spec));
+  return out;
+}
+
 async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest: () => Promise<Manifest> }> {
   const paths = pathsFromEnv();
   const runsDir = resolve(paths.root, process.env.RATCHET_RUNS ?? "runs");
@@ -379,12 +401,16 @@ async function realDeps(minutes: number): Promise<{ deps: CampaignDeps; manifest
     let info: { core: string; build_hash: string };
     try { info = await o.info(); } finally { await o.close(); }
     const splits = loadSplits();
-    return buildManifest({
+    const m = buildManifest({
       run: RUN_ID, root: paths.root, skills: paths.skills, ledger: paths.ledger, roms: paths.roms, splitsPath: SPLITS_PATH, splits,
       familyRoms: (f) => { try { return familyRoms(splits, f, paths.roms); } catch { return []; } },
       oracle: { core: info.core, build_hash: info.build_hash },
       telemetryFiles: [join(paths.root, "runs", "prerun", "telemetry", "llm.jsonl"), join(runsDir, RUN_ID, "telemetry", "llm.jsonl")],
     });
+    // A run on a registry game other than game.gb records the game's ROM sha and its start file's sha (S22).
+    const gameId = process.env.RATCHET_GAME;
+    if (gameId && gameId !== "game") Object.assign(m.roms, await gameManifestRoms(gameId, paths.root));
+    return m;
   };
   return { deps, manifest };
 }

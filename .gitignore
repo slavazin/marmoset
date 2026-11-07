@@ -83,3 +83,11 @@ GCE-DOCTRINE.md
 
 .claude/worktrees/
 runs/prerun/
+
+# --- Game Boy ROMs: only Ratchet's own game and fixtures are tracked (AGENTS.md rule 8; lockstep/games.test.ts) ---
+*.gb
+*.gbc
+*.GB
+*.GBC
+!game/*.gb
+!oracle/fixtures/*.gb
