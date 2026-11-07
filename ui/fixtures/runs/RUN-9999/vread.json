@@ -1,0 +1,19 @@
+{
+  "run": "RUN-9999",
+  "at": "2026-11-07T15:50:00.000Z",
+  "core_commit": "fixture0000000000000000000000000000000000",
+  "s0_sha": "fixture-s0",
+  "s_star_sha": "fixture-s-star",
+  "arms": {
+    "baseline": [
+      { "split": "V", "family": "fixture:v-a", "roms": 6, "pass": 2, "exact": 1, "pixel_match": 0.81 },
+      { "split": "V", "family": "fixture:v-b", "roms": 8, "pass": 3, "exact": 0, "pixel_match": 0.64 }
+    ],
+    "ratchet": [
+      { "split": "V", "family": "fixture:v-a", "roms": 6, "pass": 3, "exact": 2, "pixel_match": 0.86 },
+      { "split": "V", "family": "fixture:v-b", "roms": 8, "pass": 3, "exact": 1, "pixel_match": 0.66 }
+    ]
+  },
+  "n_family_runs_per_arm": 1,
+  "residue": ["fixture: UI rendering check only (S10), not a reading"]
+}

@@ -31,6 +31,7 @@ export const TASK_TEXT = `# Repair task
 
 Edit files under core/ only. The gate reads only the diff of core/** and refuses a diff that touches any other
 path, adds a literal over the gate's literal limit, or contains the incident's frame hash or trace bytes.
+Your budget is {max_steps} model steps and {wall_s} s of wall clock, after which you are stopped and an empty diff is refused, so make your first edit under core/ by step {half_steps} ({half_wall_s} s) and refine it with the replay after.
 
 ## Core API (core/index.ts)
 export function createCore(rom: Uint8Array): Core;  // step, runFrame, runToCounter(n), cpu, read, frame() (160*144 shades 0..3),
@@ -58,6 +59,12 @@ ROMs and oracle frames are reached through $RATCHET_ROMS and $RATCHET_CACHE.
   "beliefs": [ { "claim": "<a hardware claim>", "false_if": "<the observation that falsifies it>" } ],
   "summary": "<one sentence: what the diff changes>" }
 `;
+
+/** TASK_TEXT with the task's budget filled in: its step cap and wall, and half of each for the first edit (D-draft-attempt-budget). */
+export function taskText(budget: RepairTask["budget"]): string {
+  return TASK_TEXT.replace("{max_steps}", String(budget.max_steps)).replace("{wall_s}", String(budget.wall_s))
+    .replace("{half_steps}", String(Math.floor(budget.max_steps / 2))).replace("{half_wall_s}", String(Math.floor(budget.wall_s / 2)));
+}
 
 export interface PacketContext {
   attempt: string;
@@ -159,7 +166,8 @@ export function repairPacket(task: RepairTask, ctx: PacketContext): Packet {
   mkdirSync(pk, { recursive: true });
   // packet and tool policies named in task.policies (D-0020): extra packet files and TASK.md lines
   const pol = applyPolicies(task, { paths, incident: ctx.incident, coreFiles: fileList(join(dir, "core")).map((f) => `core/${f}`), site: "packet" });
-  writeFileSync(join(pk, "TASK.md"), pol.taskLines.length ? `${TASK_TEXT}\n## Policy lines\n${pol.taskLines.map((l) => `- ${l}`).join("\n")}\n` : TASK_TEXT);
+  const text = taskText(task.budget);
+  writeFileSync(join(pk, "TASK.md"), pol.taskLines.length ? `${text}\n## Policy lines\n${pol.taskLines.map((l) => `- ${l}`).join("\n")}\n` : text);
   for (const [f, body] of Object.entries(pol.packetFiles)) writeFileSync(join(pk, f), body);
   writeFileSync(join(pk, "task.json"), JSON.stringify({ ...task, attempt: ctx.attempt }, null, 2));
   // hook commands run in a cleared environment (D-0001); tools/fire.mjs reads the attempt and server from here

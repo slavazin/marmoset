@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { parseJsonl, Fold, curveEvents, readVRead } from "./events.ts";
 import { LIVE_BRANCH } from "../loop/paths.ts";
+import { spendMeter, type SpendMeter } from "./spend.ts";
 import type { Attempt, Incident, Verdict, Fire, Steer, SpendRecord, UiEvent, VRead, SkillStatus } from "../src/schema.ts";
 
 export interface HistoryOptions {
@@ -66,6 +67,7 @@ export interface History {
   commits: CommitItem[] | null;           // null: no live clone or no core-live branch at `live`
   commits_note: string;
   spend: SpendSummary | null;              // null: no attempt and no spend record
+  meter: SpendMeter;                       // server/spend.ts: owner-read and priced, for RATCHET_RUN (default RUN-0001)
   spots: unknown | null;                   // S13's spotSummary(ledger), when player/spot-score.ts and ledger/spots.jsonl exist
   figures: RunFigures[];                   // per opened run; sabotage and run-null records excluded
   vread: VRead | null;
@@ -223,6 +225,7 @@ export async function readHistory(o: HistoryOptions): Promise<History> {
     commits,
     commits_note: commits ? `git log ${LIVE_BRANCH} in ${o.live}` : `no ${LIVE_BRANCH} branch readable at ${o.live}`,
     spend,
+    meter: spendMeter({ ledger: o.ledger, runsDir: o.runs, run: process.env.RATCHET_RUN || "RUN-0001" }),
     spots: await readSpots(o.ledger, o.root),
     figures,
     vread: existsSync(o.runs) && statSync(o.runs).isDirectory() ? readVRead(o.runs) : null,
