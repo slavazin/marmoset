@@ -33,7 +33,8 @@ export function currentRun(): string | null {
   } catch { return null; }
 }
 
-const SECRET_KEY = /authorization|api[-_]?key|token|secret|password|muse_code_key/i;
+// "token" matches a field named token or ending _token/-token (a credential), never tokens / input_tokens (a count).
+const SECRET_KEY = /authorization|api[-_]?key|(^|[-_])token$|secret|password|muse_code_key/i;
 /** Replaces the value of any field whose name looks like a secret with "[redacted]", recursively. */
 export function redact(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(redact);

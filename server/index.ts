@@ -8,6 +8,16 @@
 //   GET  /evidence/**, /game/**   files under the evidence dir and the game dir.
 //   POST /fire              a hook fire {skill, attempt, path, owed}; server/fire.ts appends it to ledger/fires.jsonl.
 // The live trace is a working trace at $RATCHET_CACHE/traces/live.json; /fire is the one ledger write, through loop/ledger.ts.
+// With `record`, every bus event, input and trace reset is written to telemetry (server/recorder.ts, src/telemetry.ts).
+// With `replay: {run}` (server/replay-run.ts) the server plays runs/<run>/telemetry/ and ledger/ back instead of live
+// sources: /events re-emits the recorded timeline (server/replay.ts), /api/state is the same folded ledger view, every
+// POST route answers 409, and these routes are added:
+//   GET  /api/replay              the player status (run, recorded date, clock, speed, markers, regen bundle).
+//   POST /api/replay/control      {op: "play"|"pause"|"speed"|"seek", value?} drives the player.
+//   GET  /api/replay/records      ?at=<epoch ms>&stream=<s> telemetry records around a time, for the inspector.
+//   GET  /api/replay/muse         ?attempt=<ATT-id> the attempt's recorded MSP stream.
+//   GET  /dist/core-<commit>.js   a core bundle the UI regenerates frames with.
+// In both modes GET /api/telemetry-verify serves the latest telemetry coverage report (server/verify.ts).
 
 import { createServer as httpServer } from "node:http";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
@@ -19,6 +29,10 @@ import { EventBus, sseMessage } from "./events.ts";
 import { recordFire } from "./fire.ts";
 import type { Paths } from "./events.ts";
 import type { Trace, TraceInput, UiEvent } from "../src/schema.ts";
+import { attachRecorder } from "./recorder.ts";
+import type { Tlog } from "./recorder.ts";
+import { tlog } from "../src/telemetry.ts";
+import { loadTimeline, ReplayPlayer, recordsAround, museStream } from "./replay.ts";
 
 /** Port the server listens on (SPEC §7.5). */
 export const PORT = Number(process.env.RATCHET_SERVER_PORT ?? 8787);
@@ -38,7 +52,17 @@ function expandHome(p: string): string {
   return p.startsWith("~") ? join(homedir(), p.slice(1)) : p;
 }
 
-export interface ServerOptions extends Paths { game: string; cache: string }
+export interface ServerOptions extends Paths {
+  game: string; cache: string;
+  /** Write every bus event, input and trace reset to telemetry through `log` (default src/telemetry.ts tlog). */
+  record?: boolean; log?: Tlog;
+  /** Play a recorded run back instead of live sources. */
+  replay?: { run: string; speed?: number; autoplay?: boolean };
+  /** Where /dist/core-<commit>.js bundles are read from (default <repo>/dist). */
+  dist?: string;
+  /** The latest telemetry coverage report, served at /api/telemetry-verify. */
+  verifyReport?: () => unknown;
+}
 
 /** Paths from the environment: RATCHET_LEDGER, RATCHET_RUNS, RATCHET_EVIDENCE, RATCHET_GAME, RATCHET_CACHE. */
 export function pathsFromEnv(env = process.env): ServerOptions {
@@ -108,14 +132,45 @@ export class LiveTrace {
 
 function isInt(x: unknown): x is number { return typeof x === "number" && Number.isInteger(x) && x >= 0; }
 
-export function createServer(opts: ServerOptions): { server: Server; bus: EventBus; trace: LiveTrace } {
+export function createServer(opts: ServerOptions): { server: Server; bus: EventBus; trace: LiveTrace; player: ReplayPlayer | null } {
   const bus = new EventBus(opts);
   const trace = new LiveTrace(join(opts.cache, "traces", "live.json"));
+  const log: Tlog = opts.record ? (opts.log ?? tlog) : () => {};
+  if (opts.record) attachRecorder(bus, log);
+  const dist = opts.dist ?? join(ROOT, "dist");
+  const player = opts.replay ? new ReplayPlayer(loadTimeline(opts, opts.replay.run, dist), opts.replay.speed ?? 1) : null;
+  if (player && opts.replay?.autoplay) player.play();
 
   const server = httpServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
     try {
+      if (req.method === "GET" && path === "/api/telemetry-verify") return send(res, 200, opts.verifyReport?.() ?? null);
+      if (player) {
+        if (req.method === "GET" && path === "/events") {
+          res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+          res.write(": ratchet replay\n\n");
+          req.on("close", player.addClient(res));
+          return;
+        }
+        if (req.method === "GET" && path === "/api/replay") return send(res, 200, player.status());
+        if (req.method === "POST" && path === "/api/replay/control") {
+          const b = (await readBody(req)) as { op?: string; value?: number };
+          if (b?.op === "play") player.play();
+          else if (b?.op === "pause") player.pause();
+          else if (b?.op === "speed" && typeof b.value === "number") player.setSpeed(b.value);
+          else if (b?.op === "seek" && typeof b.value === "number") player.seek(b.value);
+          else return send(res, 400, { error: "op" });
+          return send(res, 200, player.status());
+        }
+        if (req.method === "GET" && path === "/api/replay/records") {
+          const at = Number(url.searchParams.get("at") ?? player.pos);
+          return send(res, 200, recordsAround(player.tl, at, url.searchParams.get("stream") || undefined));
+        }
+        if (req.method === "GET" && path === "/api/replay/muse") return send(res, 200, museStream(player.tl, url.searchParams.get("attempt") ?? ""));
+        if (req.method === "GET" && /^\/dist\/core-[0-9a-f]+\.js$/.test(path)) return serveFile(res, dist, path.slice("/dist/".length));
+        if (req.method === "POST") return send(res, 409, { error: "replay mode: the recorded run is read-only" });
+      }
       if (req.method === "GET" && path === "/events") {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
         res.write(": ratchet\n\n");
@@ -131,12 +186,14 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
         const b = (await readBody(req)) as { rom_sha?: unknown };
         if (typeof b?.rom_sha !== "string") return send(res, 400, { error: "rom_sha" });
         trace.reset(b.rom_sha);
+        log("input", "reset", { rom_sha: b.rom_sha });
         return send(res, 200, { ok: true });
       }
       if (req.method === "POST" && path === "/api/input") {
         const b = (await readBody(req)) as { counter?: unknown; mask?: unknown };
         if (!isInt(b?.counter) || !isInt(b?.mask) || b.mask > 0xff) return send(res, 400, { error: "counter, mask" });
         trace.add({ from_counter: b.counter, mask: b.mask });
+        log("input", "mask", { counter: b.counter, mask: b.mask, source: "keyboard" });
         bus.publish({ t: "player", intent: "keyboard", mask: b.mask });
         return send(res, 200, { ok: true });
       }
@@ -153,9 +210,9 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
       return send(res, 400, { error: String((err as Error).message) });
     }
   });
-  server.on("close", () => bus.stop());
+  server.on("close", () => { bus.stop(); player?.stop(); });
   bus.start();
-  return { server, bus, trace };
+  return { server, bus, trace, player };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
