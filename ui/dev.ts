@@ -11,7 +11,8 @@ const env = { ...process.env };
 if (process.argv.includes("--fixtures")) {
   env.RATCHET_LEDGER = "ui/fixtures/ledger";
   env.RATCHET_EVIDENCE = "ui/fixtures/evidence";
-  env.RATCHET_RUNS = "ui/fixtures/runs";
+  // --vread shows the V-read panel over a fixture vread.json; the plain fixtures keep V hidden (server/index.test.ts).
+  env.RATCHET_RUNS = process.argv.includes("--vread") ? "ui/fixtures/vread-runs" : "ui/fixtures/runs";
 }
 
 const kids: ChildProcess[] = [
