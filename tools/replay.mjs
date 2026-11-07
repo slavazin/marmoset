@@ -42,9 +42,9 @@ var init_define_RATCHET_V_GLOBS = __esm({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -181,9 +181,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js"(exports) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var imagePasses = [
@@ -265,9 +265,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     module.exports = function paethPredictor(left, above, upLeft) {
@@ -286,9 +286,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var interlaceUtils = require_interlace();
@@ -428,9 +428,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -455,9 +455,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js
 var require_constants = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     module.exports = {
@@ -491,9 +491,9 @@ var require_constants = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var crcTable = [];
@@ -532,9 +532,9 @@ var require_crc = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
@@ -754,9 +754,9 @@ var require_parser = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js"(exports) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var interlaceUtils = require_interlace();
@@ -1003,9 +1003,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     function dePalette(indata, outdata, width, height, palette) {
@@ -1085,9 +1085,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -1216,9 +1216,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
@@ -1367,9 +1367,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var paethPredictor = require_paeth_predictor();
@@ -1510,9 +1510,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
@@ -1611,9 +1611,9 @@ var require_packer = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -1654,9 +1654,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var assert = __require("assert").ok;
@@ -1792,9 +1792,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var SyncReader = module.exports = function(buffer) {
@@ -1831,9 +1831,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js"(exports) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var SyncReader = require_sync_reader();
@@ -1856,9 +1856,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var hasSyncZlib = true;
@@ -1952,9 +1952,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js"(exports, module) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var hasSyncZlib = true;
@@ -1998,9 +1998,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js"(exports) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var parse = require_parser_sync();
@@ -2014,9 +2014,9 @@ var require_png_sync = __commonJS({
   }
 });
 
-// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js
+// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js"(exports) {
+  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -2164,6 +2164,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 var SPLITS_PATH = resolve(import.meta.dirname, "..", "splits.json");
+var SPLITS_CGB_PATH = resolve(import.meta.dirname, "..", "splits-cgb.json");
+var CGB_RUN_ID = "RUN-0002";
 function romsDir() {
   const v = process.env.RATCHET_ROMS;
   return v ? v.replace(/^~(?=\/|$)/, homedir()) : join(homedir(), ".cache", "ratchet", "roms");
@@ -2174,7 +2176,7 @@ function loadSplits(path = SPLITS_PATH) {
 function passRule(rom) {
   if (rom.startsWith("blargg/")) return "serial";
   if (rom.startsWith("mooneye-test-suite/")) return "registers";
-  if (rom.startsWith("mealybug-tearoom-tests/") || rom.startsWith("dmg-acid2/")) return "screenshot";
+  if (["mealybug-tearoom-tests/", "dmg-acid2/", "cgb-acid2/", "cgb-acid-hell/"].some((p) => rom.startsWith(p))) return "screenshot";
   return null;
 }
 function expandGlob(root, glob) {
@@ -2203,10 +2205,17 @@ function expandGlob(root, glob) {
   }
   return paths.sort();
 }
-function referencePath(root, rom) {
-  const stem = rom.replace(/\.gb$/, "");
-  const candidates = rom.startsWith("dmg-acid2/") ? [`${stem}-dmg.png`] : [`${stem}_dmg_blob.png`, `${stem}_dmg_b.png`];
-  for (const c of candidates) if (existsSync(join(root, c))) return c;
+function referenceCandidates(rom, model) {
+  const stem = rom.replace(/\.gbc?$/, "");
+  if (model === "CGB") {
+    if (rom.startsWith("cgb-acid2/") || rom.startsWith("cgb-acid-hell/")) return [`${stem}.png`];
+    if (rom.startsWith("mealybug-tearoom-tests/")) return [`${stem}_cgb_c.png`];
+    return [];
+  }
+  return rom.startsWith("dmg-acid2/") ? [`${stem}-dmg.png`] : [`${stem}_dmg_blob.png`, `${stem}_dmg_b.png`];
+}
+function referencePath(root, rom, model = "DMG") {
+  for (const c of referenceCandidates(rom, model)) if (existsSync(join(root, c))) return c;
   return null;
 }
 function familiesIn(splits, split) {
@@ -2221,6 +2230,7 @@ import { dirname, join as join2 } from "node:path";
 import { fileURLToPath } from "node:url";
 var FRONTEND = join2(dirname(fileURLToPath(import.meta.url)), "frontend.py");
 var FRAME_BYTES = 160 * 144;
+var RGB_FRAME_BYTES = FRAME_BYTES * 3;
 function ratchetCache() {
   return process.env.RATCHET_CACHE ?? join2(homedir2(), ".cache", "ratchet");
 }
@@ -2330,6 +2340,23 @@ function loadReference(path) {
   }
   return out;
 }
+function loadReferenceRgb(path) {
+  const png = import_pngjs2.PNG.sync.read(readFileSync3(path));
+  if (png.width !== 160 || png.height !== 144) throw new ReferenceLoadError(`${path}: ${png.width}x${png.height}, want 160x144`);
+  const out = new Uint8Array(160 * 144 * 3);
+  for (let i = 0; i < 160 * 144; i++) {
+    out[i * 3] = png.data[i * 4];
+    out[i * 3 + 1] = png.data[i * 4 + 1];
+    out[i * 3 + 2] = png.data[i * 4 + 2];
+  }
+  return out;
+}
+function rgbPixelMatch(frame, ref) {
+  if (frame.length !== ref.length) return 0;
+  let eq = 0;
+  for (let i = 0; i < ref.length; i += 3) if (frame[i] === ref[i] && frame[i + 1] === ref[i + 1] && frame[i + 2] === ref[i + 2]) eq++;
+  return eq / (ref.length / 3);
+}
 function pixelMatch(frame, ref) {
   let eq = 0;
   for (let i = 0; i < ref.length; i++) if (frame[i] === ref[i]) eq++;
@@ -2348,6 +2375,16 @@ function vGlobs() {
   if (typeof define_RATCHET_V_GLOBS_default !== "undefined") return define_RATCHET_V_GLOBS_default;
   throw new Error(`${SPLITS_PATH} absent and no V globs bundled: V cannot be refused, so nothing is scored`);
 }
+function cgbVGlobs() {
+  if (!existsSync3(SPLITS_CGB_PATH)) return [];
+  const splits = loadSplits(SPLITS_CGB_PATH);
+  return familiesIn(splits, "V").flatMap((f) => splits.families[f].roms);
+}
+function cgbVRoms(root) {
+  const out = vRoms(root);
+  for (const g of cgbVGlobs()) for (const r of expandGlob(root, g)) out.add(r);
+  return out;
+}
 function realPath(p) {
   try {
     return realpathSync.native(p);
@@ -2355,39 +2392,57 @@ function realPath(p) {
     return null;
   }
 }
-function isVRom(root, rom) {
+function inSetByRealPath(root, rom, set) {
   const target = realPath(join5(root, rom));
   if (target === null) return false;
-  for (const r of vRoms(root)) if (realPath(join5(root, r)) === target) return true;
+  for (const r of set) if (realPath(join5(root, r)) === target) return true;
   return false;
 }
 function refuseV() {
   throw new VReadRefused("split V refused: RATCHET_VREAD_TOKEN matches no runs/<id>/vread.lock (loop/vread.ts is V's only reader)");
 }
-function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYCLE_CAP }, runsDir) {
-  if (isVRom(root, rom) && !vreadAuthorized(process.env.RATCHET_VREAD_TOKEN, runsDir)) refuseV();
+function refuseVCgb() {
+  throw new VReadRefused(`split V-cgb refused: RATCHET_VREAD_TOKEN does not match runs/${CGB_RUN_ID}/vread.lock (loop/vread.ts is V's only reader)`);
+}
+function guardV(root, rom, model, runsDir) {
+  const token = process.env.RATCHET_VREAD_TOKEN;
+  const inV = inSetByRealPath(root, rom, vRoms(root));
+  if (model === "CGB") {
+    if ((inV || inSetByRealPath(root, rom, cgbVRoms(root))) && !vreadAuthorized(token, runsDir, CGB_RUN_ID)) refuseVCgb();
+    return;
+  }
+  if (inV) {
+    if (!vreadAuthorized(token, runsDir)) refuseV();
+    return;
+  }
+  if (inSetByRealPath(root, rom, cgbVRoms(root)) && !vreadAuthorized(token, runsDir, CGB_RUN_ID)) refuseVCgb();
+}
+function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYCLE_CAP }, runsDir, model = "DMG") {
+  guardV(root, rom, model, runsDir);
   const rule = passRule(rom);
   if (!rule) throw new Error(`no pass rule for ${rom}`);
   let ref = null;
   if (rule === "screenshot") {
-    const rp = referencePath(root, rom);
+    const rp = referencePath(root, rom, model);
     if (!rp) throw new ReferenceLoadError(`${rom}: no reference`);
-    ref = loadReference(join5(root, rp));
+    ref = model === "CGB" ? loadReferenceRgb(join5(root, rp)) : loadReference(join5(root, rp));
   }
   const res = (pass, outcome, detail, pm) => ({ rom, pass, outcome, detail, pixel_match: pm ?? (pass ? 1 : 0) });
   const frameMatch = (core2) => {
     try {
-      return pixelMatch(core2.frame(), ref);
+      return model === "CGB" ? rgbPixelMatch(core2.frameRgb(), ref) : pixelMatch(core2.frame(), ref);
     } catch {
       return 0;
     }
   };
   let core;
   try {
-    core = createCore(new Uint8Array(readFileSync3(join5(root, rom))));
+    const bytes = new Uint8Array(readFileSync3(join5(root, rom)));
+    core = model === "CGB" ? createCore(bytes, { model: "CGB" }) : createCore(bytes);
   } catch (e) {
     return res(false, "error", `createCore threw: ${String(e)}`);
   }
+  if (model === "CGB" && typeof core.frameRgb !== "function") return res(false, "error", "no CGB support");
   const deadline = Date.now() + caps.wallMs;
   let shotAt = null;
   try {
@@ -2420,9 +2475,9 @@ function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYC
     return res(false, "error", `core threw: ${String(e)}`, ref ? frameMatch(core) : 0);
   }
 }
-function vreadAuthorized(token, runsDir = resolve4(import.meta.dirname, "..", "runs")) {
+function vreadAuthorized(token, runsDir = resolve4(import.meta.dirname, "..", "runs"), runId) {
   if (!token || !existsSync3(runsDir)) return false;
-  for (const id of readdirSync2(runsDir)) {
+  for (const id of runId ? [runId] : readdirSync2(runsDir)) {
     const lock = join5(runsDir, id, "vread.lock");
     if (!existsSync3(lock)) continue;
     const first = readFileSync3(lock, "utf8").split("\n").find((l) => l.trim());

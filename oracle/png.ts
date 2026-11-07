@@ -2,8 +2,25 @@
 // 8-bit RGB/RGBA) with node:zlib and maps it to DMG shades by the exact map of
 // SPEC §5 S2 (#FFFFFF=0, #AAAAAA=1, #555555=2, #000000=3). Any other colour
 // throws: a reference that holds one is a load error, never a nearest match.
+// readPngRgb: any PNG pngjs reads (the CGB references are palette PNGs) as
+// RGB888, colours exactly as stored (CGB tier, D-0019).
 import { readFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
+import { PNG } from "pngjs";
+
+export interface RgbImage { width: number; height: number; rgb: Uint8Array /* width*height*3, R,G,B */ }
+
+export function readPngRgb(path: string): RgbImage {
+  const png = PNG.sync.read(readFileSync(path));
+  const n = png.width * png.height;
+  const rgb = new Uint8Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    rgb[i * 3] = png.data[i * 4];
+    rgb[i * 3 + 1] = png.data[i * 4 + 1];
+    rgb[i * 3 + 2] = png.data[i * 4 + 2];
+  }
+  return { width: png.width, height: png.height, rgb };
+}
 
 const SHADE_OF_RGB = new Map<number, number>([
   [0xffffff, 0],

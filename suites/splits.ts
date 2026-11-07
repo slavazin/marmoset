@@ -2,12 +2,24 @@
 // A ROM is scored when it is DMG-compatible, its pass rule is known, and its reference (screenshot rules) exists;
 // every other ROM a glob reaches is listed by computeExcluded with its reason. suites/splits.test.ts asserts
 // that splits.json's `excluded` equals computeExcluded over the fetched ROMs.
+// CGB tier (D-0019): splits-cgb.json has the same shape plus a per-family `model`. A family marked "CGB" is scored
+// on a core created with { model: "CGB" } against its RGB reference: cgb-acid2/cgb-acid-hell's `<stem>.png`, and
+// Mealybug's `_cgb_c.png` (CPU CGB C, the revision oracle/frontend.py runs SameBoy as).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { Split, Splits } from "../src/schema.ts";
 
 export const SPLITS_PATH = resolve(import.meta.dirname, "..", "splits.json");
+export const SPLITS_CGB_PATH = resolve(import.meta.dirname, "..", "splits-cgb.json");
+/** The run that reads V-cgb (D-0019): only a token from runs/<CGB_RUN_ID>/vread.lock opens a CGB-model V ROM. */
+export const CGB_RUN_ID = "RUN-0002";
+
+export type Model = "DMG" | "CGB";
+/** The hardware a family's ROMs are scored on: its `model` field (splits-cgb.json), else DMG. */
+export function familyModel(splits: Splits, family: string): Model {
+  return (splits.families[family] as { model?: Model } | undefined)?.model ?? "DMG";
+}
 
 export function romsDir(): string {
   const v = process.env.RATCHET_ROMS;
@@ -24,7 +36,7 @@ export type PassRule = "serial" | "registers" | "screenshot";
 export function passRule(rom: string): PassRule | null {
   if (rom.startsWith("blargg/")) return "serial";
   if (rom.startsWith("mooneye-test-suite/")) return "registers";
-  if (rom.startsWith("mealybug-tearoom-tests/") || rom.startsWith("dmg-acid2/")) return "screenshot";
+  if (["mealybug-tearoom-tests/", "dmg-acid2/", "cgb-acid2/", "cgb-acid-hell/"].some((p) => rom.startsWith(p))) return "screenshot";
   return null;
 }
 
@@ -67,21 +79,35 @@ export function modelSuffix(rom: string): string | null {
   return i < 0 ? null : stem.slice(i + 1);
 }
 
-/** The reference PNG for a screenshot-rule ROM, or null when none exists. Mealybug: `_dmg_blob.png`, then `_dmg_b.png`. */
-export function referencePath(root: string, rom: string): string | null {
-  const stem = rom.replace(/\.gb$/, "");
-  const candidates = rom.startsWith("dmg-acid2/") ? [`${stem}-dmg.png`] : [`${stem}_dmg_blob.png`, `${stem}_dmg_b.png`];
-  for (const c of candidates) if (existsSync(join(root, c))) return c;
+/** The reference candidates for a screenshot-rule ROM on `model`, in preference order. */
+function referenceCandidates(rom: string, model: Model): string[] {
+  const stem = rom.replace(/\.gbc?$/, "");
+  if (model === "CGB") {
+    if (rom.startsWith("cgb-acid2/") || rom.startsWith("cgb-acid-hell/")) return [`${stem}.png`];
+    if (rom.startsWith("mealybug-tearoom-tests/")) return [`${stem}_cgb_c.png`];
+    return [];
+  }
+  return rom.startsWith("dmg-acid2/") ? [`${stem}-dmg.png`] : [`${stem}_dmg_blob.png`, `${stem}_dmg_b.png`];
+}
+
+/**
+ * The reference PNG for a screenshot-rule ROM, or null when none exists. DMG Mealybug: `_dmg_blob.png`, then
+ * `_dmg_b.png`. CGB: Mealybug `_cgb_c.png`; cgb-acid2 and cgb-acid-hell `<stem>.png`.
+ */
+export function referencePath(root: string, rom: string, model: Model = "DMG"): string | null {
+  for (const c of referenceCandidates(rom, model)) if (existsSync(join(root, c))) return c;
   return null;
 }
 
-/** Why a ROM is not scored, or null when it is. */
-export function exclusionReason(root: string, rom: string, dmgSuffixes: string[]): string | null {
+/** Why a ROM is not scored on `model`, or null when it is. */
+export function exclusionReason(root: string, rom: string, dmgSuffixes: string[], model: Model = "DMG"): string | null {
   const rule = passRule(rom);
   if (!rule) return "no pass rule for this suite";
   const sfx = modelSuffix(rom);
+  if (model === "CGB" && rom.startsWith("mooneye-test-suite/")) return "the CGB tier has no Mooneye model-suffix rule";
   if (sfx !== null && !dmgSuffixes.includes(sfx)) return `model suffix ${sfx} is not DMG-compatible`;
-  if (rule === "screenshot" && !referencePath(root, rom)) {
+  if (rule === "screenshot" && !referencePath(root, rom, model)) {
+    if (model === "CGB") return rom.startsWith("mealybug-tearoom-tests/") ? "no _cgb_c.png reference" : "no .png reference";
     return rom.startsWith("dmg-acid2/") ? "no -dmg.png reference" : "no _dmg_blob.png or _dmg_b.png reference";
   }
   return null;
@@ -90,10 +116,10 @@ export function exclusionReason(root: string, rom: string, dmgSuffixes: string[]
 /** Every ROM a family glob reaches that is not scored, with its reason, sorted by path. */
 export function computeExcluded(splits: Splits, root: string = romsDir()): { rom: string; reason: string }[] {
   const out = new Map<string, string>();
-  for (const fam of Object.values(splits.families)) {
+  for (const [name, fam] of Object.entries(splits.families)) {
     for (const g of fam.roms) {
       for (const rom of expandGlob(root, g)) {
-        const r = exclusionReason(root, rom, splits.dmg_suffixes);
+        const r = exclusionReason(root, rom, splits.dmg_suffixes, familyModel(splits, name));
         if (r) out.set(rom, r);
       }
     }
@@ -109,7 +135,7 @@ export function familyRoms(splits: Splits, family: string, root: string = romsDi
   const roms = new Set<string>();
   for (const g of fam.roms) {
     for (const rom of expandGlob(root, g)) {
-      if (!excluded.has(rom) && exclusionReason(root, rom, splits.dmg_suffixes) === null) roms.add(rom);
+      if (!excluded.has(rom) && exclusionReason(root, rom, splits.dmg_suffixes, familyModel(splits, family)) === null) roms.add(rom);
     }
   }
   return [...roms].sort();
