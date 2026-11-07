@@ -74,7 +74,7 @@ ${s.subsystem ? `<div class="dim">subsystem agreement: ${esc(fmtReading(s.subsys
 function meter(h: History): string {
   const m = h.meter;
   if (!m) return "";
-  const owner = m.owner_read_usd === null ? "no spend-override.json" : fmtUsd(m.owner_read_usd);
+  const owner = m.owner_read_usd === null ? "no spend-override.json" : `${fmtUsd(m.owner_read_usd)} (list rates × ${(m.ratio ?? 1).toFixed(3)} since reading)`;
   return `<div>owner-read (Meta console) <b>${esc(owner)}</b> · priced (list rates, held by review) ${esc(fmtUsd(m.priced_usd))} · the guard reads ${esc(m.source)} ${esc(fmtUsd(m.usd))}: ask at ${esc(fmtUsd(m.ask_usd))}, stop at ${esc(fmtUsd(m.stop_usd))}</div>${m.warning ? `<div class="dim">warning: ${esc(m.warning)}</div>` : ""}`;
 }
 
