@@ -6,7 +6,7 @@ import { MAX_STEPS } from "./gate.ts";
 
 /**
  * Seconds per Muse model step: ATT-0001's wall rate (2026-11-07, 600 s / 40 steps), not its model time of about
- * 13.5 s per call as the orchestrator read it, so the wall does not bind before the step cap (D-0025, D-0026).
+ * 13.5 s per call as the orchestrator read it, so the wall does not bind before the step cap (D-0026).
  */
 export const SECONDS_PER_STEP = 15;
 /** Wall-clock budget of one fast-loop attempt, in seconds: MAX_STEPS × SECONDS_PER_STEP, rounded up. */
