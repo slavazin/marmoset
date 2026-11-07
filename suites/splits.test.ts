@@ -4,7 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Splits } from "../src/schema.ts";
-import { computeExcluded, exclusionReason, familiesIn, familyRoms, loadSplits, modelSuffix, referencePath, romsDir } from "./splits.ts";
+import {
+  computeExcluded, exclusionReason, familiesIn, familyModel, familyRoms, loadSplits, modelSuffix, referencePath, romsDir, SPLITS_CGB_PATH,
+} from "./splits.ts";
 
 const ROMS = romsDir();
 const skip = existsSync(join(ROMS, "VERSION")) ? false : `ROMs absent at ${ROMS}; run pnpm roms:fetch`;
@@ -82,4 +84,38 @@ test("Mealybug reference is _dmg_blob.png, falling back to _dmg_b.png; a ROM wit
   const splits: Splits = { version: "t", families: { "mealybug:t": { split: "T", roms: [`${p}*.gb`] } }, dmg_suffixes: [], excluded: [] };
   assert.deepEqual(computeExcluded(splits, root), [{ rom: `${p}c.gb`, reason: "no _dmg_blob.png or _dmg_b.png reference" }]);
   assert.deepEqual(familyRoms(splits, "mealybug:t", root), [`${p}a.gb`, `${p}b.gb`]);
+});
+
+test("splits-cgb.json marks every family CGB, has base, T, H and V, and shares no family name with splits.json (D-0019)", () => {
+  const cgb = loadSplits(SPLITS_CGB_PATH);
+  const dmg = loadSplits();
+  for (const f of Object.keys(cgb.families)) {
+    assert.equal(familyModel(cgb, f), "CGB", f);
+    assert.ok(!(f in dmg.families), `${f} is in splits.json`);
+  }
+  for (const f of Object.keys(dmg.families)) assert.equal(familyModel(dmg, f), "DMG", f);
+  assert.deepEqual(familiesIn(cgb, "base"), ["cgb:acid2"]);
+  assert.deepEqual(familiesIn(cgb, "T"), ["cgb:mealybug:palette-scroll-bg"]);
+  assert.deepEqual(familiesIn(cgb, "H"), ["cgb:acid-hell", "cgb:mealybug:window"]);
+  assert.deepEqual(familiesIn(cgb, "V"), ["cgb:mealybug:wx-obj"]);
+});
+
+test("splits-cgb.json excluded equals computeExcluded over the fetched ROMs; family ROM counts base 1, T 14, H 1 + 8", { skip }, () => {
+  const s = loadSplits(SPLITS_CGB_PATH);
+  assert.deepEqual(s.excluded, computeExcluded(s));
+  const n = (f: string) => familyRoms(s, f).length;
+  assert.equal(n("cgb:acid2"), 1);
+  assert.equal(n("cgb:mealybug:palette-scroll-bg"), 14);
+  assert.equal(n("cgb:acid-hell"), 1);
+  assert.equal(n("cgb:mealybug:window"), 8);
+});
+
+test("CGB references: Mealybug _cgb_c.png, cgb-acid2 and cgb-acid-hell <stem>.png; a DMG lookup never returns them", () => {
+  const p = "mealybug-tearoom-tests/ppu/";
+  const root = tmpRoot([`${p}a.gb`, `${p}a_cgb_c.png`, `${p}a_cgb_d.png`, `${p}b.gb`, `${p}b_dmg_blob.png`, "cgb-acid2/cgb-acid2.gbc", "cgb-acid2/cgb-acid2.png"]);
+  assert.equal(referencePath(root, `${p}a.gb`, "CGB"), `${p}a_cgb_c.png`);
+  assert.equal(referencePath(root, `${p}a.gb`), null);
+  assert.equal(referencePath(root, `${p}b.gb`, "CGB"), null);
+  assert.equal(referencePath(root, "cgb-acid2/cgb-acid2.gbc", "CGB"), "cgb-acid2/cgb-acid2.png");
+  assert.equal(exclusionReason(root, `${p}b.gb`, [], "CGB"), "no _cgb_c.png reference");
 });

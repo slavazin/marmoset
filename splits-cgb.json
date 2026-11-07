@@ -1,0 +1,73 @@
+{
+  "version": "1",
+  "families": {
+    "cgb:acid2": {
+      "split": "base",
+      "model": "CGB",
+      "roms": ["cgb-acid2/cgb-acid2.gbc"]
+    },
+    "cgb:mealybug:palette-scroll-bg": {
+      "split": "T",
+      "model": "CGB",
+      "roms": [
+        "mealybug-tearoom-tests/ppu/m3_bgp_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_bgp_change_sprites.gb",
+        "mealybug-tearoom-tests/ppu/m3_obp0_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_scx_high_5_bits.gb",
+        "mealybug-tearoom-tests/ppu/m3_scx_high_5_bits_change2.gb",
+        "mealybug-tearoom-tests/ppu/m3_scx_low_3_bits.gb",
+        "mealybug-tearoom-tests/ppu/m3_scy_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_scy_change2.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_bg_en_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_bg_en_change2.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_bg_map_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_bg_map_change2.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_tile_sel_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_tile_sel_change2.gb"
+      ]
+    },
+    "cgb:acid-hell": {
+      "split": "H",
+      "model": "CGB",
+      "roms": ["cgb-acid-hell/cgb-acid-hell.gbc"]
+    },
+    "cgb:mealybug:window": {
+      "split": "H",
+      "model": "CGB",
+      "roms": [
+        "mealybug-tearoom-tests/ppu/m2_win_en_toggle.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_win_en_change_multiple.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_win_en_change_multiple_wx.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_win_map_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_win_map_change2.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_tile_sel_win_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_tile_sel_win_change2.gb",
+        "mealybug-tearoom-tests/ppu/m3_window_timing.gb",
+        "mealybug-tearoom-tests/ppu/m3_window_timing_wx_0.gb",
+        "mealybug-tearoom-tests/ppu/win_without_bg.gb"
+      ]
+    },
+    "cgb:mealybug:wx-obj": {
+      "split": "V",
+      "model": "CGB",
+      "roms": [
+        "mealybug-tearoom-tests/ppu/m3_wx_4_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_wx_4_change_sprites.gb",
+        "mealybug-tearoom-tests/ppu/m3_wx_5_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_wx_6_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_en_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_en_change_variant.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_size_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_size_change_scx.gb"
+      ]
+    }
+  },
+  "dmg_suffixes": [],
+  "excluded": [
+    { "rom": "mealybug-tearoom-tests/ppu/m3_lcdc_win_en_change_multiple_wx.gb", "reason": "no _cgb_c.png reference" },
+    { "rom": "mealybug-tearoom-tests/ppu/m3_wx_4_change.gb", "reason": "no _cgb_c.png reference" },
+    { "rom": "mealybug-tearoom-tests/ppu/m3_wx_5_change.gb", "reason": "no _cgb_c.png reference" },
+    { "rom": "mealybug-tearoom-tests/ppu/m3_wx_6_change.gb", "reason": "no _cgb_c.png reference" },
+    { "rom": "mealybug-tearoom-tests/ppu/win_without_bg.gb", "reason": "no _cgb_c.png reference" }
+  ]
+}
