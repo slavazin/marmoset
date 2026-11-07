@@ -1,0 +1,119 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "b15299ea66820ead3bce06058fb3b4c695856d9a7f02a0e0765132c36d8a312c",
+  "questions_sha": "273ad4a41a95bf83172097aba7fba5c3c2e09d7940f35cb27f04e1d47b35b32a",
+  "at": "2026-11-07T22:24:57.631Z",
+  "status": 200,
+  "wall_ms": 461,
+  "questions": {
+    "subsystem": {
+      "type": "choice",
+      "instructions": "Which emulator subsystem most likely produced this frame divergence?",
+      "criteria": {
+        "ppu_fetcher": "pixels shifted or wrong within a line during mode 3",
+        "stat_irq": "a raster split lands on the wrong line",
+        "oam_dma": "sprites missing or stale",
+        "window": "window position or line counter wrong",
+        "timer": "timing-dependent state off",
+        "other": null
+      }
+    },
+    "mid_line": {
+      "type": "noul",
+      "instructions": "Does the divergence start mid-scanline rather than at x = 0?",
+      "criteria": {
+        "true": "the first differing pixel on a line is not at x = 0",
+        "false": "whole lines differ from x = 0"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is this divergence for a player of the game?",
+      "criteria": [
+        "cosmetic: a few pixels differ, play unaffected",
+        "visible: a region or band of the frame is wrong",
+        "severe: most of the frame is wrong or game state is broken"
+      ]
+    },
+    "emulator_part": {
+      "type": "choice",
+      "instructions": "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+      "criteria": {
+        "ppu_fetcher": "pixels misplaced or wrong inside one line while it is drawn",
+        "stat_irq": "a mid-frame split happens on the wrong line",
+        "oam_dma": "objects absent or out of date",
+        "window": "window placed wrong or its line count off",
+        "timer": "state that depends on timing is off",
+        "other": null
+      }
+    },
+    "applies:SKL-0002": {
+      "type": "noul",
+      "instructions": "Does skill SKL-0002 apply to this incident: would a repairer fixing it touch what the skill covers?",
+      "criteria": {
+        "true": "fires when: a serial transfer started through SC (0xFF02) completes after the wrong number of cycles and link bytes arrive late; paths: core/index.ts",
+        "false": "not this: serial interrupt enable"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "subsystem": {
+        "type": "choice",
+        "choice": "stat_irq",
+        "probabilities": {
+          "ppu_fetcher": 0.28891560435295105,
+          "stat_irq": 0.4068414568901062,
+          "oam_dma": 0.02011389099061489,
+          "window": 0.16204115748405457,
+          "timer": 0.045332781970500946,
+          "other": 0.07675506174564362
+        },
+        "confidence": 0.28820974826812745
+      },
+      "mid_line": {
+        "type": "noul",
+        "noul": 0.062019746750593185
+      },
+      "severity": {
+        "type": "score",
+        "score": 0.8052899073809385,
+        "legend": {
+          "0": "cosmetic: a few pixels differ, play unaffected",
+          "1": "visible: a region or band of the frame is wrong",
+          "2": "severe: most of the frame is wrong or game state is broken"
+        },
+        "probabilities": {
+          "0": 0.20182709395885468,
+          "1": 0.7910558581352234,
+          "2": 0.007117024622857571
+        },
+        "confidence": 0.6865838221274316
+      },
+      "emulator_part": {
+        "type": "choice",
+        "choice": "ppu_fetcher",
+        "probabilities": {
+          "ppu_fetcher": 0.35361090302467346,
+          "stat_irq": 0.32503455877304077,
+          "oam_dma": 0.014908062294125557,
+          "window": 0.16642385721206665,
+          "timer": 0.047284085303545,
+          "other": 0.09273861348628998
+        },
+        "confidence": 0.22433308362960816
+      },
+      "applies:SKL-0002": {
+        "type": "noul",
+        "noul": 0.3274296820163727
+      }
+    },
+    "usage": {
+      "input_tokens": 2732,
+      "output_tokens": 0
+    }
+  }
+}

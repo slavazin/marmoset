@@ -1,0 +1,9 @@
+{"t":"start","at":"2026-11-07T22:03:27.092Z","run":"RUN-0001","home":"/Users/slavazinevich/.cache/ratchet-native1/muse-native-home"}
+{"t":"skip","at":"2026-11-07T22:03:27.096Z","run":"RUN-0001","generations":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19],"for":20}
+{"t":"skip","at":"2026-11-07T22:40:51.953Z","run":"RUN-0001","generations":[20],"for":20}
+{"t":"error","at":"2026-11-07T22:40:51.954Z","run":"RUN-0001","generation":20,"error":"muse-native mooneye:ppu: Muse exited 143 before any model call"}
+{"t":"wait","at":"2026-11-07T22:41:21.956Z","run":"RUN-0001","next":21}
+{"t":"wait","at":"2026-11-07T22:41:51.957Z","run":"RUN-0001","next":21}
+{"t":"wait","at":"2026-11-07T22:42:21.964Z","run":"RUN-0001","next":21}
+{"t":"wait","at":"2026-11-07T22:42:51.966Z","run":"RUN-0001","next":21}
+{"t":"spend","at":"2026-11-07T22:43:21.972Z","run":"RUN-0001","usd":108.50485190512498,"line":"muse-native arm dropped at the spend ask (D-0013): spend combined over 2 runs: guard reads $108.50 (ask $60, stop $80) = RUN-0001 owner-read $68.16 + RUN-0002 owner-read $40.34"}

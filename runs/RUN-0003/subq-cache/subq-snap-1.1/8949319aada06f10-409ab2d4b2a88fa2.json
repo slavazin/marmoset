@@ -1,0 +1,119 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "8949319aada06f102728962121b38ff46e503ea30587c778aa68ffba95377489",
+  "questions_sha": "409ab2d4b2a88fa2d635b94c9e52b3dc40da412f828c41b7278caebcb22e7baa",
+  "at": "2026-11-07T22:31:46.729Z",
+  "status": 200,
+  "wall_ms": 444,
+  "questions": {
+    "subsystem": {
+      "type": "choice",
+      "instructions": "Which emulator subsystem most likely produced this frame divergence?",
+      "criteria": {
+        "ppu_fetcher": "pixels shifted or wrong within a line during mode 3",
+        "stat_irq": "a raster split lands on the wrong line",
+        "oam_dma": "sprites missing or stale",
+        "window": "window position or line counter wrong",
+        "timer": "timing-dependent state off",
+        "other": null
+      }
+    },
+    "mid_line": {
+      "type": "noul",
+      "instructions": "Does the divergence start mid-scanline rather than at x = 0?",
+      "criteria": {
+        "true": "the first differing pixel on a line is not at x = 0",
+        "false": "whole lines differ from x = 0"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is this divergence for a player of the game?",
+      "criteria": [
+        "cosmetic: a few pixels differ, play unaffected",
+        "visible: a region or band of the frame is wrong",
+        "severe: most of the frame is wrong or game state is broken"
+      ]
+    },
+    "emulator_part": {
+      "type": "choice",
+      "instructions": "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+      "criteria": {
+        "ppu_fetcher": "pixels misplaced or wrong inside one line while it is drawn",
+        "stat_irq": "a mid-frame split happens on the wrong line",
+        "oam_dma": "objects absent or out of date",
+        "window": "window placed wrong or its line count off",
+        "timer": "state that depends on timing is off",
+        "other": null
+      }
+    },
+    "applies:SKL-0002": {
+      "type": "noul",
+      "instructions": "Does skill SKL-0002 apply to this incident: would a repairer fixing it touch what the skill covers?",
+      "criteria": {
+        "true": "fires when: cartridge RAM enabled by a 0x0A write to 0x0000-0x1FFF loses its saved bytes across a power cycle; paths: core/mbc1.ts",
+        "false": "not this: ROM bank switching"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "subsystem": {
+        "type": "choice",
+        "choice": "oam_dma",
+        "probabilities": {
+          "ppu_fetcher": 0.07177098095417023,
+          "stat_irq": 0.02260076254606247,
+          "oam_dma": 0.8040648102760315,
+          "window": 0.012895536608994007,
+          "timer": 0.05036334693431854,
+          "other": 0.03830456733703613
+        },
+        "confidence": 0.7648777723312378
+      },
+      "mid_line": {
+        "type": "noul",
+        "noul": 0.9877651333808899
+      },
+      "severity": {
+        "type": "score",
+        "score": 0.2622131109237671,
+        "legend": {
+          "0": "cosmetic: a few pixels differ, play unaffected",
+          "1": "visible: a region or band of the frame is wrong",
+          "2": "severe: most of the frame is wrong or game state is broken"
+        },
+        "probabilities": {
+          "0": 0.757965624332428,
+          "1": 0.22185567021369934,
+          "2": 0.020178720355033875
+        },
+        "confidence": 0.6066803336143494
+      },
+      "emulator_part": {
+        "type": "choice",
+        "choice": "oam_dma",
+        "probabilities": {
+          "ppu_fetcher": 0.10503396391868591,
+          "stat_irq": 0.0177801214158535,
+          "oam_dma": 0.7599961757659912,
+          "window": 0.012598847039043903,
+          "timer": 0.04951930418610573,
+          "other": 0.05507158488035202
+        },
+        "confidence": 0.7119954109191895
+      },
+      "applies:SKL-0002": {
+        "type": "noul",
+        "noul": 0.03565745800733566
+      }
+    },
+    "usage": {
+      "input_tokens": 2778,
+      "output_tokens": 0
+    }
+  }
+}

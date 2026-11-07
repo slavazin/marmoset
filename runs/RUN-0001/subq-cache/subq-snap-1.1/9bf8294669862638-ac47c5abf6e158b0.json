@@ -1,0 +1,131 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "9bf8294669862638c15e36c907fb68d4c3394aff0814e56fb3e1cf9209d8888e",
+  "questions_sha": "ac47c5abf6e158b0907c72b483ae3a55dc5edb57f181dd87383668420ba0bf20",
+  "at": "2026-11-07T21:40:30.795Z",
+  "status": 200,
+  "wall_ms": 573,
+  "questions": {
+    "subsystem": {
+      "type": "choice",
+      "instructions": "Which emulator subsystem most likely produced this frame divergence?",
+      "criteria": {
+        "ppu_fetcher": "pixels shifted or wrong within a line during mode 3",
+        "stat_irq": "a raster split lands on the wrong line",
+        "oam_dma": "sprites missing or stale",
+        "window": "window position or line counter wrong",
+        "timer": "timing-dependent state off",
+        "other": null
+      }
+    },
+    "mid_line": {
+      "type": "noul",
+      "instructions": "Does the divergence start mid-scanline rather than at x = 0?",
+      "criteria": {
+        "true": "the first differing pixel on a line is not at x = 0",
+        "false": "whole lines differ from x = 0"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is this divergence for a player of the game?",
+      "criteria": [
+        "cosmetic: a few pixels differ, play unaffected",
+        "visible: a region or band of the frame is wrong",
+        "severe: most of the frame is wrong or game state is broken"
+      ]
+    },
+    "emulator_part": {
+      "type": "choice",
+      "instructions": "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+      "criteria": {
+        "ppu_fetcher": "pixels misplaced or wrong inside one line while it is drawn",
+        "stat_irq": "a mid-frame split happens on the wrong line",
+        "oam_dma": "objects absent or out of date",
+        "window": "window placed wrong or its line count off",
+        "timer": "state that depends on timing is off",
+        "other": null
+      }
+    },
+    "applies:SKL-0003": {
+      "type": "noul",
+      "instructions": "Does skill SKL-0003 apply to this incident: would a repairer fixing it touch what the skill covers?",
+      "criteria": {
+        "true": "fires when: the channel 4 noise generator in 7-bit mode repeats with the wrong period, so the hiss sounds tonal; paths: core/index.ts",
+        "false": "not this: channel 4 length counter"
+      }
+    },
+    "same_shape_as:OBS-0001": {
+      "type": "noul",
+      "instructions": "Is this incident the same failure shape as observation OBS-0001?",
+      "criteria": {
+        "true": "A frame divergence in scene 0, line band 0, box 0,0–160,144 (7042 px) at counter 1 was refused at diff-scope after a repair that wrote no summary.",
+        "false": "a different failure shape"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "subsystem": {
+        "type": "choice",
+        "choice": "oam_dma",
+        "probabilities": {
+          "ppu_fetcher": 0.16685210168361664,
+          "stat_irq": 0.1837073564529419,
+          "oam_dma": 0.3382880687713623,
+          "window": 0.103568434715271,
+          "timer": 0.12075556814670563,
+          "other": 0.08682845532894135
+        },
+        "confidence": 0.20594568252563478
+      },
+      "mid_line": {
+        "type": "noul",
+        "noul": 0.948388934135437
+      },
+      "severity": {
+        "type": "score",
+        "score": 0.9916386567056179,
+        "legend": {
+          "0": "cosmetic: a few pixels differ, play unaffected",
+          "1": "visible: a region or band of the frame is wrong",
+          "2": "severe: most of the frame is wrong or game state is broken"
+        },
+        "probabilities": {
+          "0": 0.0347801074385643,
+          "1": 0.9388010501861572,
+          "2": 0.02641880325973034
+        },
+        "confidence": 0.908201633952558
+      },
+      "emulator_part": {
+        "type": "choice",
+        "choice": "oam_dma",
+        "probabilities": {
+          "ppu_fetcher": 0.25755083560943604,
+          "stat_irq": 0.13009925186634064,
+          "oam_dma": 0.27631303668022156,
+          "window": 0.09253359586000443,
+          "timer": 0.13288429379463196,
+          "other": 0.11061900854110718
+        },
+        "confidence": 0.13157564401626587
+      },
+      "applies:SKL-0003": {
+        "type": "noul",
+        "noul": 0.16653597354888916
+      },
+      "same_shape_as:OBS-0001": {
+        "type": "noul",
+        "noul": 0.02066662162542343
+      }
+    },
+    "usage": {
+      "input_tokens": 2622,
+      "output_tokens": 0
+    }
+  }
+}

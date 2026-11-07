@@ -1,0 +1,53 @@
+{
+  "run": "RUN-0001",
+  "at": "2026-11-07T23:07:04.672Z",
+  "core_commit": "dcc327c90c49585c700987e8c875b43ed3492b1e",
+  "s0_sha": "c6d5c1e1ab77cdc891cbcdabbd5a36013d8ffa68e0e5ebb968376c1ec5077dff",
+  "s_star_sha": "c6d5c1e1ab77cdc891cbcdabbd5a36013d8ffa68e0e5ebb968376c1ec5077dff",
+  "arms": {
+    "baseline": [
+      {
+        "split": "V",
+        "family": "mealybug:wx-obj",
+        "roms": 8,
+        "pass": 0,
+        "exact": 0,
+        "pixel_match": 0.8160861545138889
+      },
+      {
+        "split": "V",
+        "family": "mooneye:dma-timer-intr",
+        "roms": 31,
+        "pass": 31,
+        "exact": 31,
+        "pixel_match": 1
+      }
+    ],
+    "ratchet": [
+      {
+        "split": "V",
+        "family": "mealybug:wx-obj",
+        "roms": 8,
+        "pass": 1,
+        "exact": 1,
+        "pixel_match": 0.9169216579861111
+      },
+      {
+        "split": "V",
+        "family": "mooneye:dma-timer-intr",
+        "roms": 31,
+        "pass": 31,
+        "exact": 31,
+        "pixel_match": 1
+      }
+    ]
+  },
+  "n_family_runs_per_arm": 1,
+  "residue": [
+    "audio",
+    "CGB (RUN-0002 reads V-cgb)",
+    "serial timing",
+    "1 family-run per arm per family: a gap inside run-to-run noise is not separable from the arms",
+    "the trial calibration's spread was measured on H families, not V"
+  ]
+}

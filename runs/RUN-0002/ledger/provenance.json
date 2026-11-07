@@ -1,0 +1,71 @@
+[
+  {
+    "handler": "cpu.op",
+    "file": "core/cpu.ts",
+    "commit": "6a507301662d617a007343cb3f0d451ca9e8610c"
+  },
+  {
+    "handler": "cpu.cb",
+    "file": "core/cpu.ts",
+    "commit": "6a507301662d617a007343cb3f0d451ca9e8610c"
+  },
+  {
+    "handler": "ppu.oam",
+    "file": "core/ppu.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "ppu.fetcher",
+    "file": "core/ppu.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "ppu.fifo",
+    "file": "core/ppu.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "ppu.window",
+    "file": "core/ppu.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "ppu.sprites",
+    "file": "core/ppu.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "timer",
+    "file": "core/index.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "irq",
+    "file": "core/index.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "dma",
+    "file": "core/index.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  },
+  {
+    "handler": "mbc1",
+    "file": "core/mbc1.ts",
+    "commit": "62606064becb5c48d44389cef5d40763404f4855"
+  },
+  {
+    "handler": "bus.io",
+    "file": "core/index.ts",
+    "commit": "e90ce2c913872bb5d8128024186eb9006110f3a8",
+    "attempt": "ATT-0002"
+  }
+]

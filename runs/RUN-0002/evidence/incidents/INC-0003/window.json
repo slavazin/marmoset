@@ -1,0 +1,48 @@
+{
+  "kind": "suite",
+  "incident": {
+    "id": "INC-0003",
+    "at": "2026-11-07T22:03:51.734Z",
+    "run": "RUN-0002",
+    "kind": "frame",
+    "align": "frame",
+    "signature": {
+      "scene": 0,
+      "band": 0,
+      "bbox": [
+        0,
+        0,
+        160,
+        144
+      ]
+    },
+    "rom_sha": "4bb4ea8076950c1ecaeb8c704ca0568e05bc09d35e114f0cbe77b3b173e3d13b",
+    "trace_sha": "7a037f5411727674a2498ae2b5f54ff081ee3ff3c58f772e24e5bd6eb064a6d3",
+    "window": [
+      0,
+      0
+    ],
+    "core_commit": "f4650f1c29099e6919f1c87679b64a3a810d167d",
+    "counter": 0,
+    "pixels": 15894,
+    "files": {
+      "dir": "runs/RUN-0002/evidence/incidents/INC-0003"
+    },
+    "source": "suite",
+    "status": "open"
+  },
+  "rom": {
+    "path": "/Users/slavazinevich/.cache/ratchet/roms/mealybug-tearoom-tests/ppu/m3_lcdc_bg_en_change.gb",
+    "sha": "4bb4ea8076950c1ecaeb8c704ca0568e05bc09d35e114f0cbe77b3b173e3d13b"
+  },
+  "family": "cgb:mealybug:palette-scroll-bg",
+  "rom_rel": "mealybug-tearoom-tests/ppu/m3_lcdc_bg_en_change.gb",
+  "repro": {
+    "rom": "mealybug-tearoom-tests/ppu/m3_lcdc_bg_en_change.gb",
+    "pass": false,
+    "outcome": "fail",
+    "detail": "screenshot pixel match 0.3102",
+    "pixel_match": 0.31015625
+  },
+  "model": "CGB"
+}

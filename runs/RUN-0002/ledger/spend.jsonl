@@ -1,0 +1,12 @@
+{"at":"2026-11-07T22:03:27.648Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":1021,"tokens_out":0,"usd":0.00004084}
+{"at":"2026-11-07T22:03:33.036Z","run":"RUN-0002","role":"narrator","model":"gemini-4-argon","tokens_in":3519,"tokens_out":55,"usd":0.00494875}
+{"at":"2026-11-07T22:03:34.309Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":777,"tokens_out":0,"usd":0.00003108}
+{"at":"2026-11-07T22:03:34.425Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":1015,"tokens_out":0,"usd":0.0000406}
+{"at":"2026-11-07T22:03:51.118Z","run":"RUN-0002","role":"narrator","model":"gemini-4-argon","tokens_in":3519,"tokens_out":178,"usd":0.00617875}
+{"at":"2026-11-07T22:03:52.148Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":782,"tokens_out":0,"usd":0.00003128}
+{"at":"2026-11-07T22:03:52.315Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":1015,"tokens_out":0,"usd":0.0000406}
+{"at":"2026-11-07T22:03:59.796Z","run":"RUN-0002","role":"narrator","model":"gemini-4-argon","tokens_in":3519,"tokens_out":106,"usd":0.00545875}
+{"at":"2026-11-07T22:04:00.870Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":777,"tokens_out":0,"usd":0.00003108}
+{"at":"2026-11-07T22:24:21.246Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":8706,"tokens_out":0,"usd":0.00034824}
+{"at":"2026-11-07T22:26:29.687Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":6808,"tokens_out":0,"usd":0.00027232}
+{"at":"2026-11-07T22:26:32.084Z","run":"RUN-0002","role":"router","model":"subq-snap-1.1","tokens_in":4790,"tokens_out":0,"usd":0.0001916}

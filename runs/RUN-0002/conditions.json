@@ -1,0 +1,25 @@
+{
+  "run": "RUN-0002",
+  "source": "cgb-suite",
+  "rom": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/game/game.gb",
+  "rom_sha": "c8444ff9a470e23e3b17de184d992e15c2f80b6f46004714d37b9ea39d2408f3",
+  "seed0": 1001,
+  "live": "/Users/slavazinevich/GenDev/ratchet-live-cgb",
+  "live_branch": "core-cgb",
+  "s0_core_commit": "f4650f1c29099e6919f1c87679b64a3a810d167d",
+  "splits": [
+    "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/splits.json",
+    "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/splits-cgb.json"
+  ],
+  "splits_sha": "313e7d1f0292ab422f4b42376bc7bb539329b26e8492a67c3333eea7ec103127",
+  "rule_version": "8e27c0f753ca",
+  "ledger": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/runs/RUN-0002/ledger",
+  "runs_dir": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/runs",
+  "scratch": "/private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/ratchet-scratch-run2",
+  "cache": "/Users/slavazinevich/.cache/ratchet-run2",
+  "subq_cache": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/runs/RUN-0002/subq-cache",
+  "telemetry": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/runs/RUN-0002/telemetry",
+  "skills": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/runs/RUN-0002/skills",
+  "evidence": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/runs/RUN-0002/evidence",
+  "traces": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/runs/RUN-0002/traces"
+}

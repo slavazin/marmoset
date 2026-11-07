@@ -1,0 +1,167 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "cabe63b99c7cc9150a13aa754bc7efe59a469c89c617f7099db1307c0e4f88b6",
+  "questions_sha": "afe08be0be151eed3273aa3f71a25dc76a502fb9375ecd68b638097f4b29712b",
+  "at": "2026-11-07T21:56:50.749Z",
+  "status": 200,
+  "wall_ms": 556,
+  "questions": {
+    "subsystem": {
+      "type": "choice",
+      "instructions": "Which emulator subsystem most likely produced this frame divergence?",
+      "criteria": {
+        "ppu_fetcher": "pixels shifted or wrong within a line during mode 3",
+        "stat_irq": "a raster split lands on the wrong line",
+        "oam_dma": "sprites missing or stale",
+        "window": "window position or line counter wrong",
+        "timer": "timing-dependent state off",
+        "other": null
+      }
+    },
+    "emulator_part": {
+      "type": "choice",
+      "instructions": "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+      "criteria": {
+        "ppu_fetcher": "pixels misplaced or wrong inside one line while it is drawn",
+        "stat_irq": "a mid-frame split happens on the wrong line",
+        "oam_dma": "objects absent or out of date",
+        "window": "window placed wrong or its line count off",
+        "timer": "state that depends on timing is off",
+        "other": null
+      }
+    },
+    "mid_line": {
+      "type": "noul",
+      "instructions": "Does the divergence start mid-scanline rather than at x = 0?",
+      "criteria": {
+        "true": "the first differing pixel on a line is not at x = 0",
+        "false": "whole lines differ from x = 0"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is this divergence for a player of the game?",
+      "criteria": [
+        "cosmetic: a few pixels differ, play unaffected",
+        "visible: a region or band of the frame is wrong",
+        "severe: most of the frame is wrong or game state is broken"
+      ]
+    },
+    "applies:SKL-0003": {
+      "type": "noul",
+      "instructions": "Does skill SKL-0003 apply to this incident: would a repairer fixing it touch what the skill covers?",
+      "criteria": {
+        "true": "fires when: a write to NR10 (0xFF10) changes the channel 1 frequency sweep and the sweep steps at the wrong rate; paths: core/index.ts",
+        "false": "not this: channel 1 volume envelope"
+      }
+    },
+    "same_shape_as:OBS-0001": {
+      "type": "noul",
+      "instructions": "Is this incident the same failure shape as observation OBS-0001?",
+      "criteria": {
+        "true": "A frame divergence in scene 0, line band 0, box 0,0–160,144 (7042 px) at counter 1 was refused at diff-scope after a repair that wrote no summary.",
+        "false": "a different failure shape"
+      }
+    },
+    "same_shape_as:OBS-0002": {
+      "type": "noul",
+      "instructions": "Is this incident the same failure shape as observation OBS-0002?",
+      "criteria": {
+        "true": "A frame divergence in scene 1, line band 1, box 0,8–160,144 (2037 px) at counter 45 was refused at diff-scope after a repair that wrote no summary.",
+        "false": "a different failure shape"
+      }
+    },
+    "same_shape_as:OBS-0003": {
+      "type": "noul",
+      "instructions": "Is this incident the same failure shape as observation OBS-0003?",
+      "criteria": {
+        "true": "A frame divergence in scene 0, line band 0, box 0,0–160,144 (7042 px) at counter 1 was refused at repro after a repair that wrote no summary.",
+        "false": "a different failure shape"
+      }
+    },
+    "same_shape_as:OBS-0004": {
+      "type": "noul",
+      "instructions": "Is this incident the same failure shape as observation OBS-0004?",
+      "criteria": {
+        "true": "A frame divergence in scene 1, line band 4, box 0,32–160,136 (2209 px) at counter 259 was refused at repro after a repair that wrote no summary.",
+        "false": "a different failure shape"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "subsystem": {
+        "type": "choice",
+        "choice": "ppu_fetcher",
+        "probabilities": {
+          "ppu_fetcher": 0.3489516079425812,
+          "stat_irq": 0.16658101975917816,
+          "oam_dma": 0.09342864900827408,
+          "window": 0.1610085666179657,
+          "timer": 0.1678510457277298,
+          "other": 0.062179084867239
+        },
+        "confidence": 0.21874192953109742
+      },
+      "emulator_part": {
+        "type": "choice",
+        "choice": "ppu_fetcher",
+        "probabilities": {
+          "ppu_fetcher": 0.439681738615036,
+          "stat_irq": 0.1266692876815796,
+          "oam_dma": 0.08652952313423157,
+          "window": 0.12561020255088806,
+          "timer": 0.1559676229953766,
+          "other": 0.06554166227579117
+        },
+        "confidence": 0.32761808633804324
+      },
+      "mid_line": {
+        "type": "noul",
+        "noul": 0.9669917225837708
+      },
+      "severity": {
+        "type": "score",
+        "score": 0.9621186247095466,
+        "legend": {
+          "0": "cosmetic: a few pixels differ, play unaffected",
+          "1": "visible: a region or band of the frame is wrong",
+          "2": "severe: most of the frame is wrong or game state is broken"
+        },
+        "probabilities": {
+          "0": 0.04532366618514061,
+          "1": 0.9472339153289795,
+          "2": 0.007442354690283537
+        },
+        "confidence": 0.9208509686868638
+      },
+      "applies:SKL-0003": {
+        "type": "noul",
+        "noul": 0.11727434396743774
+      },
+      "same_shape_as:OBS-0001": {
+        "type": "noul",
+        "noul": 0.015718892216682434
+      },
+      "same_shape_as:OBS-0002": {
+        "type": "noul",
+        "noul": 0.04099496081471443
+      },
+      "same_shape_as:OBS-0003": {
+        "type": "noul",
+        "noul": 0.00907596293836832
+      },
+      "same_shape_as:OBS-0004": {
+        "type": "noul",
+        "noul": 0.10846231132745743
+      }
+    },
+    "usage": {
+      "input_tokens": 2919,
+      "output_tokens": 0
+    }
+  }
+}

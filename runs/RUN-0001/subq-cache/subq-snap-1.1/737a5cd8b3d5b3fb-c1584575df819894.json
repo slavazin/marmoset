@@ -1,0 +1,131 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "737a5cd8b3d5b3fb9c0ab27ec90920190a4d0ae6aae930f5fa79e827d7bd5369",
+  "questions_sha": "c1584575df8198947e2c40e9667f190fdb5ee558ae6f3e4e851f743d093850ee",
+  "at": "2026-11-07T21:31:15.213Z",
+  "status": 200,
+  "wall_ms": 569,
+  "questions": {
+    "subsystem": {
+      "type": "choice",
+      "instructions": "Which emulator subsystem most likely produced this frame divergence?",
+      "criteria": {
+        "ppu_fetcher": "pixels shifted or wrong within a line during mode 3",
+        "stat_irq": "a raster split lands on the wrong line",
+        "oam_dma": "sprites missing or stale",
+        "window": "window position or line counter wrong",
+        "timer": "timing-dependent state off",
+        "other": null
+      }
+    },
+    "emulator_part": {
+      "type": "choice",
+      "instructions": "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+      "criteria": {
+        "ppu_fetcher": "pixels misplaced or wrong inside one line while it is drawn",
+        "stat_irq": "a mid-frame split happens on the wrong line",
+        "oam_dma": "objects absent or out of date",
+        "window": "window placed wrong or its line count off",
+        "timer": "state that depends on timing is off",
+        "other": null
+      }
+    },
+    "mid_line": {
+      "type": "noul",
+      "instructions": "Does the divergence start mid-scanline rather than at x = 0?",
+      "criteria": {
+        "true": "the first differing pixel on a line is not at x = 0",
+        "false": "whole lines differ from x = 0"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is this divergence for a player of the game?",
+      "criteria": [
+        "cosmetic: a few pixels differ, play unaffected",
+        "visible: a region or band of the frame is wrong",
+        "severe: most of the frame is wrong or game state is broken"
+      ]
+    },
+    "applies:SKL-0001": {
+      "type": "noul",
+      "instructions": "Does skill SKL-0001 apply to this incident: would a repairer fixing it touch what the skill covers?",
+      "criteria": {
+        "true": "fires when: wave RAM (0xFF30-0xFF3F) read while channel 3 plays returns the wrong sample byte; paths: core/index.ts",
+        "false": "not this: channel 3 output level"
+      }
+    },
+    "same_shape_as:OBS-0001": {
+      "type": "noul",
+      "instructions": "Is this incident the same failure shape as observation OBS-0001?",
+      "criteria": {
+        "true": "A frame divergence in scene 0, line band 0, box 0,0–160,144 (7042 px) at counter 1 was refused at diff-scope after a repair that wrote no summary.",
+        "false": "a different failure shape"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "subsystem": {
+        "type": "choice",
+        "choice": "ppu_fetcher",
+        "probabilities": {
+          "ppu_fetcher": 0.3905772566795349,
+          "stat_irq": 0.09748101979494095,
+          "oam_dma": 0.11599906533956528,
+          "window": 0.17996898293495178,
+          "timer": 0.10781329870223999,
+          "other": 0.10816045105457306
+        },
+        "confidence": 0.2686927080154419
+      },
+      "emulator_part": {
+        "type": "choice",
+        "choice": "ppu_fetcher",
+        "probabilities": {
+          "ppu_fetcher": 0.5227446556091309,
+          "stat_irq": 0.07162192463874817,
+          "oam_dma": 0.09438635408878326,
+          "window": 0.1246357411146164,
+          "timer": 0.08669311553239822,
+          "other": 0.09991829097270966
+        },
+        "confidence": 0.4272935867309571
+      },
+      "mid_line": {
+        "type": "noul",
+        "noul": 0.3015666902065277
+      },
+      "severity": {
+        "type": "score",
+        "score": 1.0223356932401657,
+        "legend": {
+          "0": "cosmetic: a few pixels differ, play unaffected",
+          "1": "visible: a region or band of the frame is wrong",
+          "2": "severe: most of the frame is wrong or game state is broken"
+        },
+        "probabilities": {
+          "0": 0.026122581213712692,
+          "1": 0.9254192113876343,
+          "2": 0.04845824092626572
+        },
+        "confidence": 0.8881287667900324
+      },
+      "applies:SKL-0001": {
+        "type": "noul",
+        "noul": 0.07046158611774445
+      },
+      "same_shape_as:OBS-0001": {
+        "type": "noul",
+        "noul": 0.04748954623937607
+      }
+    },
+    "usage": {
+      "input_tokens": 2573,
+      "output_tokens": 0
+    }
+  }
+}

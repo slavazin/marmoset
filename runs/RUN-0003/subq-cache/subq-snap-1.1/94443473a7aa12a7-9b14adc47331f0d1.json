@@ -1,0 +1,119 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "94443473a7aa12a7eccd0ab6a78856ec937f8e6821b425dd7f0083d0295d81b0",
+  "questions_sha": "9b14adc47331f0d1070460083062fd6790b322555615420144e9ed7df3fe6e41",
+  "at": "2026-11-07T22:21:03.348Z",
+  "status": 200,
+  "wall_ms": 513,
+  "questions": {
+    "subsystem": {
+      "type": "choice",
+      "instructions": "Which emulator subsystem most likely produced this frame divergence?",
+      "criteria": {
+        "ppu_fetcher": "pixels shifted or wrong within a line during mode 3",
+        "stat_irq": "a raster split lands on the wrong line",
+        "oam_dma": "sprites missing or stale",
+        "window": "window position or line counter wrong",
+        "timer": "timing-dependent state off",
+        "other": null
+      }
+    },
+    "mid_line": {
+      "type": "noul",
+      "instructions": "Does the divergence start mid-scanline rather than at x = 0?",
+      "criteria": {
+        "true": "the first differing pixel on a line is not at x = 0",
+        "false": "whole lines differ from x = 0"
+      }
+    },
+    "emulator_part": {
+      "type": "choice",
+      "instructions": "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+      "criteria": {
+        "ppu_fetcher": "pixels misplaced or wrong inside one line while it is drawn",
+        "stat_irq": "a mid-frame split happens on the wrong line",
+        "oam_dma": "objects absent or out of date",
+        "window": "window placed wrong or its line count off",
+        "timer": "state that depends on timing is off",
+        "other": null
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is this divergence for a player of the game?",
+      "criteria": [
+        "cosmetic: a few pixels differ, play unaffected",
+        "visible: a region or band of the frame is wrong",
+        "severe: most of the frame is wrong or game state is broken"
+      ]
+    },
+    "applies:SKL-0002": {
+      "type": "noul",
+      "instructions": "Does skill SKL-0002 apply to this incident: would a repairer fixing it touch what the skill covers?",
+      "criteria": {
+        "true": "fires when: the channel 4 noise generator in 7-bit mode repeats with the wrong period, so the hiss sounds tonal; paths: core/index.ts",
+        "false": "not this: channel 4 length counter"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "subsystem": {
+        "type": "choice",
+        "choice": "stat_irq",
+        "probabilities": {
+          "ppu_fetcher": 0.1792924404144287,
+          "stat_irq": 0.40848448872566223,
+          "oam_dma": 0.1035408154129982,
+          "window": 0.20508551597595215,
+          "timer": 0.04027143493294716,
+          "other": 0.06332532316446304
+        },
+        "confidence": 0.29018138647079467
+      },
+      "mid_line": {
+        "type": "noul",
+        "noul": 0.09847331792116165
+      },
+      "emulator_part": {
+        "type": "choice",
+        "choice": "stat_irq",
+        "probabilities": {
+          "ppu_fetcher": 0.24661722779273987,
+          "stat_irq": 0.32963666319847107,
+          "oam_dma": 0.09972870349884033,
+          "window": 0.16419072449207306,
+          "timer": 0.049101103097200394,
+          "other": 0.11072562634944916
+        },
+        "confidence": 0.19556399583816528
+      },
+      "severity": {
+        "type": "score",
+        "score": 0.9049893356859684,
+        "legend": {
+          "0": "cosmetic: a few pixels differ, play unaffected",
+          "1": "visible: a region or band of the frame is wrong",
+          "2": "severe: most of the frame is wrong or game state is broken"
+        },
+        "probabilities": {
+          "0": 0.10924752801656723,
+          "1": 0.8765156269073486,
+          "2": 0.014236854389309883
+        },
+        "confidence": 0.8147734263911843
+      },
+      "applies:SKL-0002": {
+        "type": "noul",
+        "noul": 0.25761640071868896
+      }
+    },
+    "usage": {
+      "input_tokens": 2727,
+      "output_tokens": 0
+    }
+  }
+}

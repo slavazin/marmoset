@@ -1,0 +1,10 @@
+RUN-0002 conditions: core-cgb f4650f1c2909 in /Users/slavazinevich/GenDev/ratchet-live-cgb, rom /Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af3dabdc2032cde61/game/game.gb (c8444ff9a470), source cgb-suite, seed0 1001, splits 2 file(s), scratch /private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/ratchet-scratch-run2, cache /Users/slavazinevich/.cache/ratchet-run2
+RUN-0002 open: rule_version 8e27c0f753ca, s0 e3b0c44298fc, 114 ROM hashes, models {"repairer":"muse-spark-1.3 (not echoed)","consolidator":"muse-wonder-1.0 (not echoed)","router":"subq-snap-1.1 (not echoed)","player":"gemini-3.8-flash (not echoed)","narrator":"gemini-4-argon (not echoed)","spotter":"gemini-3.8-flash (not echoed)"}
+spend combined over 2 runs: guard reads $10.00 (ask $60, stop $80) = RUN-0002 owner-read $0.00 + RUN-0001 owner-read $10.00
+K 4, MAX_ATTEMPTS 2, CAMPAIGN_PARALLEL 3, 72 min
+ATT-0001 on INC-0001: VER-0001 REFUSE (H-no-regress failed: {"families":4,"drops":{"mealybug:window":0.01353,"mooneye:ppu":0.16667},"flipped":["mooneye-test-suite/acceptance/ppu/intr_2_mode0_timing.gb","mooneye-test-suite/acceptance/ppu/intr_2_mode3_timing.gb"],"tolerance":0.005})
+spend combined over 2 runs: guard reads $56.20 (ask $60, stop $80) = RUN-0002 owner-read $17.43 + RUN-0001 owner-read $38.77
+ATT-0002 on INC-0002: VER-0002 GRADUATE (all 5 checks passed; deciding: H-no-regress)
+ATT-0003 on INC-0003: VER-0003 REFUSE (merge failed: {"base_moved":{"from":"f4650f1c29099e6919f1c87679b64a3a810d167d","onto":"98d4299cfd9dfa74bb892a755e880c723ae51856"},"error":"rebase onto core-cgb failed: Command failed: git rebase --quiet 98d4299cfd9dfa74bb892a755e880c723ae51856\nerror: could not apply 84b1814... ATT-0003: repair\nhint: Resolve all)
+campaign stopped: spend stop: $56.20 (owner-read) + $34.86 reserved for 2 in flight ≥ $80; 3 attempts, 44 segments
+{"stopped":"spend stop: $56.20 (owner-read) + $34.86 reserved for 2 in flight ≥ $80","segments":44,"attempts":["ATT-0001 INC-0001 VER-0001 REFUSE","ATT-0002 INC-0002 VER-0002 GRADUATE","ATT-0003 INC-0003 VER-0003 REFUSE"],"paused":false}

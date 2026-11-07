@@ -1,0 +1,119 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "cd4fa454c42989d77f02e5887af06464ec04b11157a5de389e36d17f23d46a97",
+  "questions_sha": "517c433be59332d2598bdfecd16ae561e11cf06e0f288c1c7021b5aeb372ec61",
+  "at": "2026-11-07T22:19:12.181Z",
+  "status": 200,
+  "wall_ms": 410,
+  "questions": {
+    "subsystem": {
+      "type": "choice",
+      "instructions": "Which emulator subsystem most likely produced this frame divergence?",
+      "criteria": {
+        "ppu_fetcher": "pixels shifted or wrong within a line during mode 3",
+        "stat_irq": "a raster split lands on the wrong line",
+        "oam_dma": "sprites missing or stale",
+        "window": "window position or line counter wrong",
+        "timer": "timing-dependent state off",
+        "other": null
+      }
+    },
+    "mid_line": {
+      "type": "noul",
+      "instructions": "Does the divergence start mid-scanline rather than at x = 0?",
+      "criteria": {
+        "true": "the first differing pixel on a line is not at x = 0",
+        "false": "whole lines differ from x = 0"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is this divergence for a player of the game?",
+      "criteria": [
+        "cosmetic: a few pixels differ, play unaffected",
+        "visible: a region or band of the frame is wrong",
+        "severe: most of the frame is wrong or game state is broken"
+      ]
+    },
+    "emulator_part": {
+      "type": "choice",
+      "instructions": "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+      "criteria": {
+        "ppu_fetcher": "pixels misplaced or wrong inside one line while it is drawn",
+        "stat_irq": "a mid-frame split happens on the wrong line",
+        "oam_dma": "objects absent or out of date",
+        "window": "window placed wrong or its line count off",
+        "timer": "state that depends on timing is off",
+        "other": null
+      }
+    },
+    "applies:SKL-0002": {
+      "type": "noul",
+      "instructions": "Does skill SKL-0002 apply to this incident: would a repairer fixing it touch what the skill covers?",
+      "criteria": {
+        "true": "fires when: a write to NR10 (0xFF10) changes the channel 1 frequency sweep and the sweep steps at the wrong rate; paths: core/index.ts",
+        "false": "not this: channel 1 volume envelope"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "subsystem": {
+        "type": "choice",
+        "choice": "stat_irq",
+        "probabilities": {
+          "ppu_fetcher": 0.23815850913524628,
+          "stat_irq": 0.3873026371002197,
+          "oam_dma": 0.0695599690079689,
+          "window": 0.1218225434422493,
+          "timer": 0.07490281760692596,
+          "other": 0.10825350135564804
+        },
+        "confidence": 0.26476316452026366
+      },
+      "mid_line": {
+        "type": "noul",
+        "noul": 0.14846085011959076
+      },
+      "severity": {
+        "type": "score",
+        "score": 1.034644953906536,
+        "legend": {
+          "0": "cosmetic: a few pixels differ, play unaffected",
+          "1": "visible: a region or band of the frame is wrong",
+          "2": "severe: most of the frame is wrong or game state is broken"
+        },
+        "probabilities": {
+          "0": 0.018150795251131058,
+          "1": 0.9290534853935242,
+          "2": 0.052795734256505966
+        },
+        "confidence": 0.8935802057385445
+      },
+      "emulator_part": {
+        "type": "choice",
+        "choice": "stat_irq",
+        "probabilities": {
+          "ppu_fetcher": 0.275544136762619,
+          "stat_irq": 0.3064793050289154,
+          "oam_dma": 0.0553172342479229,
+          "window": 0.14880774915218353,
+          "timer": 0.08194051682949066,
+          "other": 0.13191105425357819
+        },
+        "confidence": 0.1677751660346985
+      },
+      "applies:SKL-0002": {
+        "type": "noul",
+        "noul": 0.3615346848964691
+      }
+    },
+    "usage": {
+      "input_tokens": 1599,
+      "output_tokens": 0
+    }
+  }
+}

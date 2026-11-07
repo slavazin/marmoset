@@ -1,0 +1,23 @@
+
+> ratchet@ campaign /Users/slavazinevich/GenDev/marmoset
+> node --env-file-if-exists=.env loop/campaign.ts --minutes 75
+
+RUN-0001 open: rule_version 8e27c0f753ca, s0 c6d5c1e1ab77, 109 ROM hashes, models {"repairer":"muse-spark-1.3","consolidator":"muse-wonder-1.0 (not echoed)","router":"subq-snap-1.1 (not echoed)","player":"gemini-3.8-flash (not echoed)","narrator":"gemini-4-argon (not echoed)","spotter":"gemini-3.8-flash (not echoed)"}
+spend: owner-read (Meta console) $0.00 (list rates × 0.075 since reading) · priced (list rates, held by review) $66.35 · guard reads owner-read $0.00 (ask $60, stop $80)
+K 4, MAX_ATTEMPTS 2, CAMPAIGN_PARALLEL 3, 75 min
+ATT-0004 on INC-0012: VER-0004 REFUSE (diff-scope failed: {"files":0,"outside":[],"longest_literal_bytes":0,"literal_limit":64,"memorised":[],"empty":true})
+ATT-0002 on INC-0001: VER-0003 REFUSE (repro failed: {"clean":false,"exit":1,"line":"first mismatch: counter 1 (6826 pixels)"})
+ATT-0003 on INC-0018: VER-0002 REFUSE (repro failed: {"clean":false,"exit":1,"line":"first mismatch: counter 199 (1208 pixels)"})
+owner gate: spend $40.03 + $25.36 reserved for 2 in flight
+spend: owner-read (Meta console) $40.03 (list rates × 0.075 since reading) · priced (list rates, held by review) $597.54 · guard reads owner-read $40.03 (ask $60, stop $80)
+ATT-0005 on INC-0018: VER-0005 REFUSE (diff-scope failed: {"files":0,"outside":[],"longest_literal_bytes":0,"literal_limit":64,"memorised":[],"empty":true})
+ATT-0006 on INC-0012: VER-0006 REFUSE (diff-scope failed: {"files":0,"outside":[],"longest_literal_bytes":0,"literal_limit":64,"memorised":[],"empty":true})
+ATT-0011 on INC-0085: VER-0007 REFUSE (diff-scope failed: {"files":0,"outside":[],"longest_literal_bytes":0,"literal_limit":64,"memorised":[],"empty":true})
+ATT-0012 on INC-0011: VER-0008 REFUSE (diff-scope failed: {"files":0,"outside":[],"longest_literal_bytes":0,"literal_limit":64,"memorised":[],"empty":true})
+ATT-0013 on INC-0027: VER-0009 REFUSE (repro failed: {"clean":false,"exit":1,"line":"first mismatch: counter 859 (1253 pixels)"})
+owner gate lifted by STR-0001
+spend: owner-read (Meta console) $72.13 (list rates × 0.024 since reading) · priced (list rates, held by review) $3188.08 · guard reads owner-read $72.13 (ask $60, stop $80)
+ATT-0021 on INC-0011: VER-0011 REFUSE (diff-scope failed: {"files":0,"outside":[],"longest_literal_bytes":0,"literal_limit":64,"memorised":[],"empty":true})
+ATT-0020 on INC-0085: VER-0012 REFUSE (repro failed: {"clean":false,"exit":1,"line":"first mismatch: counter 1 (6826 pixels)"})
+campaign stopped: spend stop: $72.13 (owner-read) + $8.30 reserved for 2 in flight ≥ $80; 10 attempts, 221 segments
+{"stopped":"spend stop: $72.13 (owner-read) + $8.30 reserved for 2 in flight ≥ $80","segments":221,"attempts":["ATT-0004 INC-0012 VER-0004 REFUSE","ATT-0002 INC-0001 VER-0003 REFUSE","ATT-0003 INC-0018 VER-0002 REFUSE","ATT-0005 INC-0018 VER-0005 REFUSE","ATT-0006 INC-0012 VER-0006 REFUSE","ATT-0011 INC-0085 VER-0007 REFUSE","ATT-0012 INC-0011 VER-0008 REFUSE","ATT-0013 INC-0027 VER-0009 REFUSE","ATT-0021 INC-0011 VER-0011 REFUSE","ATT-0020 INC-0085 VER-0012 REFUSE"],"paused":false}

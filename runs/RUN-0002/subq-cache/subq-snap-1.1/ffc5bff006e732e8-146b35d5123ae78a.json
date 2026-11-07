@@ -1,0 +1,33 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "ffc5bff006e732e80b60511720d5d6c2686ed0736d608bfb1fffd150dc0da4e3",
+  "questions_sha": "146b35d5123ae78a12d5b789b2e77c887c82806b9d46c0b1944efa7fea1d3b61",
+  "at": "2026-11-07T22:26:32.083Z",
+  "status": 200,
+  "wall_ms": 816,
+  "questions": {
+    "mechanism": {
+      "type": "noul",
+      "instructions": "Does this diff fix the mechanism that produced the divergence, rather than only masking the symptom?",
+      "criteria": {
+        "true": "the diff changes the timing or state logic that the register writes and the evidence implicate, for every scene and line",
+        "false": "the diff special-cases the symptom: a constant, a scene- or line-specific branch, or an edit away from the implicated logic"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "mechanism": {
+        "type": "noul",
+        "noul": 0.7250083088874817
+      }
+    },
+    "usage": {
+      "input_tokens": 4790,
+      "output_tokens": 0
+    }
+  }
+}

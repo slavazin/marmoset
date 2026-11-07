@@ -1,6 +1,6 @@
 {
-  "usd": 5,
-  "at": "2026-11-07T12:35:00-08:00",
+  "usd": 56,
+  "at": "2026-11-07T14:36:07-08:00",
   "pre_run_usd": 5,
-  "note": "Owner reading from the Meta console, about 12:50 on 2026-11-07: about $5 in total, all pre-run (run null): the S1 core bootstrap, the kill read, S16b's CGB rounds, one Wonder consolidate call and ATT-0001. The reading was reported as about 12:50, after this machine's clock (12:36 PST when seeded), so `at` is set to the seed time: a future `at` would drop the run's own priced records written before it. Update usd and at from the console as the run goes; pre_run_usd stays the pre-run baseline and is not counted against RUN-0001."
+  "note": "Owner reading from the Meta console, about 12:50 on 2026-11-07: about $5 in total, all pre-run (run null): the S1 core bootstrap, the kill read, S16b's CGB rounds, one Wonder consolidate call and ATT-0001. The reading was reported as about 12:50, after this machine's clock (12:36 PST when seeded), so `at` is set to the seed time: a future `at` would drop the run's own priced records written before it. Update usd and at from the console as the run goes; pre_run_usd stays the pre-run baseline and is not counted against RUN-0001. Updated 2026-11-07T13:59:04-08:00: owner read about $15 total on Meta billing, with Meta's warning that spend can take up to an hour to show, so this may undercount. The owner can request more credit if it runs out. Updated 2026-11-07T14:36:07-08:00: owner read $44 left of $100 on Meta billing, so $56 spent across all runs (Meta lags up to an hour)."
 }

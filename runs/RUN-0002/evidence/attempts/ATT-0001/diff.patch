@@ -1,0 +1,400 @@
+diff --git a/core/index.ts b/core/index.ts
+index a09eaf9..723e101 100644
+--- a/core/index.ts
++++ b/core/index.ts
+@@ -39,6 +39,8 @@ export function createCore(rom: Uint8Array, opts?: { model?: "DMG" | "CGB" }): C
+   const cart = new Cart(rom, hits);
+   const ppu = new Ppu(hits);
+   ppu.cgb = isCgb;
++  const cgbFlag = rom.length > 0x143 ? rom[0x143] : 0;
++  ppu.dmgCompat = isCgb && (cgbFlag & 0x80) === 0;
+   const wram = new Uint8Array(isCgb ? 0x8000 : 0x2000);
+   const hram = new Uint8Array(0x80);
+   const audio = new Uint8Array(0x40);
+@@ -76,6 +78,16 @@ export function createCore(rom: Uint8Array, opts?: { model?: "DMG" | "CGB" }): C
+     ppu.objPal.fill(0xff);
+     ppu.bgpi = 0;
+     ppu.obpi = 0;
++    if (ppu.dmgCompat) {
++      // Post-boot CGB palettes colorizing DMG titles: DMG shades 0..3 map
++      // to BG palette 0 (and OBJ palettes 0/1).
++      const pal = [0xff, 0x7f, 0xef, 0x1b, 0x80, 0x61, 0x00, 0x00];
++      for (let i = 0; i < 8; i++) {
++        ppu.bgPal[i] = pal[i];
++        ppu.objPal[i] = pal[i];
++        ppu.objPal[8 + i] = pal[i];
++      }
++    }
+   }
+   let onRegWrite: TelemetryTap["onRegWrite"] | undefined = undefined;
+   const tapHits = hits;
+@@ -601,7 +613,7 @@ export function createCore(rom: Uint8Array, opts?: { model?: "DMG" | "CGB" }): C
+     const ramLen = cart.ram.length;
+     const wlen = wram.length;
+     const total = 4 + 8 + 2 + 2 + 4 + (2+1+1+1+1+1+1+1+1) + (1+1+1+1) + 2 + sbytes.length + (1+1+1+1) + 4 + ramLen + wlen + 0x80 + 0x40 + 0x4000 + 0xa0 + 23040 + 69120 + 16 + 8 + 64;
+-    const buf = new Uint8Array(total + 512);
++    const buf = new Uint8Array(total + 4096);
+     const dv = new DataView(buf.buffer);
+     let o = 0;
+     dv.setUint32(o, isCgb ? 0x43474231 : 0x444d4731); o += 4;
+@@ -647,6 +659,17 @@ export function createCore(rom: Uint8Array, opts?: { model?: "DMG" | "CGB" }): C
+     const cyc = Math.floor(cycles);
+     dv.setUint32(o, cyc >>> 0, true); o += 4;
+     dv.setUint32(o, Math.floor(cyc / 4294967296), true); o += 4;
++    buf[o++] = ppu.bgpLS & 0xff; buf[o++] = ppu.obp0LS & 0xff;
++    buf[o++] = ppu.obp1LS & 0xff; buf[o++] = ppu.lcdcLS & 0xff;
++    const logs = [ppu.bgpLog, ppu.obp0Log, ppu.obp1Log, ppu.lcdcLog];
++    for (const log of logs) {
++      const n = Math.min(log.length, 256);
++      dv.setUint16(o, n, true); o += 2;
++      for (let i = 0; i < n; i++) {
++        dv.setUint16(o, log[i].dot & 0xffff, true); o += 2;
++        buf[o++] = log[i].v & 0xff;
++      }
++    }
+     return buf.slice(0, o);
+   }
+ 
+@@ -699,6 +722,20 @@ export function createCore(rom: Uint8Array, opts?: { model?: "DMG" | "CGB" }): C
+     const lo32 = dv.getUint32(o, true); o += 4;
+     const hi32 = dv.getUint32(o, true); o += 4;
+     cycles = hi32 * 4294967296 + lo32;
++    if (o + 4 <= s.length) {
++      ppu.bgpLS = s[o++]; ppu.obp0LS = s[o++]; ppu.obp1LS = s[o++]; ppu.lcdcLS = s[o++];
++      const logs = [ppu.bgpLog, ppu.obp0Log, ppu.obp1Log, ppu.lcdcLog];
++      for (const log of logs) {
++        log.length = 0;
++        if (o + 2 > s.length) break;
++        const n = Math.min(dv.getUint16(o, true), 256); o += 2;
++        for (let i = 0; i < n && o + 3 <= s.length; i++) {
++          const dot = dv.getUint16(o, true); o += 2;
++          const v = s[o++];
++          log.push({ dot, v });
++        }
++      }
++    }
+   }
+ 
+   const tap: TelemetryTap = {
+diff --git a/core/ppu.ts b/core/ppu.ts
+index 9929949..1843aab 100644
+--- a/core/ppu.ts
++++ b/core/ppu.ts
+@@ -14,8 +14,35 @@ export class Ppu {
+   bgp = 0xfc; obp0 = 0xff; obp1 = 0xff; wy = 0; wx = 0;
+   dot = 0; mode: 0 | 1 | 2 | 3 = 2; winLine = 0; statLine = false;
+   m3len = 172; lineSprites: number[] = [];
++  // CGB model running a DMG ROM: DMG palettes map into CGB palette RAM.
++  dmgCompat = false;
++  // Mid-scanline register timelines: writeReg appends {dot, v} (dot is the
++  // post-write dot); renderLine resolves the value per pixel. LS holds the
++  // value at line start (captured in beginLine).
++  bgpLog: Array<{ dot: number; v: number }> = [];
++  bgpLS = 0;
++  obp0Log: Array<{ dot: number; v: number }> = [];
++  obp0LS = 0;
++  obp1Log: Array<{ dot: number; v: number }> = [];
++  obp1LS = 0;
++  lcdcLog: Array<{ dot: number; v: number }> = [];
++  lcdcLS = 0;
++  scxLog: Array<{ dot: number; v: number }> = [];
++  scxLS = 0;
++  scyLog: Array<{ dot: number; v: number }> = [];
++  scyLS = 0;
+   hits: Record<HandlerId, number>;
+   constructor(hits: Record<HandlerId, number>) { this.hits = hits; this.resetStatLine(); }
++  // Newest logged value with writeDot <= x + 94: pixel x is emitted at dot
++  // 92 + x and a CPU write M-cycle latches 2 dots before its end.
++  loggedAt(log: Array<{ dot: number; v: number }>, ls: number, x: number): number {
++    let v = ls;
++    for (let i = 0; i < log.length; i++) {
++      if (log[i].dot <= x + 94) v = log[i].v;
++      else break;
++    }
++    return v;
++  }
+   get on(): boolean { return (this.lcdc & 0x80) !== 0; }
+   resetStatLine(): void { this.statLine = this.computeStatLine(); }
+   computeStatLine(): boolean {
+@@ -23,7 +50,13 @@ export class Ppu {
+     const s = this.stat;
+     const lycEq = (this.stat & 0x04) !== 0;
+     if ((s & 0x40) && lycEq) return true;
+-    if ((s & 0x20) && this.mode === 2) return true;
++    // The OAM-search STAT condition asserts 4 dots before visible lines
++    // 1..143 (during the previous line's mode 0), so those interrupts are
++    // serviced a cycle earlier; line 0 (from VBlank) asserts at the wrap.
++    // Hardware-verified: scanline ISR harnesses observe line 0 entering 4
++    // dots later than other lines.
++    const oamEarly = this.ly < 143 && this.ly >= 0 && this.mode === 0 && this.dot >= 452;
++    if ((s & 0x20) && (this.mode === 2 || oamEarly)) return true;
+     if ((s & 0x10) && this.mode === 1) return true;
+     if ((s & 0x08) && this.mode === 0) return true;
+     return false;
+@@ -55,6 +88,8 @@ export class Ppu {
+     switch (a) {
+       case 0xff40: {
+         const was = this.on; const now = (v & 0x80) !== 0;
++        this.lcdcLog.push({ dot: this.dot, v });
++        if (this.lcdcLog.length > 256) this.lcdcLog.shift();
+         this.lcdc = v;
+         if (was && !now) { this.ly = 0; this.dot = 0; this.mode = 0; this.winLine = 0; this.stat &= ~0x03; this.updCoinc(); this.statLine = false; }
+         else if (!was && now) { this.dot = 0; this.mode = 2; this.updCoinc(); this.resetStatLine(); this.beginLine(raise); }
+@@ -62,12 +97,32 @@ export class Ppu {
+         break;
+       }
+       case 0xff41: this.stat = (this.stat & 0x07) | (v & 0xf8); this.updCoinc(); this.checkStat(raise); break;
+-      case 0xff42: this.scy = v; break;
+-      case 0xff43: this.scx = v; break;
++      case 0xff42: {
++        this.scyLog.push({ dot: this.dot, v });
++        if (this.scyLog.length > 256) this.scyLog.shift();
++        this.scy = v; break;
++      }
++      case 0xff43: {
++        this.scxLog.push({ dot: this.dot, v });
++        if (this.scxLog.length > 256) this.scxLog.shift();
++        this.scx = v; break;
++      }
+       case 0xff45: this.lyc = v; this.updCoinc(); this.checkStat(raise); break;
+-      case 0xff47: this.bgp = v; break;
+-      case 0xff48: this.obp0 = v; break;
+-      case 0xff49: this.obp1 = v; break;
++      case 0xff47: {
++        this.bgpLog.push({ dot: this.dot, v });
++        if (this.bgpLog.length > 256) this.bgpLog.shift();
++        this.bgp = v; break;
++      }
++      case 0xff48: {
++        this.obp0Log.push({ dot: this.dot, v });
++        if (this.obp0Log.length > 256) this.obp0Log.shift();
++        this.obp0 = v; break;
++      }
++      case 0xff49: {
++        this.obp1Log.push({ dot: this.dot, v });
++        if (this.obp1Log.length > 256) this.obp1Log.shift();
++        this.obp1 = v; break;
++      }
+       case 0xff4a: this.wy = v; break;
+       case 0xff4b: this.wx = v; break;
+     }
+@@ -79,6 +134,12 @@ export class Ppu {
+   }
+   beginLine(raise: (b: number) => void): void {
+     if (!this.on || this.ly >= 144) return;
++    this.bgpLog.length = 0; this.bgpLS = this.bgp;
++    this.obp0Log.length = 0; this.obp0LS = this.obp0;
++    this.obp1Log.length = 0; this.obp1LS = this.obp1;
++    this.lcdcLog.length = 0; this.lcdcLS = this.lcdc;
++    this.scxLog.length = 0; this.scxLS = this.scx;
++    this.scyLog.length = 0; this.scyLS = this.scy;
+     this.m3len = 172 + (this.scx & 7);
+     let n = 0;
+     const tall = (this.lcdc & 0x04) !== 0; const h = tall ? 16 : 8;
+@@ -97,30 +158,52 @@ export class Ppu {
+       const y = this.oam[i * 4] - 16;
+       if (this.ly >= y && this.ly < y + h) out.push(i);
+     }
+-    if (!this.cgb) out.sort((a, b) => (this.oam[a * 4 + 1] - this.oam[b * 4 + 1]) || (a - b));
++    if (!this.cgb || this.dmgCompat) out.sort((a, b) => (this.oam[a * 4 + 1] - this.oam[b * 4 + 1]) || (a - b));
+     return out;
+   }
+   renderLine(): void {
+     if (this.cgb) { this.renderLineCgb(); return; }
+     const y = this.ly; if (y >= 144) return;
+     const row = y * 160;
+-    const pal = [this.bgp & 3, (this.bgp >> 2) & 3, (this.bgp >> 4) & 3, (this.bgp >> 6) & 3];
+-    const bgOn = (this.lcdc & 0x01) !== 0;
+-    const winOn = (this.lcdc & 0x20) !== 0;
+-    const signed = (this.lcdc & 0x10) === 0;
+-    const bgMap = (this.lcdc & 0x08) ? 0x1c00 : 0x1800;
+-    const winMap = (this.lcdc & 0x40) ? 0x1c00 : 0x1800;
+-    const useWin = this.on && winOn && y >= this.wy && this.wx <= 166;
+     const wx = this.wx - 7;
++    const lcdc0 = this.lcdcLS;
++    const useWinLine = this.on && (lcdc0 & 0x20) !== 0 && y >= this.wy && this.wx <= 166;
++    const bgShade = new Uint8Array(160);
++    const bgOnPx = new Uint8Array(160);
++    const spr = this.scanSprites();
++    // FIFO stall: each sprite fetched before pixel x delays its emission by
++    // 6 dots (sprite at sx is fetched once LX + 8 reaches sx).
++    const sxList = spr.map((i) => this.oam[i * 4 + 1] - 8).sort((a, b) => a - b);
++    const stall = new Uint8Array(160);
++    for (let x = 0; x < 160; x++) {
++      let n = 0;
++      for (let k = 0; k < sxList.length; k++) if (sxList[k] <= x + 8) n++; else break;
++      stall[x] = n * 6;
++    }
+     for (let x = 0; x < 160; x++) {
++      const st = stall[x];
++      const lcOut = this.loggedAt(this.lcdcLog, this.lcdcLS, x + st);
++      const bgOn = (lcOut & 0x01) !== 0;
++      const winOn = (lcOut & 0x20) !== 0;
++      const scxX = this.loggedAt(this.scxLog, this.scxLS, x + st);
++      // Fetch-timed fields resolve at the tile's fetch dots: map byte at
++      // 80 + 8T, data bytes (row select, tile block) 4 dots later.
++      const T = ((x + scxX) >> 3);
++      const lcFetch = this.loggedAt(this.lcdcLog, this.lcdcLS, (T << 3) + st - 13);
++      const lcData = this.loggedAt(this.lcdcLog, this.lcdcLS, (T << 3) + st - 9);
++      const signed = (lcData & 0x10) === 0;
++      const bgMap = (lcFetch & 0x08) ? 0x1c00 : 0x1800;
++      const winMap = (lcFetch & 0x40) ? 0x1c00 : 0x1800;
++      const useWin = this.on && winOn && y >= this.wy && this.wx <= 166;
++      const bv = this.loggedAt(this.bgpLog, this.bgpLS, x + st);
++      const pal = [bv & 3, (bv >> 2) & 3, (bv >> 4) & 3, (bv >> 6) & 3];
+       let ci = 0;
+-      if (!bgOn) ci = 0;
+-      else {
++      if (bgOn) {
+         let px = x, prow = y, map = bgMap;
+         if (useWin && x >= wx) { px = x - wx; prow = this.winLine; map = winMap; }
+-        else if (useWin && x < wx && wx <= 7) { px = (x + this.scx) & 0xff; prow = (y + this.scy) & 0xff; }
++        else if (useWin && x < wx && wx <= 7) { px = (x + scxX) & 0xff; prow = (y + this.loggedAt(this.scyLog, this.scyLS, (T << 3) + st - 9)) & 0xff; }
+         else if (useWin && x >= wx) { px = x - wx; prow = this.winLine; map = winMap; }
+-        else { px = (x + this.scx) & 0xff; prow = (y + this.scy) & 0xff; }
++        else { px = (x + scxX) & 0xff; prow = (y + this.loggedAt(this.scyLog, this.scyLS, (T << 3) + st - 9)) & 0xff; }
+         const tx = px >> 3, ty = prow >> 3;
+         const ti = this.vram[map + ty * 32 + tx];
+         const tn = signed ? 0x1000 + (((ti ^ 0x80) - 0x80) << 4) : (ti << 4);
+@@ -128,29 +211,101 @@ export class Ppu {
+         const r2 = this.vram[(tn + ((prow & 7) << 1) + 1) & 0x1fff];
+         const b = 7 - (px & 7);
+         ci = ((r >> b) & 1) | (((r2 >> b) & 1) << 1);
++        bgShade[x] = pal[ci]; bgOnPx[x] = 1;
++        this.fb[row + x] = pal[ci];
++      } else {
++        bgShade[x] = 0; bgOnPx[x] = 0;
++        this.fb[row + x] = 0;
+       }
+-      this.fb[row + x] = pal[ci];
+     }
+     this.hits["ppu.fetcher"] = (this.hits["ppu.fetcher"] || 0) + 1;
+     this.hits["ppu.fifo"] = (this.hits["ppu.fifo"] || 0) + 1;
+-    if (useWin) { this.hits["ppu.window"] = (this.hits["ppu.window"] || 0) + 1; this.winLine++; }
+-    const spr = this.scanSprites();
++    if (useWinLine) { this.hits["ppu.window"] = (this.hits["ppu.window"] || 0) + 1; this.winLine++; }
+     if (spr.length) this.hits["ppu.sprites"] = (this.hits["ppu.sprites"] || 0) + 1;
+     if (spr.length && this.on) {
+       const tall = (this.lcdc & 0x04) !== 0;
+-      const bgPrio = new Uint8Array(160);
+-      if (bgOn) {
+-        for (let x = 0; x < 160; x++) {
+-          const v = this.fb[row + x];
+-          bgPrio[x] = (v === pal[0]) ? 0 : 1;
++      for (let k = spr.length - 1; k >= 0; k--) {
++        const i = spr[k]; const o = i * 4;
++        const sy = this.oam[o] - 16, sx = this.oam[o + 1] - 8;
++        const tile = this.oam[o + 2], at = this.oam[o + 3];
++        let ry = y - sy; if (at & 0x40) ry = (tall ? 15 : 7) - ry;
++        const tn2 = tall ? (tile & 0xfe) + (ry >= 8 ? 1 : 0) : tile;
++        const lr = ry & 7;
++        const b0 = this.vram[(tn2 * 16 + lr * 2) & 0x1fff];
++        const b1 = this.vram[(tn2 * 16 + lr * 2 + 1) & 0x1fff];
++        for (let px2 = 0; px2 < 8; px2++) {
++          const bx = (at & 0x20) ? px2 : 7 - px2;
++          const ci2 = ((b0 >> bx) & 1) | (((b1 >> bx) & 1) << 1);
++          if (ci2 === 0) continue;
++          const dx = sx + px2; if (dx < 0 || dx >= 160) continue;
++          if ((at & 0x80) && bgOnPx[dx] && bgShade[dx] !== 0) continue;
++          const st2 = stall[dx];
++          const p = (at & 0x10)
++            ? this.loggedAt(this.obp1Log, this.obp1LS, dx + st2)
++            : this.loggedAt(this.obp0Log, this.obp0LS, dx + st2);
++          this.fb[row + dx] = (p >> (ci2 * 2)) & 3;
+         }
+       }
++    }
++  }
++  paintCgb(o: number, lo: number, hi: number): void {
++    const c = (lo | (hi << 8)) & 0x7fff;
++    const r = c & 0x1f, g = (c >> 5) & 0x1f, bl = (c >> 10) & 0x1f;
++    this.rgb[o] = (r << 3) | (r >> 2);
++    this.rgb[o + 1] = (g << 3) | (g >> 2);
++    this.rgb[o + 2] = (bl << 3) | (bl >> 2);
++  }
++  // DMG ROM on CGB: BGP/OBP0/OBP1 translate 2-bit tile data to a shade,
++  // and the shade indexes BG palette 0 / OBJ palette 0/1 in CGB palette RAM.
++  renderLineDmgCompat(): void {
++    const y = this.ly; if (y >= 144) return;
++    const row = y * 160;
++    const wx = this.wx - 7;
++    const lcdc0 = this.lcdcLS;
++    const useWinLine = this.on && (lcdc0 & 0x20) !== 0 && y >= this.wy && this.wx <= 166;
++    const bgShade = new Uint8Array(160);
++    const bgOnPx = new Uint8Array(160);
++    for (let x = 0; x < 160; x++) {
++      const lc = this.loggedAt(this.lcdcLog, this.lcdcLS, x);
++      const bgOn = (lc & 0x01) !== 0;
++      const winOn = (lc & 0x20) !== 0;
++      const signed = (lc & 0x10) === 0;
++      const bgMap = (lc & 0x08) ? 0x1c00 : 0x1800;
++      const winMap = (lc & 0x40) ? 0x1c00 : 0x1800;
++      const useWin = this.on && winOn && y >= this.wy && this.wx <= 166;
++      let s = 0;
++      if (bgOn) {
++        let px = x, prow = y, map = bgMap;
++        if (useWin && x >= wx) { px = x - wx; prow = this.winLine; map = winMap; }
++        else { px = (x + this.scx) & 0xff; prow = (y + this.scy) & 0xff; }
++        const tx = px >> 3, ty = prow >> 3;
++        const ti = this.vram[map + ty * 32 + tx];
++        const tn = signed ? 0x1000 + (((ti ^ 0x80) - 0x80) << 4) : (ti << 4);
++        const b0 = this.vram[(tn + ((prow & 7) << 1)) & 0x1fff];
++        const b1 = this.vram[(tn + ((prow & 7) << 1) + 1) & 0x1fff];
++        const b = 7 - (px & 7);
++        const ci = ((b0 >> b) & 1) | (((b1 >> b) & 1) << 1);
++        const bv = this.loggedAt(this.bgpLog, this.bgpLS, x);
++        s = (bv >> (ci * 2)) & 3;
++        bgShade[x] = s; bgOnPx[x] = 1;
++      } else {
++        bgShade[x] = 0; bgOnPx[x] = 0;
++      }
++      this.fb[row + x] = s;
++      this.paintCgb((row + x) * 3, this.bgPal[s * 2], this.bgPal[s * 2 + 1]);
++    }
++    this.hits["ppu.fetcher"] = (this.hits["ppu.fetcher"] || 0) + 1;
++    this.hits["ppu.fifo"] = (this.hits["ppu.fifo"] || 0) + 1;
++    if (useWinLine) { this.hits["ppu.window"] = (this.hits["ppu.window"] || 0) + 1; this.winLine++; }
++    const spr = this.scanSprites();
++    if (spr.length) this.hits["ppu.sprites"] = (this.hits["ppu.sprites"] || 0) + 1;
++    if (spr.length && this.on) {
++      const tall = (this.lcdc & 0x04) !== 0;
+       for (let k = spr.length - 1; k >= 0; k--) {
+         const i = spr[k]; const o = i * 4;
+         const sy = this.oam[o] - 16, sx = this.oam[o + 1] - 8;
+         const tile = this.oam[o + 2], at = this.oam[o + 3];
+-        const p = at & 0x10 ? this.obp1 : this.obp0;
+-        const pc = [(p) & 3, (p >> 2) & 3, (p >> 4) & 3, (p >> 6) & 3];
++        const palBase = (at & 0x10) ? 8 : 0;
+         let ry = y - sy; if (at & 0x40) ry = (tall ? 15 : 7) - ry;
+         const tn2 = tall ? (tile & 0xfe) + (ry >= 8 ? 1 : 0) : tile;
+         const lr = ry & 7;
+@@ -161,13 +316,19 @@ export class Ppu {
+           const ci2 = ((b0 >> bx) & 1) | (((b1 >> bx) & 1) << 1);
+           if (ci2 === 0) continue;
+           const dx = sx + px2; if (dx < 0 || dx >= 160) continue;
+-          if ((at & 0x80) && bgPrio[dx]) continue;
+-          this.fb[row + dx] = pc[ci2];
++          if ((at & 0x80) && bgOnPx[dx] && bgShade[dx] !== 0) continue;
++          const p = (at & 0x10)
++            ? this.loggedAt(this.obp1Log, this.obp1LS, dx)
++            : this.loggedAt(this.obp0Log, this.obp0LS, dx);
++          const s2 = (p >> (ci2 * 2)) & 3;
++          this.fb[row + dx] = s2;
++          this.paintCgb((row + dx) * 3, this.objPal[palBase + s2 * 2], this.objPal[palBase + s2 * 2 + 1]);
+         }
+       }
+     }
+   }
+   renderLineCgb(): void {
++    if (this.dmgCompat) { this.renderLineDmgCompat(); return; }
+     const y = this.ly; if (y >= 144) return;
+     const row = y * 160;
+     const signed = (this.lcdc & 0x10) === 0;
+@@ -273,6 +434,7 @@ export class Ppu {
+         if (nm === 0) this.renderLine();
+         this.checkStat(raise);
+       }
++      if (this.dot === 452 && this.ly < 143 && this.mode === 0) this.checkStat(raise);
+       if (this.dot >= 456) {
+         this.dot = 0; this.ly++;
+         this.updCoinc();

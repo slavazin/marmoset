@@ -1,0 +1,9 @@
+{"at":"2026-11-07T22:21:22.679Z","run":"RUN-0004","role":"player","model":"gemini-3.8-flash","tokens_in":1367,"tokens_out":138,"usd":0.0007550999999999999}
+{"at":"2026-11-07T22:21:23.154Z","run":"RUN-0004","role":"router","model":"subq-snap-1.1","tokens_in":1586,"tokens_out":0,"usd":0.00006344}
+{"at":"2026-11-07T22:21:29.841Z","run":"RUN-0004","role":"narrator","model":"gemini-4-argon","tokens_in":3519,"tokens_out":127,"usd":0.00566875}
+{"at":"2026-11-07T22:21:30.291Z","run":"RUN-0004","role":"router","model":"subq-snap-1.1","tokens_in":1497,"tokens_out":0,"usd":0.00005988}
+{"at":"2026-11-07T22:21:46.340Z","run":"RUN-0004","role":"narrator","model":"gemini-4-argon","tokens_in":3519,"tokens_out":125,"usd":0.00564875}
+{"at":"2026-11-07T22:21:50.155Z","run":"RUN-0004","role":"router","model":"subq-snap-1.1","tokens_in":1359,"tokens_out":0,"usd":0.00005436}
+{"at":"2026-11-07T22:21:50.672Z","run":"RUN-0004","role":"router","model":"subq-snap-1.1","tokens_in":1271,"tokens_out":0,"usd":0.00005084}
+{"at":"2026-11-07T22:39:38.952Z","run":"RUN-0004","role":"router","model":"subq-snap-1.1","tokens_in":2371,"tokens_out":0,"usd":0.00009484}
+{"at":"2026-11-07T22:39:56.012Z","run":"RUN-0004","role":"router","model":"subq-snap-1.1","tokens_in":2328,"tokens_out":0,"usd":0.00009312}

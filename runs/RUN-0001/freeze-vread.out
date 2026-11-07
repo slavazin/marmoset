@@ -1,0 +1,15 @@
+14:44:32
+ATT-0020 on INC-0085: VER-0012 REFUSE (repro failed: {"clean":false,"exit":1,"line":"first mismatch: counter 1 (6826 pixels)"})
+campaign stopped: spend stop: $72.13 (owner-read) + $8.30 reserved for 2 in flight ≥ $80; 10 attempts, 221 segments
+{"stopped":"spend stop: $72.13 (owner-read) + $8.30 reserved for 2 in flight ≥ $80","segments":221,"attempts":["ATT-0004 INC-0012 VER-0004 REFUSE","ATT-0002 INC-0001 VER-0003 REFUSE","ATT-0003 INC-0018 VER-0002 REFUSE","ATT-0005 INC-0018 VER-0005 REFUSE","ATT-0006 INC-0012 VER-0006 REFUSE","ATT-0011 INC-0085 VER-0007 REFUSE","ATT-0012 INC-0011 VER-0008 REFUSE","ATT-0013 INC-0027 VER-0009 REFUSE","ATT-0021 INC-0011 VER-0011 REFUSE","ATT-0020 INC-0085 VER-0012 REFUSE"],"paused":false}
+
+> ratchet@ freeze /Users/slavazinevich/GenDev/marmoset
+> node loop/freeze.ts
+
+RUN-0001 frozen at 2026-11-07T22:44:32.964Z: s_star_sha c6d5c1e1ab77cdc891cbcdabbd5a36013d8ffa68e0e5ebb968376c1ec5077dff (s0_sha c6d5c1e1ab77cdc891cbcdabbd5a36013d8ffa68e0e5ebb968376c1ec5077dff); lock /Users/slavazinevich/GenDev/marmoset/runs/RUN-0001/vread.lock
+
+> ratchet@ vread /Users/slavazinevich/GenDev/marmoset
+> node --env-file-if-exists=.env loop/vread.ts
+
+/Users/slavazinevich/GenDev/marmoset/runs/RUN-0001/vread.json: n 1 family-run per arm; baseline [{"split":"V","family":"mealybug:wx-obj","roms":8,"pass":0,"exact":0,"pixel_match":0.8160861545138889},{"split":"V","family":"mooneye:dma-timer-intr","roms":31,"pass":31,"exact":31,"pixel_match":1}]; ratchet [{"split":"V","family":"mealybug:wx-obj","roms":8,"pass":1,"exact":1,"pixel_match":0.9169216579861111},{"split":"V","family":"mooneye:dma-timer-intr","roms":31,"pass":31,"exact":31,"pixel_match":1}]
+exit 0 15:07:04

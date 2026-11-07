@@ -1,0 +1,24 @@
+{
+  "run": "RUN-0003",
+  "source": "play",
+  "rom": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/game2/game2.gb",
+  "rom_sha": "40a0615df56d3bfd5b20eeb3c3c21b5e39692dc13909e797f4c4420de0a7217a",
+  "seed0": 1001,
+  "live": "/Users/slavazinevich/GenDev/ratchet-live-game2",
+  "live_branch": "core-game2",
+  "s0_core_commit": "dcc327c90c49585c700987e8c875b43ed3492b1e",
+  "splits": [
+    "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/splits.json"
+  ],
+  "splits_sha": "40e1cdef501fbf813be7b581d131d5bfa4f5b9902705f4d757b125fa2b199a0e",
+  "rule_version": "8e27c0f753ca",
+  "ledger": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/runs/RUN-0003/ledger",
+  "runs_dir": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/runs",
+  "scratch": "/private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/ratchet-scratch-run3",
+  "cache": "/Users/slavazinevich/.cache/ratchet-run3",
+  "subq_cache": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/runs/RUN-0003/subq-cache",
+  "telemetry": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/runs/RUN-0003/telemetry",
+  "skills": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/runs/RUN-0003/skills",
+  "evidence": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/runs/RUN-0003/evidence",
+  "traces": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-a7a830c0c8b72dcca/runs/RUN-0003/traces"
+}

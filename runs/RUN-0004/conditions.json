@@ -1,0 +1,29 @@
+{
+  "run": "RUN-0004",
+  "source": "play",
+  "rom": "/Users/slavazinevich/.cache/ratchet/games/mario-yoshi-eu.gb",
+  "rom_sha": "062c243e167e819bcbea29c63158d1c616d185fd400ce94cbbef6f35cfd990b4",
+  "seed0": 1001,
+  "live": "/Users/slavazinevich/GenDev/ratchet-live-my",
+  "live_branch": "core-my",
+  "s0_core_commit": "dcc327c90c49585c700987e8c875b43ed3492b1e",
+  "splits": [
+    "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/splits.json"
+  ],
+  "splits_sha": "40e1cdef501fbf813be7b581d131d5bfa4f5b9902705f4d757b125fa2b199a0e",
+  "rule_version": "8e27c0f753ca",
+  "ledger": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/runs/RUN-0004/ledger",
+  "runs_dir": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/runs",
+  "scratch": "/private/var/folders/5q/_chxpdq92fv4n1tg25_k64zr0000gn/T/ratchet-scratch-run4",
+  "cache": "/Users/slavazinevich/.cache/ratchet-run4",
+  "subq_cache": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/runs/RUN-0004/subq-cache",
+  "telemetry": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/runs/RUN-0004/telemetry",
+  "skills": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/runs/RUN-0004/skills",
+  "evidence": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/runs/RUN-0004/evidence",
+  "traces": "/Users/slavazinevich/GenDev/marmoset/.claude/worktrees/agent-af9775c702317aecb/runs/RUN-0004/traces",
+  "start": {
+    "game": "mario-yoshi-eu",
+    "key": "a15dc530b4d8feaa",
+    "sha": "e50049a56afc8aa0f684d3ad236eece6aaf4a3df8c80793c85fe24ff131831b4"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "model_requested": "subq-snap-1.1",
+  "model_echoed": "subq-snap-1.1",
+  "state_sha": "084b69a3bfa77a02d81b022da76c9f5d8304ef7168bee6ce1d2a825461795f87",
+  "questions_sha": "e74f559cf6b2e2971e3a8e442d8cf693e306fdd5a91f168b28ebbd2210f63bbc",
+  "at": "2026-11-07T21:34:09.864Z",
+  "status": 200,
+  "wall_ms": 1338,
+  "questions": {
+    "pass": {
+      "type": "noul",
+      "instructions": "Will a repair attempt on this incident pass the gate: replay the incident's trace to match the hardware reference and regress no held-out test suite?",
+      "criteria": {
+        "true": "the divergence has one clear, local cause in the emulator core that a short edit can fix",
+        "false": "the cause is unclear, spread across subsystems, or likely to break held-out timing tests when fixed"
+      }
+    }
+  },
+  "n_images": 3,
+  "response": {
+    "model": "subq-snap-1.1",
+    "answers": {
+      "pass": {
+        "type": "noul",
+        "noul": 0.14583224058151245
+      }
+    },
+    "usage": {
+      "input_tokens": 2215,
+      "output_tokens": 0
+    }
+  }
+}

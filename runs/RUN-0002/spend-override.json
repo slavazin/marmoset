@@ -1,0 +1,6 @@
+{
+  "usd": 5,
+  "at": "2026-11-07T12:35:00-08:00",
+  "pre_run_usd": 5,
+  "note": "Seeded from RUN-0001's runs/RUN-0001/spend-override.json: the owner's Meta console reading of about $5 in total, all pre-run, at 2026-11-07 ~12:50 (at set to RUN-0001's seed time). One Meta account serves RUN-0001 and RUN-0002: RUN-0002's guard reads server/spend.ts combinedMeter over both runs, and its ownerRatio reads RUN-0001's ledger, where the pre-run records stand. Update usd and at here and in RUN-0001's file together when the owner reads the console."
+}
