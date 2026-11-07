@@ -13,7 +13,7 @@
 // A core that throws fails that ROM; the scorer does not throw for it.
 // V (SPEC G6): a ROM that a V family of the repository's splits.json reaches is refused without the vread token,
 // under whatever split, family or caller-supplied Splits it arrives, and through runRom directly.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PNG } from "pngjs";
 import type { CreateCore, Split, SuiteReading, Splits } from "../src/schema.ts";
@@ -74,10 +74,38 @@ function pixelMatch(frame: Uint8Array, ref: Uint8Array): number {
 
 /** The ROMs under `root` that the repository's splits.json V families reach, before any exclusion. */
 export function vRoms(root: string): Set<string> {
-  const splits = loadSplits(SPLITS_PATH);
   const out = new Set<string>();
-  for (const f of familiesIn(splits, "V")) for (const g of splits.families[f].roms) for (const r of expandGlob(root, g)) out.add(r);
+  for (const g of vGlobs()) for (const r of expandGlob(root, g)) out.add(r);
   return out;
+}
+
+/**
+ * V's ROM globs, set by lockstep/build-replay.ts from splits.json when it bundles tools/replay.mjs, so the bundle
+ * refuses V in a scratch repo that holds no splits.json (SPEC §5 S8). Undefined when this module runs unbundled.
+ */
+declare const __RATCHET_V_GLOBS__: string[] | undefined;
+
+/** V's ROM globs: from the repository's splits.json, else the ones bundled into tools/replay.mjs; throws with neither. */
+export function vGlobs(): string[] {
+  if (existsSync(SPLITS_PATH)) {
+    const splits = loadSplits(SPLITS_PATH);
+    return familiesIn(splits, "V").flatMap((f) => splits.families[f].roms);
+  }
+  if (typeof __RATCHET_V_GLOBS__ !== "undefined") return __RATCHET_V_GLOBS__;
+  throw new Error(`${SPLITS_PATH} absent and no V globs bundled: V cannot be refused, so nothing is scored`);
+}
+
+/** A file's real path (symlinks, dot segments and letter case resolved), or null when it does not exist. */
+function realPath(p: string): string | null {
+  try { return realpathSync.native(p); } catch { return null; }
+}
+
+/** True when `rom` under `root`, however spelled, opens the same file as a V ROM. */
+function isVRom(root: string, rom: string): boolean {
+  const target = realPath(join(root, rom));
+  if (target === null) return false;
+  for (const r of vRoms(root)) if (realPath(join(root, r)) === target) return true;
+  return false;
 }
 
 function refuseV(): never {
@@ -89,7 +117,7 @@ function refuseV(): never {
  * without the token, before the core is created; a core's failure is a result, not a throw.
  */
 export function runRom(createCore: CreateCore, root: string, rom: string, caps: Caps = { wallMs: WALL_CAP_MS, cycles: CYCLE_CAP }, runsDir?: string): RomResult {
-  if (vRoms(root).has(rom) && !vreadAuthorized(process.env.RATCHET_VREAD_TOKEN, runsDir)) refuseV();
+  if (isVRom(root, rom) && !vreadAuthorized(process.env.RATCHET_VREAD_TOKEN, runsDir)) refuseV();
   const rule = passRule(rom);
   if (!rule) throw new Error(`no pass rule for ${rom}`);
   let ref: Uint8Array | null = null;

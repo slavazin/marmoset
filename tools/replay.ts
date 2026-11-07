@@ -8,12 +8,14 @@
 //   --family <name> --core-dir <dir> --roms <file.json> [--split T|H|V]
 //       scores one family on the ROM list file: a JSON array of paths under $RATCHET_ROMS, an object
 //       { roms: [...] }, or { families: { <name>: [...] } }; prints the SuiteReading as JSON.
-// Exit 0 clean (or scored), 1 mismatch, 2 usage or missing data.
+// A ROM whose sha is not the incident's or trace's is refused. A core that stalls anywhere up to the window's
+// end is a mismatch. Exit 0 clean (or scored), 1 mismatch, 2 usage, missing data or wrong ROM.
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { Split, Trace } from "../src/schema.ts";
 import { romsDir } from "../suites/splits.ts";
+import { sha256 } from "../oracle/client.ts";
 import { loadCreateCore } from "../lockstep/core-dir.ts";
 import { EVIDENCE_ROOT, readWindow } from "../lockstep/evidence.ts";
 import { defaultOracleDir, formatOutcome, replayFrames, replaySuite, scoreRomList } from "../lockstep/replay.ts";
@@ -37,11 +39,14 @@ async function main(): Promise<number> {
   if (v.incident) {
     const w = readWindow(v["evidence-dir"] ?? join(EVIDENCE_ROOT, v.incident));
     if (w.kind === "suite") {
+      const romPath = join(romsDir(), w.rom_rel);
+      if (sha256(readFileSync(romPath)) !== w.incident.rom_sha) throw new Error(`${romPath} is not the incident's ROM (sha ${w.incident.rom_sha})`);
       const r = replaySuite(createCore, w, romsDir());
       console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)})`);
       return r.clean ? 0 : 1;
     }
     const rom = new Uint8Array(readFileSync(v.rom ?? w.rom.path));
+    if (sha256(rom) !== w.incident.rom_sha) throw new Error(`${v.rom ?? w.rom.path} is not the incident's ROM (sha ${w.incident.rom_sha})`);
     const computed = defaultOracleDir(rom, w.trace.align, w.trace.inputs);
     const out = replayFrames(createCore, {
       rom, align: w.trace.align, inputs: w.trace.inputs, window: w.incident.window,
@@ -55,8 +60,10 @@ async function main(): Promise<number> {
     if (!v.rom) { console.error("--trace needs --rom"); return 2; }
     const trace = JSON.parse(readFileSync(join(v["traces-dir"] ?? join(REPO, "traces"), `${v.trace}.json`), "utf8")) as Trace;
     const first = Math.min(...trace.inputs.map((i) => i.from_counter), trace.counter_end);
+    const rom = new Uint8Array(readFileSync(v.rom));
+    if (sha256(rom) !== trace.rom_sha) throw new Error(`${v.rom} is not the trace's ROM (sha ${trace.rom_sha})`);
     const out = replayFrames(createCore, {
-      rom: new Uint8Array(readFileSync(v.rom)), align: trace.align, inputs: trace.inputs, window: [Math.max(1, first), trace.counter_end],
+      rom, align: trace.align, inputs: trace.inputs, window: [Math.max(1, first), trace.counter_end],
     });
     console.log(formatOutcome(out));
     return out.clean ? 0 : 1;
