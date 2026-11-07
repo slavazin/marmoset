@@ -72,11 +72,21 @@ function spots(h: History): string {
 ${s.subsystem ? `<div class="dim">subsystem agreement: ${esc(fmtReading(s.subsystem))}</div>` : ""}<div class="dim">spotSummary over ledger/spots.jsonl (player/spot-score.ts). The sensor nominates; the oracle decides (D-0004).</div>`;
 }
 
+const share = (x: number) => x.toLocaleString("en", { style: "percent" });
+
+/** The guard's figure as a gauge against its stop line, with the ask line marked (S19); no stop line, no gauge. */
+function gauge(m: NonNullable<History["meter"]>): string {
+  if (!m.stop_usd) return "";
+  const level = m.usd >= m.stop_usd ? "stop" : m.usd >= m.ask_usd ? "ask" : "";
+  return `<div class="gauge ${level}" title="${esc(m.source)} ${esc(fmtUsd(m.usd))} of stop ${esc(fmtUsd(m.stop_usd))}"><span class="gfill" style="width:${esc(share(m.usd / m.stop_usd))}"></span><span class="gmark" style="left:${esc(share(m.ask_usd / m.stop_usd))}" title="ask ${esc(fmtUsd(m.ask_usd))}"></span></div>
+<div class="gscale"><span>${esc(m.source)} ${esc(fmtUsd(m.usd))}</span><span>ask ${esc(fmtUsd(m.ask_usd))}</span><span>stop ${esc(fmtUsd(m.stop_usd))}</span></div>`;
+}
+
 function meter(h: History): string {
   const m = h.meter;
   if (!m) return "";
   const owner = m.owner_read_usd === null ? "no spend-override.json" : fmtUsd(m.owner_read_usd);
-  return `<div>owner-read (Meta console) <b>${esc(owner)}</b> · priced (list rates, held by review) ${esc(fmtUsd(m.priced_usd))} · the guard reads ${esc(m.source)} ${esc(fmtUsd(m.usd))}: ask at ${esc(fmtUsd(m.ask_usd))}, stop at ${esc(fmtUsd(m.stop_usd))}</div>${m.warning ? `<div class="dim">warning: ${esc(m.warning)}</div>` : ""}`;
+  return `${gauge(m)}<div>owner-read (Meta console) <b>${esc(owner)}</b> · priced (list rates, held by review) ${esc(fmtUsd(m.priced_usd))} · the guard reads ${esc(m.source)} ${esc(fmtUsd(m.usd))}: ask at ${esc(fmtUsd(m.ask_usd))}, stop at ${esc(fmtUsd(m.stop_usd))}</div>${m.warning ? `<div class="dim">warning: ${esc(m.warning)}</div>` : ""}`;
 }
 
 function spend(h: History): string {
