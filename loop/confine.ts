@@ -63,7 +63,17 @@ export interface ConfinePaths {
   lives: string[];
   /** Read-only node_modules copy the scratch repo's node_modules links to, if any. */
   modules?: string;
+  /**
+   * A Claude Code run (loop/claude.ts, D-draft-claude-repairer): the owner's real HOME, which the CLI needs for its
+   * keychain auth and ~/.claude.json. Its ~/.claude history dirs (CLAUDE_HISTORY_DIRS) and the parent of the repository
+   * checkouts are denied for reads and writes; ~/.claude and ~/.claude.json* stay writable for the CLI's own state.
+   */
+  claude?: { realHome: string };
 }
+
+/** ~/.claude entries holding other sessions' transcripts, memory, skills, plugins and settings: denied to a Claude run. */
+export const CLAUDE_HISTORY_DIRS: readonly string[] = ["projects", "history.jsonl", "file-history", "sessions", "session-env", "shell-snapshots", "tasks", "jobs",
+  "plugins", "skills", "daemon", "debug", "paste-cache", "scheduled-tasks", "spares", "backups", "downloads", "todos", "agents", "commands", "CLAUDE.md", "settings.json", "settings.json.bak-doctor", "cache", "worktrees"];
 
 const q = (p: string) => JSON.stringify(p);
 const sub = (ps: string[]) => ps.map((p) => `(subpath ${q(p)})`).join(" ");
@@ -73,7 +83,10 @@ export function seatbeltProfile(c: ConfinePaths): string {
   const R = (ps: (string | undefined)[]) => [...new Set(ps.filter((p): p is string => !!p).map(real))];
   const readable = R([c.attemptDir, c.envDir, c.home, c.modules]);
   const writable = R([c.attemptDir, c.home]);
-  const denied = R([...c.repos, c.cache, ...c.lives, c.scratchRoot]);
+  const cl = c.claude ? real(c.claude.realHome) : undefined;
+  // a Claude run also loses the repositories' parent dir (every sibling clone and worktree), ~/.cache/ratchet* and its own history
+  const claudeDenied = cl ? [...c.repos.map((r) => dirname(real(r))), join(cl, ".cache"), ...CLAUDE_HISTORY_DIRS.map((d) => join(cl, ".claude", d))] : [];
+  const denied = R([...c.repos, c.cache, ...c.lives, c.scratchRoot, ...claudeDenied]);
   const temp = R(["/private/tmp", "/private/var/folders", tmpdir()]);
   return [
     "(version 1)",
@@ -90,6 +103,12 @@ export function seatbeltProfile(c: ConfinePaths): string {
     `(allow file-write* ${sub(temp)} (literal "/dev/null") (literal "/dev/tty"))`,
     `(deny file-write* ${sub(denied)})`,
     `(allow file-write* ${sub(writable)})`,
+    ...(cl ? [
+      `(allow file-write* (subpath ${q(join(cl, ".claude"))}) (regex #"^${join(cl, ".claude.json").replace(/\./g, "\\.")}") (subpath ${q(join(cl, "Library", "Caches"))}))`,
+      `(deny file-write* ${sub(R(claudeDenied))})`,
+      // the attempt's own dirs sit under the scratch root, which the line above may cover (a scratch root under ~/.cache)
+      `(allow file-write* ${sub(writable)})`,
+    ] : []),
     "",
   ].join("\n");
 }
@@ -103,7 +122,7 @@ function mainCheckout(root: string): string {
 }
 
 /** ConfinePaths for a Muse run in scratch repo `cwd` with HOME `home`; repository, cache and live clones from the environment. */
-export function confinePathsFor(cwd: string, home: string, env: NodeJS.ProcessEnv = process.env): ConfinePaths {
+export function confinePathsFor(cwd: string, home: string, env: NodeJS.ProcessEnv = process.env, claude?: ConfinePaths["claude"]): ConfinePaths {
   const p = pathsFromEnv(env);
   const nm = join(cwd, "node_modules");
   return {
@@ -111,6 +130,7 @@ export function confinePathsFor(cwd: string, home: string, env: NodeJS.ProcessEn
     repos: [...new Set([p.root, mainCheckout(p.root)])], cache: p.cache,
     lives: [p.live, join(dirname(p.live), "ratchet-live-cgb")],
     modules: existsSync(nm) ? realpathSync(nm) : undefined,
+    ...(claude ? { claude } : {}),
   };
 }
 
@@ -120,10 +140,10 @@ export function profilePath(cwd: string): string {
 }
 
 /** The argv museCli spawns for `bin args` in `cwd`, and how it is confined. Writes the profile when confined. */
-export function confinedCommand(bin: string, args: string[], cwd: string, home: string, on = confineOn()): { cmd: string; argv: string[]; confine: Confine; profile?: string; sha256?: string } {
+export function confinedCommand(bin: string, args: string[], cwd: string, home: string, on = confineOn(), claude?: ConfinePaths["claude"]): { cmd: string; argv: string[]; confine: Confine; profile?: string; sha256?: string } {
   if (!on) return { cmd: bin, argv: args, confine: "none" };
   const profile = profilePath(cwd);
-  const text = seatbeltProfile(confinePathsFor(cwd, home));
+  const text = seatbeltProfile(confinePathsFor(cwd, home, process.env, claude));
   writeFileSync(profile, text);
   return { cmd: SANDBOX_EXEC, argv: ["-f", profile, bin, ...args], confine: "seatbelt", profile, sha256: createHash("sha256").update(text).digest("hex") };
 }

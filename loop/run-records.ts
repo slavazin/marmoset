@@ -14,8 +14,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { createHash, randomBytes } from "node:crypto";
 import { join, relative } from "node:path";
 import { ruleVersion } from "./gate-repair.ts";
-import { MUSE_MODEL } from "./repair.ts";
-import { CONSOLIDATOR_MODEL } from "./llm.ts";
+import { repairerChoice, selectedLlm } from "./claude.ts";
 import { SUBQ_MODEL } from "./route.ts";
 import type { Manifest, Splits, VReadLock } from "../src/schema.ts";
 
@@ -24,7 +23,7 @@ export const RUN_ID = "RUN-0001";
 
 /** Model pinned per role, read where each caller declares it; the manifest falls back to these when no echo is logged. */
 export const PINNED_ROLES: Record<string, string> = {
-  repairer: MUSE_MODEL, consolidator: CONSOLIDATOR_MODEL, router: SUBQ_MODEL,
+  repairer: repairerChoice().model, consolidator: selectedLlm().model, router: SUBQ_MODEL,
   player: "gemini-3.8-flash", narrator: "gemini-4-argon", spotter: "gemini-3.8-flash", // player/gemini.ts, player/vision.ts
 };
 

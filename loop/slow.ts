@@ -21,7 +21,7 @@ import { coreAt, defaultJudge, runTrial, type TrialDeps, type TrialJudge, type T
 import { compileLatches } from "./latches.ts";
 import { makePolicyPlacebo, nominatePolicy, policiesDir } from "./policies.ts";
 import { removeScratch } from "./projection.ts";
-import { museCli, type MuseRunner } from "./repair.ts";
+import type { MuseRunner } from "./repair.ts";
 import type { Llm } from "./llm.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { Incident, SuiteReading } from "../src/schema.ts";
@@ -94,7 +94,7 @@ async function main(argv: string[]): Promise<void> {
   const paths = pathsFromEnv();
   const run = runId() ?? "prerun";
   const judge: TrialJudge = defaultJudge();
-  const runner: MuseRunner = museCli;
+  const runner: MuseRunner = (await import("./claude.ts")).selectedRunner();
   const d: SlowDeps = { paths, runner, judge, run };
   let due = argv.includes("--force") ? 1 : generationsDue(d);
   if (!due) console.log(`no generation due: ${all("incidents.jsonl", paths.ledger).length} incidents, ${generationsDone(d)} generations, K = ${K}`);

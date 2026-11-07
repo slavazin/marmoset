@@ -41,6 +41,8 @@ export interface RunConditions {
    * id, the start key and the sha256 of its cache file; absent for a run from power-on.
    */
   start?: { game: string; key: string; sha: string };
+  /** The repairer and consolidator runner and model (S23): a run is all-Muse or all-Claude; absent reads Muse. */
+  repairer?: { runner: "muse" | "claude"; model: string };
 }
 
 /** The fields that name a directory one run owns alone. */
@@ -59,6 +61,7 @@ export interface ConditionsInput {
   run: string; paths: LoopPaths; runsDir: string; rom: string; source: IncidentSource; seed0: number;
   liveBranch: string; splits: string[]; ruleVersion: string; env?: NodeJS.ProcessEnv;
   start?: RunConditions["start"];
+  repairer?: RunConditions["repairer"];
 }
 
 /** This process's conditions (see the file header). Telemetry and subq-cache follow src/telemetry.ts and loop/subq.ts. */
@@ -74,6 +77,8 @@ export function runConditions(o: ConditionsInput): RunConditions {
     scratch: real(scratchRoot(o.paths, env)), cache: real(o.paths.cache), subq_cache: real(subq_cache), telemetry: real(telemetry),
     skills: real(o.paths.skills), evidence: real(o.paths.evidence), traces: real(o.paths.traces),
     ...(o.start ? { start: o.start } : {}),
+    // Muse is recorded only by omission, so a run opened before S23 resumes unchanged
+    ...(o.repairer && o.repairer.runner !== "muse" ? { repairer: o.repairer } : {}),
   };
 }
 
@@ -125,6 +130,8 @@ export function conditionDiffs(declared: RunConditions, actual: RunConditions): 
     if (k === "s0_core_commit") continue;
     if (JSON.stringify(declared[k]) !== JSON.stringify(actual[k])) out.push(`${k}: declared ${JSON.stringify(declared[k])}, this process ${JSON.stringify(actual[k])}`);
   }
+  // the runner is compared whichever side records it: Muse is the omitted value (S23)
+  if (!("repairer" in declared) && actual.repairer) out.push(`repairer: declared muse, this process ${JSON.stringify(actual.repairer)}`);
   return out;
 }
 

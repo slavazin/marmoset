@@ -16,7 +16,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { all, nextId, status } from "./ledger.ts";
 import type { LoopPaths } from "./paths.ts";
-import { chat, recordSpend, CONSOLIDATOR_MODEL, CONSOLIDATE_MAX_TOKENS, type Llm, type LlmCall } from "./llm.ts";
+import { selectedLlm } from "./claude.ts";
+import { recordSpend, CONSOLIDATOR_MODEL, CONSOLIDATE_MAX_TOKENS, type Llm, type LlmCall } from "./llm.ts";
 import { loadSplits, familiesIn } from "../suites/splits.ts";
 import { tlog } from "../src/telemetry.ts";
 import type { Attempt, CheckName, Observation, SkillFrontmatter, Splits, SuiteReading } from "../src/schema.ts";
@@ -221,11 +222,14 @@ export interface ConsolidateOutput {
 /** One consolidation (see the file header). A failed or unparseable call writes no triage and no skill. */
 export async function consolidate(d: ConsolidateDeps): Promise<ConsolidateOutput> {
   const view = consolidatorView(d.paths, d.tReadings, d.splits);
-  const llm = d.llm ?? chat;
-  const req = { model: CONSOLIDATOR_MODEL, role: "consolidator" as const, max_tokens: CONSOLIDATE_MAX_TOKENS,
+  // the run's consolidator: muse-wonder over loop/llm.ts chat, or Claude for a RATCHET_REPAIRER=claude run (S23)
+  const sel = selectedLlm();
+  const llm = d.llm ?? sel.llm;
+  const model = d.llm ? CONSOLIDATOR_MODEL : sel.model;
+  const req = { model, role: "consolidator" as const, max_tokens: CONSOLIDATE_MAX_TOKENS,
     messages: [{ role: "system" as const, content: readFileSync(PROMPT_FILE, "utf8") }, { role: "user" as const, content: JSON.stringify(view) }] };
   const call = await llm(req);
-  recordSpend("consolidator", call, CONSOLIDATOR_MODEL, d.paths.ledger);
+  recordSpend("consolidator", call, model, d.paths.ledger);
   let reply: Reply | null = null;
   let parseError: string | null = null;
   if (call.ok) { try { reply = parseReply(call.text, view); } catch (e) { parseError = (e as Error).message; } }
