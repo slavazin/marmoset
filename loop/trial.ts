@@ -16,14 +16,15 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { TRIAL_FAMILIES, MAX_STEPS } from "./gate.ts";
+import { TRIAL_FAMILIES, MAX_SHOWN, MAX_STEPS } from "./gate.ts";
 import { all, appendNew, current, runId, status } from "./ledger.ts";
 import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
 import { repairPacket, removeScratch } from "./projection.ts";
 import { runRepair, type MuseRunner } from "./repair.ts";
 import { loadCore } from "./replay-seam.ts";
 import { ruleVersion } from "./gate-repair.ts";
-import { listSkills, type ShownSkill } from "./shown.ts";
+import { listSkills, selectShown, type ShownSkill } from "./shown.ts";
+import { loadPolicies, policiesDir } from "./policies.ts";
 import { decideSkill, graduateSkill, marginFor, tombstoneSkill, type TrialArm } from "./gate-skill.ts";
 import { loadSplits, familyRoms } from "../suites/splits.ts";
 import { tlog } from "../src/telemetry.ts";
@@ -82,16 +83,20 @@ export function coreAt(paths: LoopPaths, commit: string, dir: string, diff = "")
 }
 
 /** One arm's family-run (see the file header); `homeOverride` is muse-native's persistent runner path. */
-export async function runArm(arm: ArmRun["arm"], family: string, shown: ShownSkill[], base: string, d: TrialDeps, runner: MuseRunner = d.runner): Promise<ArmRun> {
+export async function runArm(arm: ArmRun["arm"], family: string, shown: ShownSkill[], base: string, d: TrialDeps, runner: MuseRunner = d.runner, policies: string[] = []): Promise<ArmRun> {
   const taskArm: RepairTask["arm"] = arm === "muse-native" ? "baseline" : arm;
-  const task: RepairTask = { kind: "family", family, base_commit: base, arm: taskArm, skills: shown.map((s) => s.id), budget: d.budget ?? { max_steps: MAX_STEPS, wall_s: TRIAL_WALL_S } };
+  const draft: RepairTask = { kind: "family", family, base_commit: base, arm: taskArm, skills: [], policies, budget: d.budget ?? { max_steps: MAX_STEPS, wall_s: TRIAL_WALL_S } };
+  // a routing policy picks among the arm's skills by the family's subsystem (loop/policies.ts applyPolicies)
+  const keep = new Set(policies.length ? selectShown(shown.map((s) => s.id), all<Fire>("fires.jsonl", d.paths.ledger), MAX_SHOWN, { task: draft, ctx: { paths: d.paths, skills: shown, site: "shown" } }) : shown.map((s) => s.id));
+  shown = shown.filter((s) => keep.has(s.id));
+  const task: RepairTask = { ...draft, skills: shown.map((s) => s.id) };
   const att = appendNew<Attempt>("attempts.jsonl", "ATT", (id) => ({
     id, at: new Date().toISOString(), run: runId(), task, branch: `trial/${id}`, model: "", fires: [],
     spent: { steps: 0, wall_s: 0, tokens_in: 0, tokens_out: 0, usd: 0 }, scratch_files: [],
     isolation: { home: "", skills_list: "", observers: "on-identical", web_tools: "on" },
   }), d.paths.ledger);
   const S = (f: string, v: unknown) => status("attempts.jsonl", att.id, f, v, d.paths.ledger);
-  tlog("loop", "trial.arm.start", { generation: d.generation, arm, family, attempt: att.id, skills: task.skills, base_commit: base });
+  tlog("loop", "trial.arm.start", { generation: d.generation, arm, family, attempt: att.id, skills: task.skills, policies, base_commit: base });
   // the repairer reads packet/task.json: the placebo arm's packet says "candidate", so the two skill arms differ only
   // in their skill (G4: the repairer must not tell candidate from placebo); the Attempt keeps the true arm
   const blind: RepairTask = taskArm === "placebo" ? { ...task, arm: "candidate" } : task;
@@ -153,8 +158,13 @@ function shownOf(skillsDir: string, id: string): ShownSkill[] {
   return listSkills(skillsDir, "shadow").filter((s) => s.id === id);
 }
 
-/** One shadow trial of `candidate` against `placebo` (see the file header). */
-export async function runTrial(candidate: string, placebo: string, d: TrialDeps): Promise<TrialOutput> {
+/**
+ * One shadow trial of `candidate` against `placebo` (see the file header). `kind` "policy" (D-0020) trials
+ * policies/shadow/<id>/POLICY.md under the same rule: the candidate and placebo arms show the graduated skills with
+ * their policy in task.policies, the baseline arm runs plain; the verdict's subject kind is "policy" and the moves
+ * go to policies/graduated/ or policies/tombstones/.
+ */
+export async function runTrial(candidate: string, placebo: string, d: TrialDeps, kind: "skill" | "policy" = "skill"): Promise<TrialOutput> {
   const fams = d.families ?? TRIAL_FAMILIES;
   const base = git(d.paths.live, ["rev-parse", LIVE_BRANCH]);
   const calibration = await ensureCalibration(d, base);
@@ -163,12 +173,20 @@ export async function runTrial(candidate: string, placebo: string, d: TrialDeps)
   const baseRef = await d.judge.score(join(refDir, "core"), "base");
   removeScratch(refDir);
 
-  const cand = shownOf(d.paths.skills, candidate), plac = shownOf(d.paths.skills, placebo);
-  if (!cand.length || !plac.length) throw new Error(`trial needs skills/shadow/${candidate} and skills/shadow/${placebo}`);
-  tlog("loop", "trial.start", { generation: d.generation, candidate, placebo, base_commit: base, families: fams });
+  const store = kind === "skill" ? d.paths.skills : policiesDir(d.paths), file = kind === "skill" ? "SKILL.md" : "POLICY.md";
+  const spec: Record<TrialArm, { shown: ShownSkill[]; policies: string[] }> = kind === "skill"
+    ? { candidate: { shown: shownOf(d.paths.skills, candidate), policies: [] }, baseline: { shown: [], policies: [] }, placebo: { shown: shownOf(d.paths.skills, placebo), policies: [] } }
+    : (() => {
+        const shadow = loadPolicies(store, "shadow").map((p) => p.fm.id);
+        if (!shadow.includes(candidate) || !shadow.includes(placebo)) throw new Error(`trial needs policies/shadow/${candidate} and policies/shadow/${placebo}`);
+        const grad = listSkills(d.paths.skills, "graduated");
+        return { candidate: { shown: grad, policies: [candidate] }, baseline: { shown: [], policies: [] }, placebo: { shown: grad, policies: [placebo] } };
+      })();
+  if (kind === "skill" && (!spec.candidate.shown.length || !spec.placebo.shown.length)) throw new Error(`trial needs skills/shadow/${candidate} and skills/shadow/${placebo}`);
+  tlog("loop", "trial.start", { generation: d.generation, subject: kind, candidate, placebo, base_commit: base, families: fams });
   const jobs: Promise<ArmRun>[] = [];
   for (const f of fams) {
-    jobs.push(runArm("candidate", f, cand, base, d), runArm("baseline", f, [], base, d), runArm("placebo", f, plac, base, d));
+    for (const a of ["candidate", "baseline", "placebo"] as TrialArm[]) jobs.push(runArm(a, f, spec[a].shown, base, d, d.runner, spec[a].policies));
   }
   const arms = await Promise.all(jobs);
   const pick = (a: TrialArm) => fams.map((f) => arms.find((r) => r.arm === a && r.family === f)!.reading);
@@ -178,19 +196,19 @@ export async function runTrial(candidate: string, placebo: string, d: TrialDeps)
   const dec = decideSkill({ families: fams, readings, margin, baseRef, armBase });
 
   const verdict = appendNew<Verdict>("verdicts.jsonl", "VER", (id) => ({
-    id, at: new Date().toISOString(), run: runId(), generation: d.generation, subject: { kind: "skill", id: candidate }, decision: dec.decision, checks: dec.checks,
+    id, at: new Date().toISOString(), run: runId(), generation: d.generation, subject: { kind, id: candidate }, decision: dec.decision, checks: dec.checks,
     arms: { ...readings, margin, n_family_runs_per_arm: 1 }, reason: dec.reason, residue: [...SKILL_RESIDUE], rule_version: ruleVersion(),
   }), d.paths.ledger);
   tlog("loop", "trial.verdict", { generation: d.generation, verdict });
 
   const skillPath = dec.decision === "GRADUATE"
-    ? graduateSkill(d.paths.skills, candidate)
-    : tombstoneSkill(d.paths.skills, candidate, { was: "shadow", verdict: verdict.id, reason: dec.reason, successor: null });
-  const placeboPath = tombstoneSkill(d.paths.skills, placebo, { was: "shadow", verdict: verdict.id, reason: `retired: the placebo arm of ${candidate}'s shadow trial (${verdict.id})`, successor: null });
-  tlog("loop", "skill.move", { generation: d.generation, candidate, to: skillPath, placebo, placebo_to: placeboPath });
+    ? graduateSkill(store, candidate, file)
+    : tombstoneSkill(store, candidate, { was: "shadow", verdict: verdict.id, reason: dec.reason, successor: null }, file);
+  const placeboPath = tombstoneSkill(store, placebo, { was: "shadow", verdict: verdict.id, reason: `retired: the placebo arm of ${candidate}'s shadow trial (${verdict.id})`, successor: null }, file);
+  tlog("loop", `${kind}.move`, { generation: d.generation, candidate, to: skillPath, placebo, placebo_to: placeboPath, decision: dec.decision });
 
   const tf = join(runsDir(d), d.run, "trials.jsonl");
   mkdirSync(join(tf, ".."), { recursive: true });
-  appendFileSync(tf, JSON.stringify({ at: new Date().toISOString(), generation: d.generation, candidate, placebo, verdict: verdict.id, decision: verdict.decision, base_commit: base, attempts: arms.map((a) => ({ arm: a.arm, family: a.family, attempt: a.attempt })) }) + "\n");
+  appendFileSync(tf, JSON.stringify({ at: new Date().toISOString(), generation: d.generation, subject: kind, candidate, placebo, verdict: verdict.id, decision: verdict.decision, base_commit: base, attempts: arms.map((a) => ({ arm: a.arm, family: a.family, attempt: a.attempt })) }) + "\n");
   return { verdict: current<Verdict>("verdicts.jsonl", verdict.id, d.paths.ledger)!, arms, calibration, skillPath, placeboPath };
 }

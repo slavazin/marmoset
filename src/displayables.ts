@@ -78,6 +78,10 @@ export const DISPLAYABLES: readonly Displayable[] = [
     sources: [{ ledger: { file: "verdicts.jsonl", field: "arms" } }], producers: [{ file: "loop/trial.ts", pattern: String.raw`arms` }] },
   { id: "beat-vread", shows: "the V read with its unit and n", where: "beat", trigger: { runs: { file: "vread.json" } },
     sources: [{ runs: { file: "vread.json" } }], producers: [{ file: "loop/vread.ts", pattern: String.raw`n_family_runs_per_arm` }] },
+  // ---- D-0020 policies: verdicts with subject kind "policy", their arms, and each move to graduated or tombstones ----
+  { id: "policy", shows: "policy verdicts (packet, tool and routing changes) with their arms and moves", where: "panel", trigger: { ledger: { file: "verdicts.jsonl", field: "subject.kind", equals: "policy" } },
+    sources: [{ ledger: { file: "verdicts.jsonl", field: "arms" } }, { telemetry: { stream: "loop", kind: "policy.move" } }],
+    producers: [{ file: "loop/trial.ts", pattern: String.raw`tlog\("loop", \`\$\{kind\}\.move\`` }, { file: "loop/policies.ts", pattern: String.raw`tlog\("loop", "policy\.nominate"` }] },
   // ---- S13, S10 ----
   { id: "spotter-summary", shows: "the S13 Gemini spotter summary and its oracle scoring", where: "meter", trigger: { play: true },
     sources: [{ telemetry: { stream: "spot" } }], producers: [{ file: "player/spot.ts", pattern: String.raw`tlog\("spot"` }] },

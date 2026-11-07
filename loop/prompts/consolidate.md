@@ -39,3 +39,17 @@ Reply with one JSON object and nothing else:
       "paths": ["core/ppu*.ts"], "owed": "...", "do": "...", "dont": "...", "false_if": "...",
       "checked_by": ["admitted-traces"], "residue": "...", "retire_when": "..." } ] }
 ```
+
+## Policy nomination
+Besides skills, nominate at most 1 policy: a change to how the repairer's packet is built, which tool line it gets, or how an incident is routed to shown skills. Pick it from this menu only; any other template or param value is rejected:
+- `route-by-spot-subsystem`, params `{ "route": "spot-subsystem" }`: show only the skills whose activation paths match the subsystem the visual sensor names for the incident;
+- `route-by-subq-applies`, params `{ "route": "subq-applies" }`: show the skills the SubQ router rates as applying to the incident;
+- `packet-subsystem-focus`, params `{ "files": "subsystem-pointed" }`: name in the packet the core files of the incident's subsystem;
+- `tool-hint`, params `{ "hint": "<one of the two lines below, verbatim>" }`:
+  - `Run node tools/replay.mjs on the task before the first edit and after each edit; write RESULT.json only once it prints clean.`
+  - `Read HANDLERS in core/index.ts first and open the file the failing handler maps to before editing any other file.`
+
+Anchor the policy to 2 or more observation ids that show the failure it answers, e.g. attempts that ended without a result file or over budget, or repairs that edited a file the failure did not point at. Give `false_if` (the reading that would show the policy useless) and `retire_when`. Nominate none when no 2 observations show such a failure. Add it to the reply object as:
+```json
+"policy": { "template": "route-by-spot-subsystem", "params": { "route": "spot-subsystem" }, "anchors": ["OBS-0001", "OBS-0002"], "false_if": "...", "retire_when": "..." }
+```
