@@ -1,0 +1,101 @@
+{
+  "version": "1",
+  "families": {
+    "blargg": {
+      "split": "base",
+      "roms": [
+        "blargg/cpu_instrs/individual/*.gb",
+        "blargg/instr_timing/instr_timing.gb",
+        "blargg/mem_timing/individual/*.gb"
+      ]
+    },
+    "mooneye:mbc1": {
+      "split": "base",
+      "roms": [
+        "mooneye-test-suite/emulator-only/mbc1/bits_*.gb",
+        "mooneye-test-suite/emulator-only/mbc1/ram_*.gb",
+        "mooneye-test-suite/emulator-only/mbc1/rom_*.gb"
+      ]
+    },
+    "dmg-acid2": {
+      "split": "base",
+      "roms": ["dmg-acid2/dmg-acid2.gb"]
+    },
+    "mealybug:palette-scroll-bg": {
+      "split": "T",
+      "roms": [
+        "mealybug-tearoom-tests/ppu/m3_bgp_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_bgp_change_sprites.gb",
+        "mealybug-tearoom-tests/ppu/m3_obp0_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_scx_high_5_bits.gb",
+        "mealybug-tearoom-tests/ppu/m3_scx_low_3_bits.gb",
+        "mealybug-tearoom-tests/ppu/m3_scy_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_bg_en_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_bg_map_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_tile_sel_change.gb"
+      ]
+    },
+    "mooneye:instr-timing": {
+      "split": "T",
+      "roms": [
+        "mooneye-test-suite/acceptance/call_*.gb",
+        "mooneye-test-suite/acceptance/ret_*.gb",
+        "mooneye-test-suite/acceptance/jp_*.gb",
+        "mooneye-test-suite/acceptance/push_timing.gb",
+        "mooneye-test-suite/acceptance/pop_timing.gb",
+        "mooneye-test-suite/acceptance/rst_timing.gb",
+        "mooneye-test-suite/acceptance/add_sp_e_timing.gb",
+        "mooneye-test-suite/acceptance/ld_hl_sp_e_timing.gb",
+        "mooneye-test-suite/acceptance/reti_timing.gb"
+      ]
+    },
+    "mealybug:window": {
+      "split": "H",
+      "roms": [
+        "mealybug-tearoom-tests/ppu/m2_win_en_toggle.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_win_en_change_multiple.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_win_en_change_multiple_wx.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_win_map_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_tile_sel_win_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_window_timing.gb",
+        "mealybug-tearoom-tests/ppu/m3_window_timing_wx_0.gb"
+      ]
+    },
+    "mooneye:ppu": {
+      "split": "H",
+      "roms": ["mooneye-test-suite/acceptance/ppu/*.gb"]
+    },
+    "mealybug:wx-obj": {
+      "split": "V",
+      "roms": [
+        "mealybug-tearoom-tests/ppu/m3_wx_4_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_wx_4_change_sprites.gb",
+        "mealybug-tearoom-tests/ppu/m3_wx_5_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_wx_6_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_en_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_en_change_variant.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_size_change.gb",
+        "mealybug-tearoom-tests/ppu/m3_lcdc_obj_size_change_scx.gb"
+      ]
+    },
+    "mooneye:dma-timer-intr": {
+      "split": "V",
+      "roms": [
+        "mooneye-test-suite/acceptance/oam_dma/*.gb",
+        "mooneye-test-suite/acceptance/oam_dma_*.gb",
+        "mooneye-test-suite/acceptance/timer/*.gb",
+        "mooneye-test-suite/acceptance/di_timing-GS.gb",
+        "mooneye-test-suite/acceptance/ei_sequence.gb",
+        "mooneye-test-suite/acceptance/ei_timing.gb",
+        "mooneye-test-suite/acceptance/halt_*.gb",
+        "mooneye-test-suite/acceptance/if_ie_registers.gb",
+        "mooneye-test-suite/acceptance/intr_timing.gb",
+        "mooneye-test-suite/acceptance/rapid_di_ei.gb",
+        "mooneye-test-suite/acceptance/reti_intr_timing.gb",
+        "mooneye-test-suite/acceptance/interrupts/ie_push.gb"
+      ]
+    }
+  },
+  "dmg_suffixes": ["GS", "dmgABC", "dmgABCmgb"],
+  "excluded": []
+}

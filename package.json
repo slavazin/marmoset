@@ -7,7 +7,7 @@
     "test": "node --test \"**/*.test.ts\"",
     "roms:fetch": "node scripts/roms-fetch.ts",
     "core:bundle": "node -e \"console.error('not built: S1');process.exit(1)\"",
-    "suites": "node -e \"console.error('not built: S2');process.exit(1)\"",
+    "suites": "node suites/run.ts",
     "oracle:smoke": "node -e \"console.error('not built: S3');process.exit(1)\"",
     "game:build": "node -e \"console.error('not built: S4');process.exit(1)\"",
     "lockstep": "node -e \"console.error('not built: S5');process.exit(1)\"",
@@ -23,5 +23,8 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "pngjs": "7.0.0"
   }
 }
