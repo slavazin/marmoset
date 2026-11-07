@@ -1,8 +1,8 @@
 // Lockstep, incidents and replay against a playback core (lockstep/fixtures/playback.ts): a core that plays
 // back the oracle's own recorded frames and RAM, so these tests read lockstep logic, not any emulator.
 import { strict as assert } from "node:assert";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { before, test } from "node:test";
@@ -109,6 +109,26 @@ test("suiteIncident on a failing T-family ROM opens one suite incident with alig
   const r = replay(["--incident", inc.id, "--evidence-dir", join(root, inc.id), "--core-dir", join(REPO, "suites", "fixtures", "nop-core")]);
   assert.equal(r.code, 1);
   assert.match(r.out, /^fail: mealybug-tearoom-tests\/ppu\/m3_bgp_change\.gb pixel match/);
+});
+
+const T_ROM = "mealybug-tearoom-tests/ppu/m3_bgp_change.gb";
+const V_ROM = "mooneye-test-suite/acceptance/timer/div_write.gb";
+test("tools/replay.mjs copied alone into a directory with no splits.json scores a T ROM with --family and still refuses a V ROM", { skip: !(existsSync(join(romsDir(), T_ROM)) && existsSync(join(romsDir(), V_ROM))) && "ROMs absent" }, () => {
+  const scratch = mkdtempSync(join(tmpdir(), "ratchet-scratch-"));
+  mkdirSync(join(scratch, "tools"));
+  copyFileSync(REPLAY_OUT, join(scratch, "tools", "replay.mjs"));
+  const run = (rom: string) => {
+    writeFileSync(join(scratch, "roms.json"), JSON.stringify([rom]));
+    const r = spawnSync(process.execPath, [join(scratch, "tools", "replay.mjs"), "--family", "x", "--core-dir", join(REPO, "suites", "fixtures", "nop-core"), "--roms", join(scratch, "roms.json")],
+      { encoding: "utf8", cwd: scratch, env: { ...process.env, RATCHET_VREAD_TOKEN: "" } });
+    return { code: r.status, out: r.stdout.trim(), err: r.stderr };
+  };
+  const t = run(T_ROM);
+  assert.equal(t.code, 0, t.err);
+  assert.equal(JSON.parse(t.out).roms, 1);
+  const v = run(V_ROM);
+  assert.equal(v.code, 2);
+  assert.match(v.err, /split V refused/);
 });
 
 test("tools/replay.mjs equals a fresh esbuild bundle of tools/replay.ts", async () => {

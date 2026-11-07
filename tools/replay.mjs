@@ -11,6 +11,9 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
 var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -31,10 +34,19 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// <define:__RATCHET_V_GLOBS__>
+var define_RATCHET_V_GLOBS_default;
+var init_define_RATCHET_V_GLOBS = __esm({
+  "<define:__RATCHET_V_GLOBS__>"() {
+    define_RATCHET_V_GLOBS_default = ["mealybug-tearoom-tests/ppu/m3_wx_4_change.gb", "mealybug-tearoom-tests/ppu/m3_wx_4_change_sprites.gb", "mealybug-tearoom-tests/ppu/m3_wx_5_change.gb", "mealybug-tearoom-tests/ppu/m3_wx_6_change.gb", "mealybug-tearoom-tests/ppu/m3_lcdc_obj_en_change.gb", "mealybug-tearoom-tests/ppu/m3_lcdc_obj_en_change_variant.gb", "mealybug-tearoom-tests/ppu/m3_lcdc_obj_size_change.gb", "mealybug-tearoom-tests/ppu/m3_lcdc_obj_size_change_scx.gb", "mooneye-test-suite/acceptance/oam_dma/*.gb", "mooneye-test-suite/acceptance/oam_dma_*.gb", "mooneye-test-suite/acceptance/timer/*.gb", "mooneye-test-suite/acceptance/di_timing-GS.gb", "mooneye-test-suite/acceptance/ei_sequence.gb", "mooneye-test-suite/acceptance/ei_timing.gb", "mooneye-test-suite/acceptance/halt_*.gb", "mooneye-test-suite/acceptance/if_ie_registers.gb", "mooneye-test-suite/acceptance/intr_timing.gb", "mooneye-test-suite/acceptance/rapid_di_ei.gb", "mooneye-test-suite/acceptance/reti_intr_timing.gb", "mooneye-test-suite/acceptance/interrupts/ie_push.gb"];
+  }
+});
+
 // node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var util = __require("util");
     var Stream = __require("stream");
     var ChunkStream = module.exports = function() {
@@ -173,6 +185,7 @@ var require_chunkstream = __commonJS({
 var require_interlace = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js"(exports) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var imagePasses = [
       {
         // pass 1 - 1px
@@ -256,6 +269,7 @@ var require_interlace = __commonJS({
 var require_paeth_predictor = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     module.exports = function paethPredictor(left, above, upLeft) {
       let paeth = left + above - upLeft;
       let pLeft = Math.abs(paeth - left);
@@ -276,6 +290,7 @@ var require_paeth_predictor = __commonJS({
 var require_filter_parse = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var interlaceUtils = require_interlace();
     var paethPredictor = require_paeth_predictor();
     function getByteWidth(width, bpp, depth) {
@@ -417,6 +432,7 @@ var require_filter_parse = __commonJS({
 var require_filter_parse_async = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var util = __require("util");
     var ChunkStream = require_chunkstream();
     var Filter = require_filter_parse();
@@ -443,6 +459,7 @@ var require_filter_parse_async = __commonJS({
 var require_constants = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     module.exports = {
       PNG_SIGNATURE: [137, 80, 78, 71, 13, 10, 26, 10],
       TYPE_IHDR: 1229472850,
@@ -478,6 +495,7 @@ var require_constants = __commonJS({
 var require_crc = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var crcTable = [];
     (function() {
       for (let i = 0; i < 256; i++) {
@@ -518,6 +536,7 @@ var require_crc = __commonJS({
 var require_parser = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
     var CrcCalculator = require_crc();
     var Parser = module.exports = function(options, dependencies) {
@@ -739,6 +758,7 @@ var require_parser = __commonJS({
 var require_bitmapper = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js"(exports) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var interlaceUtils = require_interlace();
     var pixelBppMapper = [
       // 0 - dummy entry
@@ -987,6 +1007,7 @@ var require_bitmapper = __commonJS({
 var require_format_normaliser = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     function dePalette(indata, outdata, width, height, palette) {
       let pxPos = 0;
       for (let y = 0; y < height; y++) {
@@ -1068,6 +1089,7 @@ var require_format_normaliser = __commonJS({
 var require_parser_async = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var util = __require("util");
     var zlib = __require("zlib");
     var ChunkStream = require_chunkstream();
@@ -1198,6 +1220,7 @@ var require_parser_async = __commonJS({
 var require_bitpacker = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
     module.exports = function(dataIn, width, height, options) {
       let outHasAlpha = [constants.COLORTYPE_COLOR_ALPHA, constants.COLORTYPE_ALPHA].indexOf(
@@ -1348,6 +1371,7 @@ var require_bitpacker = __commonJS({
 var require_filter_pack = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var paethPredictor = require_paeth_predictor();
     function filterNone(pxData, pxPos, byteWidth, rawData, rawPos) {
       for (let x = 0; x < byteWidth; x++) {
@@ -1490,6 +1514,7 @@ var require_filter_pack = __commonJS({
 var require_packer = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
     var CrcStream = require_crc();
     var bitPacker = require_bitpacker();
@@ -1590,6 +1615,7 @@ var require_packer = __commonJS({
 var require_packer_async = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var util = __require("util");
     var Stream = __require("stream");
     var constants = require_constants();
@@ -1632,6 +1658,7 @@ var require_packer_async = __commonJS({
 var require_sync_inflate = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var assert = __require("assert").ok;
     var zlib = __require("zlib");
     var util = __require("util");
@@ -1769,6 +1796,7 @@ var require_sync_inflate = __commonJS({
 var require_sync_reader = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var SyncReader = module.exports = function(buffer) {
       this._buffer = buffer;
       this._reads = [];
@@ -1807,6 +1835,7 @@ var require_sync_reader = __commonJS({
 var require_filter_parse_sync = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js"(exports) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var SyncReader = require_sync_reader();
     var Filter = require_filter_parse();
     exports.process = function(inBuffer, bitmapInfo) {
@@ -1831,6 +1860,7 @@ var require_filter_parse_sync = __commonJS({
 var require_parser_sync = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var hasSyncZlib = true;
     var zlib = __require("zlib");
     var inflateSync = require_sync_inflate();
@@ -1926,6 +1956,7 @@ var require_parser_sync = __commonJS({
 var require_packer_sync = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js"(exports, module) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var hasSyncZlib = true;
     var zlib = __require("zlib");
     if (!zlib.deflateSync) {
@@ -1971,6 +2002,7 @@ var require_packer_sync = __commonJS({
 var require_png_sync = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js"(exports) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var parse = require_parser_sync();
     var pack = require_packer_sync();
     exports.read = function(buffer, options) {
@@ -1986,6 +2018,7 @@ var require_png_sync = __commonJS({
 var require_png = __commonJS({
   "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js"(exports) {
     "use strict";
+    init_define_RATCHET_V_GLOBS();
     var util = __require("util");
     var Stream = __require("stream");
     var Parser = require_parser_async();
@@ -2120,11 +2153,13 @@ var require_png = __commonJS({
 });
 
 // tools/replay.ts
+init_define_RATCHET_V_GLOBS();
 import { existsSync as existsSync5, readFileSync as readFileSync5 } from "node:fs";
 import { join as join7, resolve as resolve5 } from "node:path";
 import { parseArgs } from "node:util";
 
 // suites/splits.ts
+init_define_RATCHET_V_GLOBS();
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -2178,12 +2213,31 @@ function familiesIn(splits, split) {
   return Object.entries(splits.families).filter(([, f]) => f.split === split).map(([n]) => n);
 }
 
+// oracle/client.ts
+init_define_RATCHET_V_GLOBS();
+import { createHash } from "node:crypto";
+import { homedir as homedir2 } from "node:os";
+import { dirname, join as join2 } from "node:path";
+import { fileURLToPath } from "node:url";
+var FRONTEND = join2(dirname(fileURLToPath(import.meta.url)), "frontend.py");
+var FRAME_BYTES = 160 * 144;
+function ratchetCache() {
+  return process.env.RATCHET_CACHE ?? join2(homedir2(), ".cache", "ratchet");
+}
+function sha256(data) {
+  return createHash("sha256").update(data).digest("hex");
+}
+function traceSha(trace) {
+  return sha256(JSON.stringify({ rom_sha: trace.rom_sha, align: trace.align, inputs: trace.inputs }));
+}
+
 // lockstep/core-dir.ts
+init_define_RATCHET_V_GLOBS();
 import { existsSync as existsSync2 } from "node:fs";
-import { join as join2, resolve as resolve2 } from "node:path";
+import { join as join3, resolve as resolve2 } from "node:path";
 import { pathToFileURL } from "node:url";
 async function loadCreateCore(coreDir) {
-  const entry = ["index.ts", "index.mjs", "index.js"].map((f) => join2(resolve2(coreDir), f)).find((p) => existsSync2(p));
+  const entry = ["index.ts", "index.mjs", "index.js"].map((f) => join3(resolve2(coreDir), f)).find((p) => existsSync2(p));
   if (!entry) throw new Error(`${coreDir}: no index.ts, index.mjs or index.js`);
   const mod = await import(pathToFileURL(entry).href);
   if (typeof mod.createCore !== "function") throw new Error(`${entry}: exports no createCore`);
@@ -2191,11 +2245,13 @@ async function loadCreateCore(coreDir) {
 }
 
 // lockstep/evidence.ts
+init_define_RATCHET_V_GLOBS();
 var import_pngjs = __toESM(require_png(), 1);
 import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
-import { join as join3, resolve as resolve3 } from "node:path";
+import { join as join4, resolve as resolve3 } from "node:path";
 
 // lockstep/diff.ts
+init_define_RATCHET_V_GLOBS();
 var WIDTH = 160;
 var HEIGHT = 144;
 var GAME_RAM = { addr: 49392, len: 7 };
@@ -2237,33 +2293,18 @@ function maskAt(inputs, key) {
 // lockstep/evidence.ts
 var EVIDENCE_ROOT = resolve3(import.meta.dirname, "..", "evidence", "incidents");
 function readWindow(dir) {
-  return JSON.parse(readFileSync2(join3(dir, "window.json"), "utf8"));
+  return JSON.parse(readFileSync2(join4(dir, "window.json"), "utf8"));
 }
 
 // lockstep/replay.ts
+init_define_RATCHET_V_GLOBS();
 import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
 import { join as join6 } from "node:path";
 
-// oracle/client.ts
-import { createHash } from "node:crypto";
-import { homedir as homedir2 } from "node:os";
-import { dirname, join as join4 } from "node:path";
-import { fileURLToPath } from "node:url";
-var FRONTEND = join4(dirname(fileURLToPath(import.meta.url)), "frontend.py");
-var FRAME_BYTES = 160 * 144;
-function ratchetCache() {
-  return process.env.RATCHET_CACHE ?? join4(homedir2(), ".cache", "ratchet");
-}
-function sha256(data) {
-  return createHash("sha256").update(data).digest("hex");
-}
-function traceSha(trace) {
-  return sha256(JSON.stringify({ rom_sha: trace.rom_sha, align: trace.align, inputs: trace.inputs }));
-}
-
 // suites/score.ts
+init_define_RATCHET_V_GLOBS();
 var import_pngjs2 = __toESM(require_png(), 1);
-import { existsSync as existsSync3, readdirSync as readdirSync2, readFileSync as readFileSync3 } from "node:fs";
+import { existsSync as existsSync3, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync } from "node:fs";
 import { join as join5, resolve as resolve4 } from "node:path";
 var WALL_CAP_MS = 6e4;
 var CYCLE_CAP = 30 * 4194304;
@@ -2295,16 +2336,36 @@ function pixelMatch(frame, ref) {
   return eq / ref.length;
 }
 function vRoms(root) {
-  const splits = loadSplits(SPLITS_PATH);
   const out = /* @__PURE__ */ new Set();
-  for (const f of familiesIn(splits, "V")) for (const g of splits.families[f].roms) for (const r of expandGlob(root, g)) out.add(r);
+  for (const g of vGlobs()) for (const r of expandGlob(root, g)) out.add(r);
   return out;
+}
+function vGlobs() {
+  if (existsSync3(SPLITS_PATH)) {
+    const splits = loadSplits(SPLITS_PATH);
+    return familiesIn(splits, "V").flatMap((f) => splits.families[f].roms);
+  }
+  if (typeof define_RATCHET_V_GLOBS_default !== "undefined") return define_RATCHET_V_GLOBS_default;
+  throw new Error(`${SPLITS_PATH} absent and no V globs bundled: V cannot be refused, so nothing is scored`);
+}
+function realPath(p) {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return null;
+  }
+}
+function isVRom(root, rom) {
+  const target = realPath(join5(root, rom));
+  if (target === null) return false;
+  for (const r of vRoms(root)) if (realPath(join5(root, r)) === target) return true;
+  return false;
 }
 function refuseV() {
   throw new VReadRefused("split V refused: RATCHET_VREAD_TOKEN matches no runs/<id>/vread.lock (loop/vread.ts is V's only reader)");
 }
 function runRom(createCore, root, rom, caps = { wallMs: WALL_CAP_MS, cycles: CYCLE_CAP }, runsDir) {
-  if (vRoms(root).has(rom) && !vreadAuthorized(process.env.RATCHET_VREAD_TOKEN, runsDir)) refuseV();
+  if (isVRom(root, rom) && !vreadAuthorized(process.env.RATCHET_VREAD_TOKEN, runsDir)) refuseV();
   const rule = passRule(rom);
   if (!rule) throw new Error(`no pass rule for ${rom}`);
   let ref = null;
@@ -2389,10 +2450,8 @@ function replayFrames(createCore, r) {
   for (let n = 1; n <= to; n++) {
     core.setButtons(maskAt(r.inputs, n - 1));
     const ok = r.align === "counter" ? core.runToCounter(n, GAME_RAM.addr) : (core.runFrame(), true);
-    if (n < from) {
-      if (!ok) return { clean: false, counter: n, reason: "stall", pixels: 0 };
-      continue;
-    }
+    if (!ok) return { clean: false, counter: n, reason: "stall", pixels: 0 };
+    if (n < from) continue;
     compared++;
     const ram = r.oracleRam?.[n];
     if (ram !== void 0 && !bytesEqual(coreGameRam((a) => core.read(a)), new Uint8Array(Buffer.from(ram, "hex")))) {
@@ -2453,11 +2512,14 @@ async function main() {
   if (v.incident) {
     const w = readWindow(v["evidence-dir"] ?? join7(EVIDENCE_ROOT, v.incident));
     if (w.kind === "suite") {
+      const romPath = join7(romsDir(), w.rom_rel);
+      if (sha256(readFileSync5(romPath)) !== w.incident.rom_sha) throw new Error(`${romPath} is not the incident's ROM (sha ${w.incident.rom_sha})`);
       const r = replaySuite(createCore, w, romsDir());
       console.log(r.clean ? "clean" : `fail: ${w.rom_rel} pixel match ${r.reading.pixel_match.toFixed(4)} (repro ${r.repro.pixel_match.toFixed(4)})`);
       return r.clean ? 0 : 1;
     }
     const rom = new Uint8Array(readFileSync5(v.rom ?? w.rom.path));
+    if (sha256(rom) !== w.incident.rom_sha) throw new Error(`${v.rom ?? w.rom.path} is not the incident's ROM (sha ${w.incident.rom_sha})`);
     const computed = defaultOracleDir(rom, w.trace.align, w.trace.inputs);
     const out = replayFrames(createCore, {
       rom,
@@ -2477,8 +2539,10 @@ async function main() {
     }
     const trace = JSON.parse(readFileSync5(join7(v["traces-dir"] ?? join7(REPO, "traces"), `${v.trace}.json`), "utf8"));
     const first = Math.min(...trace.inputs.map((i) => i.from_counter), trace.counter_end);
+    const rom = new Uint8Array(readFileSync5(v.rom));
+    if (sha256(rom) !== trace.rom_sha) throw new Error(`${v.rom} is not the trace's ROM (sha ${trace.rom_sha})`);
     const out = replayFrames(createCore, {
-      rom: new Uint8Array(readFileSync5(v.rom)),
+      rom,
       align: trace.align,
       inputs: trace.inputs,
       window: [Math.max(1, first), trace.counter_end]

@@ -42,10 +42,9 @@ export function replayFrames(createCore: CreateCore, r: FramesReplay): ReplayOut
   for (let n = 1; n <= to; n++) {
     core.setButtons(maskAt(r.inputs, n - 1));
     const ok = r.align === "counter" ? core.runToCounter(n, GAME_RAM.addr) : (core.runFrame(), true);
-    if (n < from) {
-      if (!ok) return { clean: false, counter: n, reason: "stall", pixels: 0 };
-      continue;
-    }
+    // A stall inside the window is a mismatch too: its stale frame can equal a static oracle frame.
+    if (!ok) return { clean: false, counter: n, reason: "stall", pixels: 0 };
+    if (n < from) continue;
     compared++;
     const ram = r.oracleRam?.[n];
     if (ram !== undefined && !bytesEqual(coreGameRam((a) => core.read(a)), new Uint8Array(Buffer.from(ram, "hex")))) {

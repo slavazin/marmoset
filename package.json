@@ -18,9 +18,9 @@
     "dev:fixtures": "node ui/dev.ts --fixtures",
     "ui:fixtures": "node ui/fixtures/make.ts",
     "play": "node --env-file-if-exists=.env player/cli.ts",
-    "loop:once": "node -e \"console.error('not built: S8');process.exit(1)\"",
-    "steer": "node -e \"console.error('not built: S8');process.exit(1)\"",
-    "veto": "node -e \"console.error('not built: S8');process.exit(1)\"",
+    "loop:once": "node loop/once.ts",
+    "steer": "node loop/steer.ts steer",
+    "veto": "node loop/steer.ts veto",
     "campaign": "node -e \"console.error('not built: S10');process.exit(1)\"",
     "vread": "node -e \"console.error('not built: S10');process.exit(1)\""
   },
