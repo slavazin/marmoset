@@ -1,0 +1,36 @@
+/* The Play tab (S18). It takes the whole main area: the live LCD is hidden while it is open (the live core keeps running). */
+body.play-on #centre { display: none !important; }
+body.play-on main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; }
+body.play-on #present { max-height: none; overflow: visible; }
+
+.play { display: grid; grid-template-columns: minmax(0, 1fr) 260px; grid-template-areas: "stage pad" "bar keys" "about about"; gap: 10px 16px; align-items: start; }
+.play-stage { grid-area: stage; display: flex; justify-content: center; position: relative; min-width: 0; }
+.play-lcd { display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: var(--g3); border: 6px solid #5a5f6e; border-radius: 4px; box-sizing: content-box; max-width: 100%; }
+.play-note { position: absolute; inset: auto 0 8px; text-align: center; color: var(--red); }
+.play-bar { grid-area: bar; display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.play-bar button, .play-pad .pb { font: inherit; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 4px 12px; cursor: pointer; }
+.play-bar button:hover { border-color: var(--g2); }
+
+.play-pad { grid-area: pad; display: grid; grid-template-columns: auto auto; grid-template-areas: "dpad ab" "ss ss"; gap: 14px; justify-content: center; align-items: center; touch-action: none; user-select: none; -webkit-user-select: none; }
+.dpad { grid-area: dpad; display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(3, 40px); }
+.dpad .up { grid-column: 2; grid-row: 1; } .dpad .left { grid-column: 1; grid-row: 2; }
+.dpad .right { grid-column: 3; grid-row: 2; } .dpad .down { grid-column: 2; grid-row: 3; }
+.play-pad .pb { padding: 0; min-width: 40px; min-height: 40px; touch-action: none; }
+.ab { grid-area: ab; display: flex; gap: 10px; transform: rotate(-18deg); }
+.ab .pb { width: 48px; height: 48px; border-radius: 50%; color: #fff; background: var(--g1); border-color: var(--g2); font-weight: bold; }
+.ss { grid-area: ss; display: flex; gap: 12px; justify-content: center; }
+.ss .pb { border-radius: 12px; padding: 0 12px; min-height: 28px; font-size: 11px; color: var(--dim); }
+.play-pad .pb.held, .play-pad .pb:active { background: var(--g2); color: var(--bg); }
+
+.play-keys { grid-area: keys; border-collapse: collapse; justify-self: center; }
+.play-keys td { padding: 2px 8px; border-bottom: 1px solid var(--line); }
+.play-keys td:first-child { color: var(--g3); }
+.play-about { grid-area: about; }
+
+@media (max-width: 760px) {
+  .play { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stage" "bar" "pad" "keys" "about"; }
+  body.play-on header { padding: 6px 16px; }
+  body.play-on #present { padding: 8px 0; border: 0; background: transparent; }
+  .play-lcd { border-width: 2px; }
+  body.play-on header .pick, body.play-on #romlabel, body.play-on #corelabel { display: none; }
+}
