@@ -6,7 +6,8 @@
 //   GET  /api/trace         the live trace (§6.5 Trace).
 //   POST /api/event         a UiEvent from another producer (lockstep, player); frames are capped per source.
 //   GET  /evidence/**, /game/**   files under the evidence dir and the game dir.
-// The live trace is a working trace at $RATCHET_CACHE/traces/live.json; the server writes no ledger file.
+//   POST /fire              a hook fire {skill, attempt, path, owed}; server/fire.ts appends it to ledger/fires.jsonl.
+// The live trace is a working trace at $RATCHET_CACHE/traces/live.json; /fire is the one ledger write, through loop/ledger.ts.
 
 import { createServer as httpServer } from "node:http";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
@@ -15,6 +16,7 @@ import { join, resolve, extname, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { EventBus, sseMessage } from "./events.ts";
+import { recordFire } from "./fire.ts";
 import type { Paths } from "./events.ts";
 import type { Trace, TraceInput, UiEvent } from "../src/schema.ts";
 
@@ -138,6 +140,7 @@ export function createServer(opts: ServerOptions): { server: Server; bus: EventB
         bus.publish({ t: "player", intent: "keyboard", mask: b.mask });
         return send(res, 200, { ok: true });
       }
+      if (req.method === "POST" && path === "/fire") return send(res, 200, { ok: true, fire: recordFire(await readBody(req), opts.ledger) });
       if (req.method === "POST" && path === "/api/event") {
         const e = (await readBody(req)) as UiEvent;
         if (!e || !PRODUCER_EVENTS.has(e.t)) return send(res, 400, { error: "event kind" });

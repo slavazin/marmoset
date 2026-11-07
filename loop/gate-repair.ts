@@ -1,0 +1,316 @@
+// The gate's repair logic (SPEC §5 S8 `loop/gate.ts`, G4, G7), beside the rule constants in loop/gate.ts.
+// `gateAttempt(input)` takes the scratch diff, refuses it at diff-scope when it touches a path outside core/**,
+// adds a literal over LITERAL_LIMIT bytes, or contains the incident's frame hash or trace bytes; otherwise it
+// applies the diff on branch attempt/<ATT> in the live clone and runs, cheapest first and stopping at the first
+// failure: repro, admitted-traces, base-suites, H-no-regress. The judging code is this process's (main's loop/
+// and suites/); only core/ comes from the branch. It appends one Verdict to ledger/verdicts.jsonl.
+// GRADUATE merges the branch into core-live with trailers "Attempt: ATT-…" and "Skills: SKL-…", admits the trace
+// window to traces/TRC-NNNN.json, writes RepairResult.beliefs as ledger/beliefs/ files marked suspected,
+// regenerates ledger/provenance.json, runs `pnpm core:bundle` (recorded as skipped when it fails) and posts an
+// SSE `core` event. REFUSE leaves the branch unmerged; the verdict is the attempt's tombstone (SPEC §6.10).
+
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { RULE_CONSTANTS, LITERAL_LIMIT, H_TOLERANCE, SUITE_MIN_GAIN } from "./gate.ts";
+import { appendNew, nextId, runId } from "./ledger.ts";
+import { git, LIVE_BRANCH, type LoopPaths } from "./paths.ts";
+import { romBySha } from "./roms.ts";
+import { loadCore, type Replayer } from "./replay-seam.ts";
+import type { Attempt, CheckName, Incident, ProvenanceEntry, SuiteReading, Trace, Verdict } from "../src/schema.ts";
+
+/** What every repair verdict does not check (SPEC §6.8 residue). */
+export const REPAIR_RESIDUE: readonly string[] = ["audio", "CGB", "serial timing", "V (sealed)", "boot-state difference"];
+/** Shortest trace-input JSON the memorisation check searches a diff for; shorter strings match by chance. */
+export const MEMO_MIN_BYTES = 24;
+/** Bytes of each cached oracle frame whose hex and base64 forms the memorisation check searches for. */
+export const MEMO_FRAME_PREFIX = 32;
+
+/** rule_version: sha256 of RULE_CONSTANTS' JSON, 12 hex digits (S10 hashes the same object into the manifest). */
+export function ruleVersion(): string {
+  return createHash("sha256").update(JSON.stringify(RULE_CONSTANTS)).digest("hex").slice(0, 12);
+}
+
+/** Paths a unified git diff touches (both sides of each `diff --git` header). */
+export function diffPaths(diff: string): string[] {
+  const out = new Set<string>();
+  for (const m of diff.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)) { out.add(m[1]); out.add(m[2]); }
+  return [...out];
+}
+
+/** The added lines of a diff, without their leading "+". */
+export function addedLines(diff: string): string[] {
+  return diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).map((l) => l.slice(1));
+}
+
+/**
+ * The longest literal an added line carries, in bytes: a quoted string, or a run of comma-separated numbers
+ * (an array or table literal) on one line. Residue: a table split one number per line is not measured.
+ */
+export function longestLiteral(diff: string): { bytes: number; text: string } {
+  let best = { bytes: 0, text: "" };
+  const consider = (t: string) => { const b = Buffer.byteLength(t); if (b > best.bytes) best = { bytes: b, text: t.slice(0, 80) }; };
+  for (const l of addedLines(diff)) {
+    for (const m of l.matchAll(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g)) consider(m[0].slice(1, -1));
+    for (const m of l.matchAll(/(?:-?(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?)\s*,\s*){3,}-?(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?)/g)) consider(m[0]);
+    for (const m of l.matchAll(/[A-Za-z0-9+/=]{48,}|[0-9a-fA-F]{40,}/g)) consider(m[0]);
+  }
+  return best;
+}
+
+/** The strings whose presence in a diff marks memorisation of the incident (SPEC §5 S8). */
+export function memoNeedles(inc: Incident, trace: Pick<Trace, "inputs"> | null, frames: Uint8Array[]): string[] {
+  const n = [inc.trace_sha, inc.rom_sha];
+  if (trace) { const t = JSON.stringify(trace.inputs); if (t.length >= MEMO_MIN_BYTES) n.push(t); }
+  for (const f of frames) {
+    n.push(createHash("sha256").update(f).digest("hex"));
+    const p = Buffer.from(f.subarray(0, MEMO_FRAME_PREFIX));
+    n.push(p.toString("base64"), p.toString("hex"));
+  }
+  return n.filter((s) => s.length >= 16);
+}
+
+export interface Check { name: CheckName; pass: boolean; reading: unknown }
+
+/** The diff-scope check: paths outside core/**, a literal over LITERAL_LIMIT, or a memorisation needle. */
+export function diffScope(diff: string, needles: string[]): Check {
+  const paths = diffPaths(diff);
+  const outside = paths.filter((p) => !p.startsWith("core/"));
+  const lit = longestLiteral(diff);
+  const added = addedLines(diff).join("\n");
+  const memo = needles.filter((s) => added.includes(s)).map((s) => s.slice(0, 16));
+  const empty = paths.length === 0;
+  return {
+    name: "diff-scope",
+    pass: !empty && outside.length === 0 && lit.bytes <= LITERAL_LIMIT && memo.length === 0,
+    reading: { files: paths.length, outside, longest_literal_bytes: lit.bytes, literal_limit: LITERAL_LIMIT, memorised: memo, empty },
+  };
+}
+
+/** The suites the gate judges with; `defaultSuites` runs suites/score.ts, tests pass fakes. */
+export interface SuitesJudge {
+  score(coreDir: string, split: "base" | "H"): Promise<{ readings: SuiteReading[]; roms: Record<string, boolean> }>;
+}
+
+export function defaultSuites(): SuitesJudge {
+  return {
+    async score(coreDir, split) {
+      const { scoreFamilies } = await import("../suites/score.ts");
+      const { createCore } = await loadCore(coreDir);
+      const roms: Record<string, boolean> = {};
+      const readings = scoreFamilies(createCore, { split, onRom: (_f, r) => { roms[r.rom] = r.pass; } });
+      return { readings, roms };
+    },
+  };
+}
+
+export interface GateInput {
+  attempt: Attempt;
+  diff: string;
+  incident: Incident;
+  paths: LoopPaths;
+  replayer: Replayer;
+  suites: SuitesJudge;
+  /** Skips the SSE post (tests). */
+  quiet?: boolean;
+}
+
+export interface GateOutput { verdict: Verdict; branch: string; head_commit?: string; trace?: string; beliefs: string[]; bundle: string }
+
+/** The incident's evidence dir (Incident.files.dir, relative to the repository or absolute). */
+export function evidenceDir(paths: LoopPaths, inc: Incident): string {
+  return resolve(paths.root, inc.files.dir);
+}
+
+/** The incident's trace: window.json's (lockstep/evidence.ts), else $RATCHET_CACHE/traces/<trace_sha>.json. */
+export function workingTrace(paths: LoopPaths, inc: Incident): (Pick<Trace, "align" | "inputs" | "counter_end"> & { source?: Trace["source"] }) | null {
+  const w = join(evidenceDir(paths, inc), "window.json");
+  if (existsSync(w)) { const j = JSON.parse(readFileSync(w, "utf8")); if (j.trace) return j.trace; }
+  const p = join(paths.cache, "traces", `${inc.trace_sha}.json`);
+  return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+}
+
+function cachedFrames(paths: LoopPaths, inc: Incident): Uint8Array[] {
+  const d = join(paths.cache, "oracle", inc.rom_sha, inc.trace_sha);
+  if (!existsSync(d)) return [];
+  return readdirSync(d).filter((f) => f.endsWith(".bin")).map((f) => new Uint8Array(readFileSync(join(d, f))));
+}
+
+function archiveCore(live: string, rev: string, dir: string): string {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const tar = execFileSync("git", ["archive", "--format=tar", rev, "core"], { cwd: live, maxBuffer: 256 << 20 });
+  execFileSync("tar", ["-x", "-C", dir], { input: tar });
+  return join(dir, "core");
+}
+
+/** Admitted traces: traces/TRC-NNNN.json records (Trace fields plus window, incident, attempt). */
+export type AdmittedTrace = Trace & { window: [number, number]; incident?: string; attempt?: string };
+export function admittedTraces(dir: string): AdmittedTrace[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((f) => /^TRC-\d+\.json$/.test(f)).sort().map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
+}
+
+async function baseReadings(judge: SuitesJudge, paths: LoopPaths, commit: string, coreDir: string, split: "base" | "H") {
+  const f = join(paths.cache, "readings", `${commit}-${split}.json`);
+  if (existsSync(f)) return JSON.parse(readFileSync(f, "utf8")) as Awaited<ReturnType<SuitesJudge["score"]>>;
+  const r = await judge.score(coreDir, split);
+  mkdirSync(join(f, ".."), { recursive: true });
+  writeFileSync(f, JSON.stringify(r));
+  return r;
+}
+
+/** Trailers for a graduating commit: "Attempt: ATT-…" and "Skills: SKL-…" (SPEC §6.3). */
+export function trailers(attempt: string, skills: string[]): string {
+  return `Attempt: ${attempt}\nSkills: ${skills.length ? skills.join(", ") : "none"}`;
+}
+
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "belief";
+}
+
+/** Regenerates ledger/provenance.json from core-live: per handler, its file and the last commit touching it. */
+export async function regenerateProvenance(paths: LoopPaths, tag: string): Promise<ProvenanceEntry[]> {
+  const coreDir = archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "gate", `${tag}.prov`));
+  const { HANDLERS } = await loadCore(coreDir);
+  const out: ProvenanceEntry[] = [];
+  for (const [handler, file] of Object.entries(HANDLERS)) {
+    const rel = file.startsWith("core/") ? file : `core/${file}`;
+    const log = git(paths.live, ["log", "-1", "--format=%H%x00%B", LIVE_BRANCH, "--", rel]);
+    const [commit, body = ""] = log.split("\0");
+    const e: ProvenanceEntry = { handler, file: rel, commit };
+    const a = /^Attempt:\s*(ATT-\d+)/m.exec(body)?.[1];
+    const s = /^Skills:\s*(SKL-\d+)/m.exec(body)?.[1];
+    if (a) e.attempt = a;
+    if (s) e.skill = s;
+    out.push(e);
+  }
+  writeFileSync(join(paths.ledger, "provenance.json"), JSON.stringify(out, null, 2) + "\n");
+  return out;
+}
+
+/** Runs `pnpm core:bundle` on `coreDir` into dist/core-<commit>.js; returns "built <path>" or "skipped: <why>". */
+export function rebuildBundle(paths: LoopPaths, coreDir: string, commit: string): string {
+  const pkg = join(paths.root, "package.json");
+  const scripts = existsSync(pkg) ? (JSON.parse(readFileSync(pkg, "utf8")).scripts ?? {}) : {};
+  if (!scripts["core:bundle"]) return "skipped: no core:bundle script";
+  const out = join(paths.root, "dist", `core-${commit}.js`);
+  const r = spawnSync("pnpm", ["-s", "core:bundle", coreDir, out], { cwd: paths.root, encoding: "utf8", env: { ...process.env, CORE_DIR: coreDir, BUNDLE_OUT: out } });
+  if (r.status !== 0) return `skipped: core:bundle exit ${r.status ?? "spawn"}: ${(r.stderr || String(r.error ?? "")).trim().split("\n").at(-1) ?? ""}`.slice(0, 200);
+  return `built dist/core-${commit}.js`;
+}
+
+async function postCore(server: string, commit: string): Promise<void> {
+  try {
+    await fetch(`${server}/api/event`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ t: "core", commit, bundle_url: `/dist/core-${commit}.js` }), signal: AbortSignal.timeout(2000) });
+  } catch { /* no server: the core event is lost, the ledger holds the verdict */ }
+}
+
+/** Judges one attempt (see the file header); appends and returns the Verdict. */
+export async function gateAttempt(g: GateInput): Promise<GateOutput> {
+  const { attempt, diff, incident: inc, paths } = g;
+  const branch = attempt.branch;
+  const checks: Check[] = [];
+  const trace = workingTrace(paths, inc);
+  const scope = diffScope(diff, memoNeedles(inc, trace, cachedFrames(paths, inc)));
+  checks.push(scope);
+
+  // the attempt branch exists in the live clone whatever the verdict (G3)
+  const wt = join(paths.cache, "gate", attempt.id);
+  try { git(paths.live, ["worktree", "remove", "--force", wt]); } catch { /* none */ }
+  rmSync(wt, { recursive: true, force: true });
+  git(paths.live, ["worktree", "add", "--quiet", "-B", branch, wt, attempt.task.base_commit]);
+  const evDir = join(paths.evidence, "attempts", attempt.id);
+  mkdirSync(evDir, { recursive: true });
+  writeFileSync(join(evDir, "diff.patch"), diff);
+  let head: string | undefined;
+  const msg = `${attempt.id}: ${attempt.result?.summary ?? "repair"}\n\n${trailers(attempt.id, attempt.task.skills)}`;
+  if (scope.pass) {
+    const patch = join(wt, "..", `${attempt.id}.patch`);
+    writeFileSync(patch, diff);
+    try {
+      git(wt, ["apply", "--index", "--whitespace=nowarn", patch]);
+      git(wt, ["commit", "--quiet", "--no-verify", "-m", msg]);
+      head = git(wt, ["rev-parse", "HEAD"]);
+    } catch (e) {
+      scope.pass = false;
+      (scope.reading as Record<string, unknown>).apply_error = String((e as Error).message).split("\n")[0].slice(0, 200);
+    }
+  }
+
+  const run = async (name: CheckName, fn: () => Promise<{ pass: boolean; reading: unknown }>) => {
+    if (checks.some((c) => !c.pass)) return;
+    const r = await fn();
+    checks.push({ name, ...r });
+  };
+  const coreDir = join(wt, "core");
+  const baseDir = (): string => archiveCore(paths.live, attempt.task.base_commit, join(paths.cache, "gate", `${attempt.id}.base`));
+  const romDirs = [paths.roms, join(paths.root, "game")];
+
+  await run("repro", async () => {
+    const rom = romBySha(inc.rom_sha, romDirs);
+    const r = await g.replayer.incident({ coreDir, id: inc.id, evidenceDir: evidenceDir(paths, inc), rom, cache: paths.cache });
+    if (inc.source === "suite") return { pass: r.clean || (r.gain ?? -1) >= SUITE_MIN_GAIN, reading: { ...r, min_gain: SUITE_MIN_GAIN } };
+    return { pass: r.clean, reading: r };
+  });
+  await run("admitted-traces", async () => {
+    const all = admittedTraces(paths.traces);
+    const dirty: { id: string; line: string }[] = [];
+    for (const t of all) {
+      const r = await g.replayer.trace({ coreDir, id: t.id, tracesDir: paths.traces, rom: romBySha(t.rom_sha, romDirs), cache: paths.cache });
+      if (!r.clean) dirty.push({ id: t.id, line: r.line.slice(0, 120) });
+    }
+    return { pass: dirty.length === 0, reading: { traces: all.length, dirty: dirty.slice(0, 8) } };
+  });
+  let baseDirCached: string | undefined;
+  const bd = () => (baseDirCached ??= baseDir());
+  await run("base-suites", async () => {
+    const before = await baseReadings(g.suites, paths, attempt.task.base_commit, bd(), "base");
+    const after = await g.suites.score(coreDir, "base");
+    const regressed = after.readings.filter((a) => { const b = before.readings.find((x) => x.family === a.family); return b && (a.pass < b.pass || a.pixel_match < b.pixel_match - 1e-9); }).map((a) => a.family);
+    return { pass: regressed.length === 0, reading: { families: after.readings.length, pass: after.readings.reduce((s, r) => s + r.pass, 0), roms: after.readings.reduce((s, r) => s + r.roms, 0), regressed } };
+  });
+  await run("H-no-regress", async () => {
+    const before = await baseReadings(g.suites, paths, attempt.task.base_commit, bd(), "H");
+    const after = await g.suites.score(coreDir, "H");
+    const drops: Record<string, number> = {};
+    for (const a of after.readings) { const b = before.readings.find((x) => x.family === a.family); if (b && b.pixel_match - a.pixel_match > H_TOLERANCE) drops[a.family] = +(b.pixel_match - a.pixel_match).toFixed(5); }
+    const flipped = Object.keys(before.roms).filter((r) => before.roms[r] && after.roms[r] === false);
+    return { pass: Object.keys(drops).length === 0 && flipped.length === 0, reading: { families: after.readings.length, drops, flipped: flipped.slice(0, 8), tolerance: H_TOLERANCE } };
+  });
+
+  const failed = checks.find((c) => !c.pass);
+  const decision: Verdict["decision"] = failed ? "REFUSE" : "GRADUATE";
+  const reason = failed ? `${failed.name} failed: ${JSON.stringify(failed.reading).slice(0, 300)}` : `all ${checks.length} checks passed; deciding: ${checks.at(-1)!.name}`;
+  const out: GateOutput = { verdict: undefined as unknown as Verdict, branch, head_commit: head, beliefs: [], bundle: "not run (REFUSE)" };
+
+  if (decision === "GRADUATE") {
+    git(paths.live, ["merge", "--no-ff", "--quiet", "-m", `graduate ${msg}`, branch]);
+    const merged = git(paths.live, ["rev-parse", "HEAD"]);
+    out.head_commit = merged;
+    // admit the trace window
+    mkdirSync(paths.traces, { recursive: true });
+    const trc = nextId("TRC", readdirSync(paths.traces).map((f) => f.replace(/\.json$/, "")));
+    const adm: AdmittedTrace = { id: trc, rom_sha: inc.rom_sha, align: inc.align, inputs: trace?.inputs ?? [], counter_end: inc.window[1], source: trace?.source ?? (inc.source === "suite" ? "suite" : "keyboard"), window: inc.window, incident: inc.id, attempt: attempt.id };
+    writeFileSync(join(paths.traces, `${trc}.json`), JSON.stringify(adm, null, 2) + "\n");
+    out.trace = trc;
+    // beliefs, suspected
+    const bdir = join(paths.ledger, "beliefs");
+    mkdirSync(bdir, { recursive: true });
+    for (const b of attempt.result?.beliefs ?? []) {
+      const id = nextId("BEL", readdirSync(bdir).map((f) => /^(BEL-\d+)/.exec(f)?.[1] ?? ""));
+      writeFileSync(join(bdir, `${id}-${slug(b.claim)}.md`), `---\nid: ${id}\nmark: suspected\nanchors: [${inc.id}, ${attempt.id}]\ncontradicted-by: []\n---\n**Claim:** ${b.claim}\n**False if:** ${b.false_if}\n`);
+      out.beliefs.push(id);
+    }
+    await regenerateProvenance(paths, attempt.id);
+    out.bundle = rebuildBundle(paths, archiveCore(paths.live, LIVE_BRANCH, join(paths.cache, "gate", `${attempt.id}.bundle`)), merged);
+    if (!g.quiet) await postCore(paths.server, merged);
+  }
+
+  out.verdict = appendNew<Verdict>("verdicts.jsonl", "VER", (id) => ({
+    id, at: new Date().toISOString(), run: runId(), subject: { kind: "attempt", id: attempt.id },
+    decision, checks, reason: reason.slice(0, 500), residue: [...REPAIR_RESIDUE], rule_version: ruleVersion(),
+  }), paths.ledger);
+  return out;
+}
