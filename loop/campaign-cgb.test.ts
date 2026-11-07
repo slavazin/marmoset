@@ -50,14 +50,15 @@ test("cgb-suite play: opens one CGB suite incident per segment while fewer than 
   }
 });
 
-test("romDirs: an incident ROM is found in the run's game directory (RATCHET_GAME) as well as the suite ROMs and <root>/game, each once; the default game is <root>/game/game.gb", async () => {
+test("romDirs: an incident ROM is found in the run's game directory (RATCHET_GAME) as well as the suite ROMs, <root>/game and <root>/game2, each once; the default game is <root>/game/game.gb", async () => {
   const { romDirs } = await import("./roms.ts");
   const { pathsFromEnv, gamePath } = await import("./paths.ts");
   const p = pathsFromEnv({ RATCHET_GAME: "~/.cache/ratchet/games/owner.gb" }, "/repo");
-  assert.deepEqual(romDirs(p), [p.roms, "/repo/game", join(process.env.HOME ?? "", ".cache/ratchet/games")]);
+  assert.deepEqual(romDirs(p), [p.roms, "/repo/game", "/repo/game2", join(process.env.HOME ?? "", ".cache/ratchet/games")]);
   const d = pathsFromEnv({}, "/repo");
   assert.equal(gamePath(d), "/repo/game/game.gb");
-  assert.deepEqual(romDirs(d), [d.roms, "/repo/game"]);
+  assert.deepEqual(romDirs(d), [d.roms, "/repo/game", "/repo/game2"]);
+  assert.deepEqual(romDirs(pathsFromEnv({ RATCHET_GAME: "/repo/game2/game2.gb" }, "/repo")), [d.roms, "/repo/game", "/repo/game2"]);
   assert.equal(gamePath({ ...d, game: undefined }), "/repo/game/game.gb");
 });
 

@@ -42,9 +42,9 @@ var init_define_RATCHET_V_GLOBS = __esm({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/chunkstream.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -181,9 +181,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js"(exports) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/interlace.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var imagePasses = [
@@ -265,9 +265,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/paeth-predictor.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     module.exports = function paethPredictor(left, above, upLeft) {
@@ -286,9 +286,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var interlaceUtils = require_interlace();
@@ -428,9 +428,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-async.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -455,9 +455,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js
 var require_constants = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/constants.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     module.exports = {
@@ -491,9 +491,9 @@ var require_constants = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/crc.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var crcTable = [];
@@ -532,9 +532,9 @@ var require_crc = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
@@ -754,9 +754,9 @@ var require_parser = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js"(exports) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitmapper.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var interlaceUtils = require_interlace();
@@ -1003,9 +1003,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/format-normaliser.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     function dePalette(indata, outdata, width, height, palette) {
@@ -1085,9 +1085,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-async.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -1216,9 +1216,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/bitpacker.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
@@ -1367,9 +1367,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-pack.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var paethPredictor = require_paeth_predictor();
@@ -1510,9 +1510,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var constants = require_constants();
@@ -1611,9 +1611,9 @@ var require_packer = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-async.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");
@@ -1654,9 +1654,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-inflate.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var assert = __require("assert").ok;
@@ -1792,9 +1792,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/sync-reader.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var SyncReader = module.exports = function(buffer) {
@@ -1831,9 +1831,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js"(exports) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/filter-parse-sync.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var SyncReader = require_sync_reader();
@@ -1856,9 +1856,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/parser-sync.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var hasSyncZlib = true;
@@ -1952,9 +1952,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js"(exports, module) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/packer-sync.js"(exports, module) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var hasSyncZlib = true;
@@ -1998,9 +1998,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js"(exports) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png-sync.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var parse = require_parser_sync();
@@ -2014,9 +2014,9 @@ var require_png_sync = __commonJS({
   }
 });
 
-// ../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js
+// node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "../../../node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js"(exports) {
+  "node_modules/.pnpm/pngjs@7.0.0/node_modules/pngjs/lib/png.js"(exports) {
     "use strict";
     init_define_RATCHET_V_GLOBS();
     var util = __require("util");

@@ -6,11 +6,11 @@ import { sha256 } from "../oracle/client.ts";
 import { gamePath, type LoopPaths } from "./paths.ts";
 
 /**
- * The directories an incident's or trace's ROM is looked up in: the suite ROMs, <root>/game, and the directory of the
+ * The directories an incident's or trace's ROM is looked up in: the suite ROMs, <root>/game, <root>/game2 (HALOGEN, S21), and the directory of the
  * run's game (loop/paths.ts gamePath; RATCHET_GAME), each once (loop/campaign-cgb.test.ts "romDirs").
  */
 export function romDirs(paths: LoopPaths): string[] {
-  return [...new Set([paths.roms, join(paths.root, "game"), dirname(gamePath(paths))])];
+  return [...new Set([paths.roms, join(paths.root, "game"), join(paths.root, "game2"), dirname(gamePath(paths))])];
 }
 
 const memo = new Map<string, string>();
