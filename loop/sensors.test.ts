@@ -10,9 +10,11 @@ import { runFastCycle } from "./fast.ts";
 import { fakeRunner } from "./repair.ts";
 import { isolatedReplayer } from "./replay-seam.ts";
 import { all, append, current, read, status } from "./ledger.ts";
-import { route, routeCalibrationOf, controlsFor, DECOY_POOL, ROUTE_ABSTAIN_P, TWIN_KEY, routeSensor } from "./route.ts";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { route, routeCalibrationOf, controlsFor, withPlanted, buildQuestions, BASE_QUESTIONS, DECOY_POOL, ROUTE_ABSTAIN_P, ROUTE_META_KEY, TWIN_KEY, TWIN_QUESTION, routeSensor } from "./route.ts";
 import { applyPolicies, policiesDir, POLICY_MENU, policyText, subsystemOf } from "./policies.ts";
-import { cachedClient, lookup, requestKey, setSubqClient, subqClient, SubqReplayMiss, ROUTE_SENSOR_KEY, FORECAST_FIELDS, type SubqClient, type SubqRequest } from "./subq.ts";
+import { cachedClient, httpClient, lookup, requestKey, setSubqClient, subqClient, SubqReplayMiss, SUBQ_TIMEOUT_MS, ROUTE_SENSOR_KEY, FORECAST_FIELDS, type SubqClient, type SubqRequest } from "./subq.ts";
 import { auroc, brier, reliability } from "./sensor-stats.ts";
 import type { SuitesJudge } from "./gate-repair.ts";
 import type { Attempt, Incident, RepairTask, Verdict } from "../src/schema.ts";
@@ -210,4 +212,109 @@ test("a SubQ client that throws never throws into the fast loop", async () => {
     assert.ok(r.verdict.id);
     assert.equal(current<Attempt>("attempts.jsonl", r.attempt.id, bed.paths.ledger)![FORECAST_FIELDS.pass], undefined);
   } finally { setSubqClient(prev); }
+});
+
+// ---- S17b cold read ----
+
+test("decoy position: over many seeds the decoy sits inside the run of applies: questions, or after the base questions and before every same_shape_as when no skill is routed", () => {
+  const obs = [{ id: "OBS-0001", text: "a" }, { id: "OBS-0002", text: "b" }];
+  for (const sk of [[], skills, [...skills, { ...skills[0], id: "SKL-0002" }, { ...skills[0], id: "SKL-0003" }]]) {
+    for (let i = 1; i <= 40; i++) {
+      const seed = `INC-${String(i).padStart(4, "0")}`;
+      const p = controlsFor(seed, sk);
+      const ks = Object.keys(withPlanted(buildQuestions(sk, obs), p, 0));
+      const at = ks.indexOf(p.decoyKey);
+      const base = Object.keys(BASE_QUESTIONS).map((k) => ks.indexOf(k));
+      const shapes = ks.map((k, j) => (k.startsWith("same_shape_as:") ? j : -1)).filter((j) => j >= 0);
+      assert.ok(base.every((j) => j < at), `${seed}: decoy after the base questions (${ks.join(",")})`);
+      assert.ok(shapes.every((j) => j > at), `${seed}: decoy before every same_shape_as (${ks.join(",")})`);
+    }
+  }
+});
+
+test("decoy wording: no DECOY_POOL criterion names the picture, so a decoy is not rejected on its not-this alone, and each not-this names its own neighbouring mechanism", () => {
+  const PICTURE = /picture|pixel|frame|screen|display|image|sprite|tile|scanline/i;
+  for (const d of DECOY_POOL) {
+    assert.ok(!PICTURE.test(d.notThis), `not-this "${d.notThis}" names the picture`);
+    assert.ok(!PICTURE.test(d.firesWhen), `fires-when "${d.firesWhen}" names the picture`);
+    assert.ok(!MARK.test(d.notThis + d.firesWhen));
+  }
+  assert.equal(new Set(DECOY_POOL.map((d) => d.notThis)).size, DECOY_POOL.length, "each decoy has its own not-this");
+});
+
+test("twin criteria: each reworded criterion is at most 1.5x the length of the subsystem criterion it restates, over the same options", () => {
+  const a = BASE_QUESTIONS.subsystem as { criteria: Record<string, string | null> };
+  const b = TWIN_QUESTION as { criteria: Record<string, string | null> };
+  assert.deepEqual(Object.keys(b.criteria), Object.keys(a.criteria));
+  for (const [k, v] of Object.entries(a.criteria)) {
+    if (v === null) { assert.equal(b.criteria[k], null); continue; }
+    assert.ok((b.criteria[k] ?? "").length <= v.length * 1.5, `${k}: "${b.criteria[k]}" outgrows "${v}"`);
+  }
+});
+
+test("a stalled SubQ server is cut off after the client's timeout and returned as an error, never a hang", async () => {
+  const srv = createServer(() => { /* never answers */ });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+  const { port } = srv.address() as AddressInfo;
+  try {
+    const t0 = Date.now();
+    const r = await httpClient({ endpoint: `http://127.0.0.1:${port}/v1/systemone`, key: "test-key", timeoutMs: 150 })({ model: "m", state: {}, questions: {} });
+    assert.equal(r.body, null);
+    assert.ok(r.error, "an error, not an answer");
+    assert.ok(Date.now() - t0 < 5_000, "returned promptly");
+    assert.ok(SUBQ_TIMEOUT_MS > 0 && SUBQ_TIMEOUT_MS <= 60_000);
+  } finally { srv.closeAllConnections(); srv.close(); }
+});
+
+test("a route with one failed call of two records the failure count in its meter, so missing answers read as a failure and not as SubQ's answer", async () => {
+  const { root, ledger, inc } = routeBed();
+  let n = 0;
+  const half: SubqClient = async (req) => (n++ === 0 ? { status: 500, body: null, error: "HTTP 500", wall_ms: 1 } : fake({})(req));
+  const many = Array.from({ length: 130 }, (_, i) => ({ ...skills[0], id: `SKL-${String(i + 1).padStart(4, "0")}` }));
+  const r = await route(inc, { client: half, root, ledger, skills: many, observations: [] });
+  assert.equal(r.meter.calls, 2);
+  const cur = current<Incident>("incidents.jsonl", inc.id, ledger)!;
+  assert.equal(cur.route?.[ROUTE_META_KEY].failed, 1);
+  assert.equal(cur.route?.subsystem, undefined, "the failed first call held the subsystem question");
+  const task: RepairTask = { kind: "incident", incident: inc.id, base_commit: "x", arm: "fast", skills: [], policies: [], budget: { max_steps: 1, wall_s: 1 } };
+  assert.equal(subsystemOf(task, cur), null, "no subsystem: no narrowing");
+});
+
+test("the mechanism forecast request leaves before the gate writes a verdict, and its state carries no verdict, check name or decision", async () => {
+  const bed = makeBed();
+  const seen: { key: string; verdicts: number; state: string }[] = [];
+  const inner = fake({ noul: 0.4 });
+  const prev = setSubqClient(async (req) => {
+    seen.push({ key: Object.keys(req.questions)[0], verdicts: read("verdicts.jsonl", bed.paths.ledger).length, state: JSON.stringify(req.state) });
+    return inner(req);
+  });
+  try {
+    const r = await runFastCycle("INC-0001", { paths: bed.paths, runner: fakeRunner((d) => setShade(d, FIX), { dispositions: {}, off_map: null, beliefs: [], summary: "x." }),
+      replayer: isolatedReplayer(bed.paths.root), suites: steady, quiet: true });
+    const mech = seen.find((s) => s.key === "mechanism");
+    assert.ok(mech, "the mechanism question was asked");
+    assert.equal(mech.verdicts, 0, "asked before any verdict");
+    for (const w of ["GRADUATE", "REFUSE", "H-no-regress", "diff-scope", "admitted-traces", "base-suites", r.verdict.id]) assert.ok(!mech.state.includes(w), `state names ${w}`);
+    assert.equal(current<Attempt>("attempts.jsonl", r.attempt.id, bed.paths.ledger)![FORECAST_FIELDS.mechanism]?.yes, 0.4, "and recorded");
+  } finally { setSubqClient(prev); }
+});
+
+test("routeCalibrationOf leaves unscored a route whose only GRADUATE repair ran under a policy (circular), counts it as steered, and reports the uniform-pick chance beside accuracy", () => {
+  const { ledger } = routeBed();
+  append("incidents.jsonl", { ...current<Incident>("incidents.jsonl", "INC-0001", ledger)!, id: "INC-0002" }, ledger);
+  const rt = (sub: Record<string, number>) => ({ subsystem: sub, [ROUTE_SENSOR_KEY]: routeSensor(sub, {})! });
+  status("incidents.jsonl", "INC-0001", "route", rt({ ppu_fetcher: 0.6, timer: 0.2, other: 0.2 }), ledger);
+  status("incidents.jsonl", "INC-0002", "route", rt({ timer: 0.6, ppu_fetcher: 0.2, other: 0.2 }), ledger);
+  const task = (inc: string, policies: string[]) => ({ kind: "incident", incident: inc, base_commit: "b", arm: "fast", skills: [], policies, budget: { max_steps: 1, wall_s: 1 } });
+  append("attempts.jsonl", { id: "ATT-0001", at: "2999-01-01T00:00:00.000Z", run: null, task: task("INC-0001", []) }, ledger);
+  append("attempts.jsonl", { id: "ATT-0002", at: "2999-01-01T00:00:00.000Z", run: null, task: task("INC-0002", ["POL-0001"]) }, ledger);
+  for (const [i, a] of ["ATT-0001", "ATT-0002"].entries()) append("verdicts.jsonl", { id: `VER-000${i + 1}`, subject: { kind: "attempt", id: a }, decision: "GRADUATE", checks: [] }, ledger);
+  writeFileSync(join(ledger, "provenance.json"), JSON.stringify([
+    { handler: "ppu.fetcher", file: "core/ppu.ts", commit: "c1", attempt: "ATT-0001" },
+    { handler: "timer", file: "core/index.ts", commit: "c2", attempt: "ATT-0002" },
+  ]));
+  const c = routeCalibrationOf(ledger);
+  assert.deepEqual([c.subsystem.n, c.subsystem.steered, c.subsystem.accuracy], [1, 1, 1]);
+  // core/ppu.ts holds ppu_fetcher, window and oam_dma handlers: of INC-0001's three options only ppu_fetcher is in that set
+  assert.equal(c.subsystem.chance, 1 / 3);
 });

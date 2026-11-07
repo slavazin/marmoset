@@ -67,8 +67,14 @@ export function stageFor(e: UiEvent): Lit | null {
 export class StageTracker {
   lit: Lit = { stage: null, label: "no event received on /events" };
   private since = -Infinity;
+  /** The last phase each attempt lit: a status record written later (a forecast) re-emits the phase and lights nothing. */
+  private phases = new Map<string, string>();
   /** Applies one event at time `now` (ms); returns true when the lit stage changed. */
   push(e: UiEvent, now: number): boolean {
+    if (e.t === "attempt") {
+      if (this.phases.get(e.attempt.id) === e.phase) return false;
+      this.phases.set(e.attempt.id, e.phase);
+    }
     const next = stageFor(e);
     if (!next) return false;
     const held = this.lit.stage && !LOOP_STAGES.has(this.lit.stage) && now - this.since < STAGE_HOLD_MS;

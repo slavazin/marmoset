@@ -93,25 +93,32 @@ export const HANDLER_SUBSYSTEM: Record<string, string> = {
 
 // ---- planted questions ----
 
-/** The key of the reworded subsystem question; its options are BASE_QUESTIONS.subsystem's. */
+/**
+ * The key of the reworded subsystem question; its options are BASE_QUESTIONS.subsystem's and each criterion restates
+ * that option's subsystem criterion at a matched length, adding no mechanism the original lacks, so a disagreement
+ * reads instability and not a richer question (loop/sensors.test.ts "twin criteria").
+ */
 export const TWIN_KEY = "emulator_part";
-export const TWIN_QUESTION: SubqQuestion = { type: "choice", instructions: "Which part of the emulator is the most probable source of the pixels that differ from the hardware reference?",
-  criteria: { ppu_fetcher: "the tile fetch and pixel pipeline put pixels at the wrong x inside a scanline", stat_irq: "the LCD status interrupt fires on the wrong line, so a mid-frame register change lands early or late",
-    oam_dma: "the object attribute transfer leaves sprites absent or out of date", window: "the window layer starts at the wrong place or its internal line count is off", timer: "a divider or timer count drifts, so time-keyed state is off", other: null } };
+export const TWIN_QUESTION: SubqQuestion = { type: "choice", instructions: "Which part of the emulator most likely caused the pixels that differ from the hardware reference?",
+  criteria: { ppu_fetcher: "pixels misplaced or wrong inside one line while it is drawn", stat_irq: "a mid-frame split happens on the wrong line",
+    oam_dma: "objects absent or out of date", window: "window placed wrong or its line count off", timer: "state that depends on timing is off", other: null } };
 
 export interface RouteSkill { id: string; firesWhen: string; notThis: string; paths: string[] }
 
 /**
  * Skill-shaped criteria from subsystems no frame divergence reaches (audio, serial link, joypad, cartridge RAM), the
- * source of the decoy applies: question. A route that gives one of them >= DECOY_REJECT_P fails to reject it.
+ * source of the decoy applies: question. Each not-this names a neighbouring mechanism of the same subsystem, the form
+ * a skill's not-this takes ("CPU timing", loop/fixtures/harness.ts), never the picture: a not-this reading "any
+ * picture difference" answers the question for every frame incident. A route that gives one of them >=
+ * DECOY_REJECT_P fails to reject it.
  */
 export const DECOY_POOL: readonly Omit<RouteSkill, "id">[] = [
-  { firesWhen: "a write to NR10 (0xFF10) changes the channel 1 frequency sweep and the sweep steps at the wrong rate", notThis: "any picture difference", paths: ["core/index.ts"] },
-  { firesWhen: "a serial transfer started through SC (0xFF02) completes after the wrong number of cycles and link bytes arrive late", notThis: "any picture difference", paths: ["core/index.ts"] },
-  { firesWhen: "P1 (0xFF00) returns the wrong button group for its select bits, so a held button is never seen by the game", notThis: "any picture difference", paths: ["core/index.ts"] },
-  { firesWhen: "cartridge RAM enabled by a 0x0A write to 0x0000-0x1FFF loses its saved bytes across a power cycle", notThis: "any picture difference", paths: ["core/mbc1.ts"] },
-  { firesWhen: "wave RAM (0xFF30-0xFF3F) read while channel 3 plays returns the wrong sample byte", notThis: "any picture difference", paths: ["core/index.ts"] },
-  { firesWhen: "the channel 4 noise generator in 7-bit mode repeats with the wrong period, so the hiss sounds tonal", notThis: "any picture difference", paths: ["core/index.ts"] },
+  { firesWhen: "a write to NR10 (0xFF10) changes the channel 1 frequency sweep and the sweep steps at the wrong rate", notThis: "channel 1 volume envelope", paths: ["core/index.ts"] },
+  { firesWhen: "a serial transfer started through SC (0xFF02) completes after the wrong number of cycles and link bytes arrive late", notThis: "serial interrupt enable", paths: ["core/index.ts"] },
+  { firesWhen: "P1 (0xFF00) returns the wrong button group for its select bits, so a held button is never seen by the game", notThis: "joypad interrupt timing", paths: ["core/index.ts"] },
+  { firesWhen: "cartridge RAM enabled by a 0x0A write to 0x0000-0x1FFF loses its saved bytes across a power cycle", notThis: "ROM bank switching", paths: ["core/mbc1.ts"] },
+  { firesWhen: "wave RAM (0xFF30-0xFF3F) read while channel 3 plays returns the wrong sample byte", notThis: "channel 3 output level", paths: ["core/index.ts"] },
+  { firesWhen: "the channel 4 noise generator in 7-bit mode repeats with the wrong period, so the hiss sounds tonal", notThis: "channel 4 length counter", paths: ["core/index.ts"] },
 ];
 
 const hash32 = (s: string, salt: string) => createHash("sha256").update(`${salt}:${s}`).digest().readUInt32BE(0);
@@ -135,12 +142,22 @@ export function controlsFor(seed: string, skills: Pick<RouteSkill, "id">[]): Pla
   return { decoyKey: `applies:${id}`, decoy: appliesQuestion({ id, ...d }), twinKey: TWIN_KEY, twin: TWIN_QUESTION, seed };
 }
 
-/** One call's questions with the planted pair inserted at positions seeded by `p.seed` and the call index. */
+/**
+ * One call's questions with the planted pair inserted at positions seeded by `p.seed` and the call index: the twin
+ * among the first questions; the decoy inside the call's run of applies: questions, or where that run stands when
+ * the call has none (after the base questions and the twin, before every same_shape_as), so its position is one a
+ * real applies: question takes (loop/sensors.test.ts "decoy position").
+ */
 export function withPlanted(chunk: Record<string, SubqQuestion>, p: Planted, index: number): Record<string, SubqQuestion> {
   const entries = Object.entries(chunk);
   const n = entries.length;
   entries.splice(1 + (hash32(`${p.seed}:${index}`, "twin") % Math.max(1, Math.min(n, 3))), 0, [p.twinKey, p.twin]);
-  entries.splice(1 + (hash32(`${p.seed}:${index}`, "decoy") % Math.max(1, n + 1)), 0, [p.decoyKey, p.decoy]);
+  const ks = entries.map(([k]) => k);
+  const first = ks.findIndex((k) => k.startsWith("applies:"));
+  const after = (pred: (k: string) => boolean, from: number) => ks.reduce((at, k, i) => (pred(k) ? i + 1 : at), from);
+  const lo = first >= 0 ? first : after((k) => k in BASE_QUESTIONS || k === p.twinKey, 0);
+  const hi = first >= 0 ? after((k) => k.startsWith("applies:"), lo) : lo;
+  entries.splice(lo + (hash32(`${p.seed}:${index}`, "decoy") % (hi - lo + 1)), 0, [p.decoyKey, p.decoy]);
   return Object.fromEntries(entries);
 }
 
@@ -331,7 +348,8 @@ export async function route(inc: Incident, o: RouteOpts = {}): Promise<RouteOutc
   const obs = (o.observations ?? all<Observation>("observations.jsonl", dir)).filter((x) => x.anchor?.incident !== inc.id).slice(-RECENT_OBSERVATIONS);
   const { route: routeRec, planted, meter, errors } = await askAll(o.client ?? defaultClient(), dir, { questions: buildQuestions(skills, obs), planted: controlsFor(inc.id, skills),
     state: buildState(inc, root), images: evidenceImages(inc, root), subject: { incident: inc.id }, purpose: "route" });
-  routeRec[ROUTE_META_KEY] = { questions: meter.questions, calls: meter.calls, images: meter.images, n_input: meter.tokens_in, usd: Number(meter.usd.toPrecision(4)), ms: meter.ms, state_bytes: meter.state_bytes, dropped: 0 };
+  // failed: calls that returned an error, so a record missing answers reads as a partial failure, not as SubQ's answer
+  routeRec[ROUTE_META_KEY] = { questions: meter.questions, calls: meter.calls, failed: meter.failed, images: meter.images, n_input: meter.tokens_in, usd: Number(meter.usd.toPrecision(4)), ms: meter.ms, state_bytes: meter.state_bytes, dropped: 0 };
   const sensor = routeSensor(routeRec.subsystem, planted);
   if (sensor) routeRec[ROUTE_SENSOR_KEY] = sensor;
   meter.dropped = fitRoute(inc.id, routeRec);
@@ -390,7 +408,13 @@ export function routeSkills(inc: Pick<Incident, "route">, skills: string[], k: n
 // ---- calibration ----
 
 export interface CalibrationScore { n: number; brier: number | null; accuracy: number | null }
-export interface SubsystemScore extends CalibrationScore { wrong: number; auroc_uncertainty: number | null; auroc_other: number | null }
+/**
+ * wrong: scored rows whose top option is outside the truth set. steered: routes left unscored because the only
+ * GRADUATE repair touching core ran under a policy (circular). chance: the mean share of a row's options inside its
+ * truth set, the accuracy a uniform pick would reach; a file holds several subsystems' handlers, so chance sits well
+ * above 1 / options and accuracy reads only against it.
+ */
+export interface SubsystemScore extends CalibrationScore { wrong: number; steered: number; chance: number | null; auroc_uncertainty: number | null; auroc_other: number | null }
 export interface AppliesScore extends CalibrationScore { reliability: ReliabilityBin[] }
 /** `hits` of `n` rows, and their rate (null on n = 0). */
 export interface RateScore { n: number; hits: number; rate: number | null }
@@ -420,7 +444,9 @@ const rate = (flags: boolean[]): RateScore => ({ n: flags.length, hits: flags.fi
  *   ledger/provenance.json entries naming that attempt, mapped through HANDLERS and HANDLER_SUBSYSTEM. A file holds
  *   several handlers (core/ppu.ts), so truth is a set: a hit is the top choice in the set, and the Brier target
  *   spreads mass 1 evenly over the set. A miss is a wrong route: auroc_uncertainty scores 1 − top-p, auroc_other
- *   scores p(other), each at ranking wrong routes above right ones.
+ *   scores p(other), each at ranking wrong routes above right ones. A GRADUATE attempt that named a policy is not
+ *   truth (a focus or routing policy points the repair at the routed subsystem); `steered` counts the routes so
+ *   dropped, and `chance` is the accuracy a uniform pick reaches against the same truth sets.
  * applies: truth is whether the skill fired (ledger/fires.jsonl) in an attempt on that incident started after the
  *   route record and showing that skill; reliability bins those rows (loop/sensor-stats.ts).
  * abstention, decoy, twin: every route record's sensor reading; no truth is needed.
@@ -446,21 +472,29 @@ export function routeCalibrationOf(dir = ledgerDir()): RouteCalibration {
   }
   const attemptVerdict = new Map(verdicts.filter((v) => v.subject?.kind === "attempt").map((v) => [v.subject.id, v]));
   const graduated = new Set([...attemptVerdict.values()].filter((v) => v.decision === "GRADUATE").map((v) => v.subject.id));
-  const subRows: { brier: number; hit: boolean; top_p: number; p_other: number }[] = [];
+  const subRows: { brier: number; hit: boolean; top_p: number; p_other: number; chance: number }[] = [];
+  let steeredRows = 0;
   const appRows: { brier: number; hit: boolean; p: number; y: 0 | 1 }[] = [];
   const sensors = incidents.map((i) => i.route?.[ROUTE_SENSOR_KEY]).filter((s): s is Record<string, number> => !!s);
   for (const inc of incidents) {
     const sub = inc.route?.subsystem;
     if (sub) {
       const truth = new Set<string>();
+      let steered = false;
       for (const a of attempts) {
         if (a.task?.incident !== inc.id || !graduated.has(a.id)) continue;
-        for (const e of prov) if (e.attempt === a.id) for (const s of fileSubsystems.get(e.file) ?? []) truth.add(s);
+        const touched = prov.filter((e) => e.attempt === a.id);
+        // a repair made under a policy may have been pointed at the routed subsystem's region, so its files would
+        // confirm the route that chose them: that row is circular and is not scored
+        if (touched.length && a.task.policies?.length) { steered = true; continue; }
+        for (const e of touched) for (const s of fileSubsystems.get(e.file) ?? []) truth.add(s);
       }
+      if (steered && !truth.size) steeredRows++;
       if (truth.size) {
         const top = argmax(sub);
         const b = Object.keys(sub).reduce((s, k) => s + (sub[k] - (truth.has(k) ? 1 / truth.size : 0)) ** 2, 0);
-        subRows.push({ brier: b, hit: truth.has(top), top_p: sub[top], p_other: sub.other ?? 0 });
+        const options = Object.keys(sub);
+        subRows.push({ brier: b, hit: truth.has(top), top_p: sub[top], p_other: sub.other ?? 0, chance: options.filter((k) => truth.has(k)).length / options.length });
       }
     }
     const at = routeAt.get(inc.id) ?? "";
@@ -489,7 +523,8 @@ export function routeCalibrationOf(dir = ledgerDir()): RouteCalibration {
   const twins = sensors.filter((s) => typeof s.twin_agree === "number");
   return {
     routed: incidents.length,
-    subsystem: { ...score(subRows), wrong: subRows.filter((r) => !r.hit).length,
+    subsystem: { ...score(subRows), wrong: subRows.filter((r) => !r.hit).length, steered: steeredRows,
+      chance: subRows.length ? subRows.reduce((s, r) => s + r.chance, 0) / subRows.length : null,
       auroc_uncertainty: auroc(subRows.map((r) => ({ score: 1 - r.top_p, label: r.hit ? 0 : 1 }))),
       auroc_other: auroc(subRows.map((r) => ({ score: r.p_other, label: r.hit ? 0 : 1 }))) },
     applies: { ...score(appRows), reliability: reliability(appRows) },

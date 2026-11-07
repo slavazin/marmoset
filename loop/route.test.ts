@@ -102,7 +102,7 @@ test("routeCalibration on an empty ledger reports n = 0 with every figure null, 
   const c = routeCalibration(mkdtempSync(join(tmpdir(), "ratchet-cal-")));
   const none = { n: 0, hits: 0, rate: null };
   assert.deepEqual({ ...c, applies: { ...c.applies, reliability: c.applies.reliability.length } }, {
-    routed: 0, subsystem: { n: 0, brier: null, accuracy: null, wrong: 0, auroc_uncertainty: null, auroc_other: null }, applies: { n: 0, brier: null, accuracy: null, reliability: 10 },
+    routed: 0, subsystem: { n: 0, brier: null, accuracy: null, wrong: 0, steered: 0, chance: null, auroc_uncertainty: null, auroc_other: null }, applies: { n: 0, brier: null, accuracy: null, reliability: 10 },
     abstention: none, decoy: none, twin: { ...none, mean_dp: null }, forecast_pass: { n: 0, brier: null, auroc: null }, forecast_mechanism: none });
   assert.ok(c.applies.reliability.every((b) => b.n === 0 && b.mean_p === null && b.rate === null));
 });
