@@ -29,6 +29,14 @@ import type { Attempt, CheckName, Incident, ProvenanceEntry, SuiteReading, Trace
 export const REPAIR_RESIDUE: readonly string[] = ["audio", "CGB", "serial timing", "V (sealed)", "boot-state difference",
   "suite-incident repro, base-suites and H-no-regress run the core in-process, with reference images reachable",
   "the repairer's shell reads absolute paths outside the scratch repo (D-0018)"];
+/** REPAIR_RESIDUE for a seatbelt-confined attempt: D-0021's residue replaces D-0018's read-open line. */
+export const REPAIR_RESIDUE_CONFINED: readonly string[] = [...REPAIR_RESIDUE.slice(0, -1),
+  "the repairer's network is denied except localhost and outbound HTTPS (D-0021)",
+  "confinement covers macOS only, through sandbox-exec, which Apple deprecates (D-0021)"];
+/** The residue a verdict on `attempt` carries: the confined list when its isolation reads confine "seatbelt". */
+export function repairResidue(attempt: Pick<Attempt, "isolation">): readonly string[] {
+  return (attempt.isolation as { confine?: string } | undefined)?.confine === "seatbelt" ? REPAIR_RESIDUE_CONFINED : REPAIR_RESIDUE;
+}
 /** Shortest trace-input JSON the memorisation check searches a diff for; shorter strings match by chance. */
 export const MEMO_MIN_BYTES = 24;
 /** Bytes of each cached oracle frame whose hex and base64 forms the memorisation check searches for. */
@@ -354,7 +362,7 @@ export async function gateAttempt(g: GateInput): Promise<GateOutput> {
   // the Verdict is written before any side effect, so a side effect that throws never leaves a merge without one
   out.verdict = appendNew<Verdict>("verdicts.jsonl", "VER", (id) => ({
     id, at: new Date().toISOString(), run: runId(), subject: { kind: "attempt", id: attempt.id },
-    decision, checks, reason: reason.slice(0, 500), residue: [...REPAIR_RESIDUE], rule_version: ruleVersion(),
+    decision, checks, reason: reason.slice(0, 500), residue: [...repairResidue(attempt)], rule_version: ruleVersion(),
   }), paths.ledger);
   tlog("loop", "verdict", { verdict: out.verdict.id, attempt: attempt.id, decision, reason: out.verdict.reason });
 
