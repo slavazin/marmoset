@@ -2,7 +2,7 @@
 // Gemini the frame PNG, the §6.17 scene and hero position and the last intent toward a directed goal, and
 // receives a PlayerAction (§6.11) whose mask it holds for `frames` frames. It writes a counter-aligned trace
 // (§6.5, source "gemini") and an intent feed, one JSON line per decision, and posts each decision to the
-// server as a `player` UiEvent (§6.18). It never judges a frame. Truth-maker for the action check:
+// server as a `player` UiEvent (§6.18) and every mask to the `input` telemetry stream (src/telemetry.ts). It never judges a frame. Truth-maker for the action check:
 // player/player.test.ts.
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import type { PlayerAction, Trace, TraceInput } from "../src/schema.ts";
 import { GAME_RAM } from "../src/schema.ts";
 import { OracleClient, ratchetCache, sha256 } from "../oracle/client.ts";
 import { readFileSync } from "node:fs";
+import { tlog } from "../src/telemetry.ts";
 import { askJson, PLAYER_MODEL } from "./gemini.ts";
 import { CONTRACT_LEN, decodeState, shadesToPng, type GameState } from "./game.ts";
 
@@ -60,7 +61,7 @@ async function postEvent(e: unknown): Promise<void> {
 
 export interface PlayResult { trace: Trace; tracePath: string; intentsPath: string; decisions: number; strides: number[]; models: string[] }
 
-export async function geminiPlay(o: { romPath: string; frames: number; goal?: string; run?: string | null; log?: (s: string) => void }): Promise<PlayResult> {
+export async function geminiPlay(o: { romPath: string; frames: number; goal?: string; run?: string | null; ledgerDir?: string; log?: (s: string) => void }): Promise<PlayResult> {
   const rom_sha = sha256(readFileSync(o.romPath));
   const dir = join(ratchetCache(), "traces");
   mkdirSync(dir, { recursive: true });
@@ -88,14 +89,15 @@ export async function geminiPlay(o: { romPath: string; frames: number; goal?: st
       const s = decodeState(await oracle.ram(GAME_RAM.counter, CONTRACT_LEN));
       void postEvent({ t: "frame", source: "oracle", shades_b64: Buffer.from(shades).toString("base64"), counter: n });
       const ask = await askJson({
-        model: PLAYER_MODEL, thinking: "low", role: "player", run: o.run, schema: ACTION_SCHEMA, check: checkAction,
+        model: PLAYER_MODEL, thinking: "low", role: "player", run: o.run, ledgerDir: o.ledgerDir, schema: ACTION_SCHEMA, check: checkAction,
         parts: [{ type: "text", text: prompt(o.goal ?? DEFAULT_GOAL, s, lastIntent, stride) }, { type: "image", mime_type: "image/png", data: shadesToPng(shades).toString("base64") }],
       });
       models.add(ask.model);
       const a = ask.value;
       const hold = Math.min(a.frames, stride);
       put(n, a.mask);
-      if (hold < stride) put(n + hold, 0);
+      tlog("input", "mask", { source: "gemini", counter: n, mask: a.mask, intent: a.intent });
+      if (hold < stride) { put(n + hold, 0); tlog("input", "mask", { source: "gemini", counter: n + hold, mask: 0, intent: `release after ${hold} frames: ${a.intent}` }); }
       lastIntent = a.intent;
       decisions++;
       strides.push(stride);

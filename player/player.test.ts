@@ -7,7 +7,8 @@ import { maskAt } from "../lockstep/diff.ts";
 import { BTN, START_AT, explorerTrace } from "./explore.ts";
 import { decodeState } from "./game.ts";
 import { parseJsonObject } from "./gemini.ts";
-import { appendLine, appendNarration, appendSpend } from "./ledger-append.ts";
+import { appendNarration, appendSpend } from "./ledger-append.ts";
+import { explorerTrace as et } from "./explore.ts";
 import { checkSentence } from "./narrate.ts";
 import { checkAction } from "./play.ts";
 
@@ -57,17 +58,23 @@ test("checkSentence accepts one sentence and refuses two sentences or an empty o
   assert.throws(() => checkSentence({ sentence: "" }));
 });
 
-test("appendSpend and appendNarration append one parseable line each and release the lock; an over-4 KB line is refused", () => {
+test("explorerTrace emits exactly the trace's mask changes, each with a scripted intent", () => {
+  const seen: Array<{ counter: number; mask: number; intent: string }> = [];
+  const t = et({ rom_sha: "x", frames: 1500, seed: 3, emit: (p) => seen.push(p) });
+  assert.deepEqual(seen.map((p) => ({ from_counter: p.counter, mask: p.mask })), t.inputs);
+  assert.equal(seen.find((p) => p.mask === BTN.start)?.intent, "start");
+  assert.ok(seen.every((p) => ["idle", "start", "jump", "random press", "walk left", "walk right"].includes(p.intent)));
+});
+
+test("appendSpend and appendNarration append one parseable line each through loop/ledger.ts", () => {
   const dir = mkdtempSync(join(tmpdir(), "ratchet-player-"));
   const spend = join(dir, "spend.jsonl"), inc = join(dir, "incidents.jsonl");
-  appendSpend({ at: "2026-11-07T00:00:00Z", run: null, role: "player", model: "gemini-3.8-flash", tokens_in: 10, tokens_out: 5, usd: 0 }, spend);
-  appendSpend({ at: "2026-11-07T00:00:01Z", run: null, role: "narrator", model: "gemini-4-argon", tokens_in: 1, tokens_out: 1, usd: 0 }, spend);
+  appendSpend({ at: "2026-11-07T00:00:00Z", run: null, role: "player", model: "gemini-3.8-flash", tokens_in: 10, tokens_out: 5, usd: 0 }, dir);
+  appendSpend({ at: "2026-11-07T00:00:01Z", run: null, role: "narrator", model: "gemini-4-argon", tokens_in: 1, tokens_out: 1, usd: 0 }, dir);
   const lines = readFileSync(spend, "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.deepEqual(lines.map((l) => l.role), ["player", "narrator"]);
-  const rec = appendNarration("INC-0001", "The fireflies flicker.", null, inc);
+  const rec = appendNarration("INC-0001", "The fireflies flicker.", dir);
   assert.deepEqual(JSON.parse(readFileSync(inc, "utf8")), rec);
   assert.equal(rec.t, "status");
   assert.equal(rec.field, "narration");
-  assert.throws(() => appendLine(spend, { x: "y".repeat(5000) }), /ceiling/);
-  appendLine(spend, { ok: true }); // lock released after a refusal
 });

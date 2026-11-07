@@ -29,23 +29,31 @@ export function prng(seed: number): () => number {
   };
 }
 
-export function explorerTrace(o: { rom_sha: string; frames: number; seed: number }): Trace {
+/** One mask change the explorer emits, with the scripted move it belongs to. */
+export interface ExplorerPress { counter: number; mask: number; intent: string }
+
+/** `emit`, when given, receives every mask change that enters the trace, in counter order. */
+export function explorerTrace(o: { rom_sha: string; frames: number; seed: number; emit?: (p: ExplorerPress) => void }): Trace {
   const rnd = prng(o.seed);
   const inputs: TraceInput[] = [];
+  const intents = new Map<TraceInput, string>();
+  let intent = "idle";
   const put = (from_counter: number, mask: number) => {
     const last = inputs.at(-1);
     if (last && last.mask === mask) return;
-    if (last && last.from_counter === from_counter) last.mask = mask;
-    else inputs.push({ from_counter, mask });
+    if (last && last.from_counter === from_counter) { last.mask = mask; intents.set(last, intent); }
+    else { const e = { from_counter, mask }; inputs.push(e); intents.set(e, intent); }
   };
   put(0, 0);
   for (let n = START_AT; n < o.frames; n += SEGMENT) {
     if ((n - START_AT) % START_EVERY < SEGMENT) {
+      intent = "start";
       put(n, BTN.start);
       put(n + START_HOLD, 0);
       continue;
     }
     const r = rnd();
+    intent = r < P_JUMP ? "jump" : r < P_JUMP + P_RANDOM ? "random press" : r < P_JUMP + P_RANDOM + P_LEFT ? "walk left" : "walk right";
     if (r < P_JUMP) {
       // Release A first so each jump is a fresh press edge (update_level jumps on the A edge).
       put(n, BTN.right);
@@ -58,5 +66,7 @@ export function explorerTrace(o: { rom_sha: string; frames: number; seed: number
       put(n, BTN.right);
     }
   }
-  return { id: `explorer-${o.seed}-${o.frames}`, rom_sha: o.rom_sha, align: "counter", inputs: inputs.filter((i) => i.from_counter < o.frames), counter_end: o.frames, source: "explorer" };
+  const kept = inputs.filter((i) => i.from_counter < o.frames);
+  if (o.emit) for (const i of kept) o.emit({ counter: i.from_counter, mask: i.mask, intent: intents.get(i) ?? "idle" });
+  return { id: `explorer-${o.seed}-${o.frames}`, rom_sha: o.rom_sha, align: "counter", inputs: kept, counter_end: o.frames, source: "explorer" };
 }

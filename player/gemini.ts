@@ -1,9 +1,12 @@
 // askJson: one Gemini Interactions API call (@google/genai, SPEC §5 S7 bed) that sends text and PNG parts,
 // asks for JSON under a schema, parses the reply and retries on a parse failure (S7 Wiggle: JSON in text with
 // parse-and-retry). Every call appends its spend to ledger/spend.jsonl through player/ledger-append.ts and
-// returns the model string the service echoed. The key comes from GEMINI_API_KEY or gemini_api_key in the
+// returns the model string the service echoed. Every attempt, parse failures and API errors included, is
+// logged to the `llm` telemetry stream (src/telemetry.ts) with image bytes replaced by their sha256. The key comes from GEMINI_API_KEY or gemini_api_key in the
 // environment and is never printed.
+import { createHash } from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
+import { tlog } from "../src/telemetry.ts";
 import type { SpendRecord } from "../src/schema.ts";
 import { appendSpend } from "./ledger-append.ts";
 
@@ -42,25 +45,40 @@ export function parseJsonObject(text: string): unknown {
 
 export async function askJson<T>(o: {
   model: string; thinking: "low" | "medium"; role: SpendRecord["role"]; parts: Part[];
-  schema: Record<string, unknown>; check: (v: unknown) => T; run?: string | null;
+  schema: Record<string, unknown>; check: (v: unknown) => T; run?: string | null; ledgerDir?: string;
 }): Promise<AskResult<T>> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < PARSE_ATTEMPTS; attempt++) {
     const t0 = performance.now();
     const parts = attempt === 0 ? o.parts : [...o.parts, { type: "text" as const, text: "Your last reply did not parse. Reply with one JSON object only." }];
-    const r = (await ai().interactions.create({
-      model: o.model, input: parts, generation_config: { thinking_level: o.thinking },
-      response_format: { type: "text", mime_type: "application/json", schema: o.schema },
-    } as never)) as unknown as { model?: string; output_text?: string; usage?: { total_input_tokens?: number; total_output_tokens?: number; total_thought_tokens?: number } };
+    const logged = parts.map((p) => (p.type === "image" ? { type: "image", mime_type: p.mime_type, sha256: createHash("sha256").update(p.data, "base64").digest("hex") } : p));
+    const base = { role: o.role, model_requested: o.model, thinking_level: o.thinking, attempt, request: { input: logged, schema: o.schema } };
+    let r: { model?: string; output_text?: string; usage?: { total_input_tokens?: number; total_output_tokens?: number; total_thought_tokens?: number } };
+    try {
+      r = (await ai().interactions.create({
+        model: o.model, input: parts, generation_config: { thinking_level: o.thinking },
+        response_format: { type: "text", mime_type: "application/json", schema: o.schema },
+      } as never)) as unknown as typeof r;
+    } catch (e) {
+      tlog("llm", "call", { ...base, outcome: "error", error: String(e).slice(0, 1000), wall_ms: Math.round(performance.now() - t0) });
+      throw e;
+    }
     const ms = performance.now() - t0;
     const model = r.model ?? o.model;
     const tokens_in = r.usage?.total_input_tokens ?? 0;
     const tokens_out = (r.usage?.total_output_tokens ?? 0) + (r.usage?.total_thought_tokens ?? 0);
     const price = USD_PER_MTOK[model] ?? USD_PER_MTOK[o.model] ?? { in: 0, out: 0 };
-    appendSpend({ at: new Date().toISOString(), run: o.run ?? null, role: o.role, model, tokens_in, tokens_out, usd: (tokens_in * price.in + tokens_out * price.out) / 1e6 });
+    appendSpend({ at: new Date().toISOString(), run: o.run ?? null, role: o.role, model, tokens_in, tokens_out, usd: (tokens_in * price.in + tokens_out * price.out) / 1e6 }, o.ledgerDir);
+    // Field names avoid "token": src/telemetry.ts redact() blanks any key matching /token/.
+    const done = { ...base, model_echoed: model, response_text: r.output_text ?? "", usage: { input: tokens_in, output: r.usage?.total_output_tokens ?? 0, thought: r.usage?.total_thought_tokens ?? 0 }, wall_ms: Math.round(ms) };
     try {
-      return { value: o.check(parseJsonObject(r.output_text ?? "")), model, ms, tokens_in, tokens_out };
-    } catch (e) { lastErr = e; }
+      const value = o.check(parseJsonObject(r.output_text ?? ""));
+      tlog("llm", "call", { ...done, outcome: "ok" });
+      return { value, model, ms, tokens_in, tokens_out };
+    } catch (e) {
+      lastErr = e;
+      tlog("llm", "call", { ...done, outcome: attempt + 1 < PARSE_ATTEMPTS ? "parse-failed-retry" : "parse-failed", error: String(e) });
+    }
   }
   throw new Error(`${o.model}: no parseable reply in ${PARSE_ATTEMPTS} attempts: ${String(lastErr)}`);
 }

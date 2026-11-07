@@ -32,19 +32,19 @@ export interface Narration { id: string; sentence: string; model: string; fallba
  * Narrates one incident. When NARRATOR_MODEL refuses for quota (HTTP 429), it narrates with PLAYER_MODEL and
  * says so (draft decision ledger/decisions/D-draft-narrator-flash-fallback.md).
  */
-export async function narrate(o: { id: string; dir?: string; run?: string | null; ledgerFile?: string }): Promise<Narration> {
+export async function narrate(o: { id: string; dir?: string; run?: string | null; ledgerDir?: string }): Promise<Narration> {
   const dir = o.dir ?? join(REPO, "evidence", "incidents", o.id);
   const img = (f: string) => ({ type: "image" as const, mime_type: "image/png" as const, data: readFileSync(join(dir, f)).toString("base64") });
   const parts = [{ type: "text" as const, text: NARRATE_PROMPT }, img("oracle.png"), img("core.png"), img("diff.png")];
   let fallback = false;
   let res;
   try {
-    res = await askJson({ model: NARRATOR_MODEL, thinking: "medium", role: "narrator", run: o.run, parts, schema: NARRATION_SCHEMA, check: checkSentence });
+    res = await askJson({ model: NARRATOR_MODEL, thinking: "medium", role: "narrator", run: o.run, ledgerDir: o.ledgerDir, parts, schema: NARRATION_SCHEMA, check: checkSentence });
   } catch (e) {
     if (!/\b429\b/.test(String(e))) throw e;
     fallback = true;
-    res = await askJson({ model: PLAYER_MODEL, thinking: "low", role: "narrator", run: o.run, parts, schema: NARRATION_SCHEMA, check: checkSentence });
+    res = await askJson({ model: PLAYER_MODEL, thinking: "low", role: "narrator", run: o.run, ledgerDir: o.ledgerDir, parts, schema: NARRATION_SCHEMA, check: checkSentence });
   }
-  appendNarration(o.id, res.value, o.run ?? null, o.ledgerFile);
+  appendNarration(o.id, res.value, o.ledgerDir);
   return { id: o.id, sentence: res.value, model: res.model, fallback };
 }
